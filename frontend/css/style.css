@@ -1,0 +1,262 @@
+/* ===========================================================
+   SMG IMMOBILIER - Styles globaux
+   =========================================================== */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+* { margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background: var(--bg-body);
+  color: var(--text-primary);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+a { text-decoration: none; color: inherit; }
+ul { list-style: none; }
+img { max-width: 100%; display: block; }
+
+/* ============ BOUTONS ============ */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 11px 20px; border: none; border-radius: var(--radius-sm);
+  font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+  transition: all var(--transition); white-space: nowrap;
+}
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary:hover { background: var(--primary-hover); transform: translateY(-1px); box-shadow: var(--shadow-lg); }
+.btn-outline { background: transparent; border: 1.5px solid var(--border); color: var(--text-primary); }
+.btn-outline:hover { border-color: var(--primary); color: var(--primary); }
+.btn-light { background: #fff; color: var(--sky-600); }
+.btn-light:hover { transform: translateY(-1px); }
+.btn-danger { background: var(--danger); color: #fff; }
+.btn-success { background: var(--success); color: #fff; }
+.btn-sm { padding: 7px 12px; font-size: 13px; }
+.btn-block { width: 100%; }
+.btn:disabled { opacity: .6; cursor: not-allowed; }
+
+/* ============ CARTES ============ */
+.card {
+  background: var(--bg-surface); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow);
+}
+.card-body { padding: 22px; }
+.card-header {
+  padding: 18px 22px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.card-header h3 { font-size: 17px; font-weight: 700; }
+
+/* ============ FORMULAIRES ============ */
+.form-group { margin-bottom: 16px; }
+.form-group label { display: block; margin-bottom: 6px; font-size: 13px; font-weight: 600; color: var(--text-secondary); }
+.form-control {
+  width: 100%; padding: 11px 14px; font-family: inherit; font-size: 14px;
+  background: var(--bg-surface-2); border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm); color: var(--text-primary); outline: none;
+}
+.form-control:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-light); }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+
+/* ============ BADGES ============ */
+.badge {
+  display: inline-flex; align-items: center; padding: 4px 11px;
+  border-radius: 999px; font-size: 12px; font-weight: 600;
+}
+.badge-success { background: rgba(34,197,94,.15); color: var(--success); }
+.badge-warning { background: rgba(245,158,11,.15); color: var(--warning); }
+.badge-danger  { background: rgba(239,68,68,.15); color: var(--danger); }
+.badge-info    { background: rgba(59,130,246,.15); color: var(--info); }
+.badge-primary { background: var(--primary-light); color: var(--primary); }
+.badge-muted   { background: var(--bg-hover); color: var(--text-muted); }
+
+/* ============ TABLEAUX ============ */
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+thead th {
+  text-align: left; padding: 13px 16px; font-size: 12px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .4px; color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+}
+tbody td { padding: 14px 16px; border-bottom: 1px solid var(--border); color: var(--text-secondary); }
+tbody tr:hover { background: var(--bg-hover); }
+tbody tr:last-child td { border-bottom: none; }
+
+/* ============ THEME TOGGLE ============ */
+.theme-toggle {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 42px; height: 42px; border-radius: 50%; cursor: pointer;
+  background: var(--bg-surface-2); border: 1px solid var(--border);
+  color: var(--text-secondary); transition: all var(--transition); font-size: 18px;
+}
+.theme-toggle:hover { color: var(--primary); border-color: var(--primary); transform: rotate(15deg); }
+
+/* ============ UTILITAIRES ============ */
+.text-muted { color: var(--text-muted); }
+.text-center { text-align: center; }
+.flex { display: flex; }
+.items-center { align-items: center; }
+.justify-between { justify-content: space-between; }
+.gap-2 { gap: 8px; } .gap-3 { gap: 12px; } .gap-4 { gap: 16px; }
+.mt-2 { margin-top: 8px; } .mt-4 { margin-top: 16px; } .mb-4 { margin-bottom: 16px; }
+.hidden { display: none !important; }
+.grid { display: grid; }
+
+/* ============ SPINNER & TOAST ============ */
+.spinner {
+  width: 38px; height: 38px; border: 3px solid var(--border);
+  border-top-color: var(--primary); border-radius: 50%;
+  animation: spin .7s linear infinite; margin: 30px auto;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+#toast-container { position: fixed; top: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; }
+.toast {
+  padding: 14px 18px; border-radius: var(--radius-sm); color: #fff; font-weight: 500;
+  box-shadow: var(--shadow-lg); animation: slideIn .3s ease; min-width: 280px;
+}
+.toast-success { background: var(--success); }
+.toast-error { background: var(--danger); }
+.toast-info { background: var(--info); }
+@keyframes slideIn { from { transform: translateX(120%); } to { transform: translateX(0); } }
+
+/* ============ MODAL ============ */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.55); backdrop-filter: blur(3px);
+  display: none; align-items: center; justify-content: center; z-index: 1000; padding: 20px;
+}
+.modal-overlay.active { display: flex; }
+.modal-content {
+  background: var(--bg-surface); border-radius: var(--radius); width: 100%; max-width: 560px;
+  max-height: 90vh; overflow-y: auto; box-shadow: var(--shadow-lg); animation: modalIn .25s ease;
+}
+@keyframes modalIn { from { transform: scale(.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.modal-header { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+.modal-header h3 { font-size: 18px; }
+.modal-close { background: none; border: none; font-size: 26px; cursor: pointer; color: var(--text-muted); line-height: 1; }
+.modal-body { padding: 24px; }
+.modal-footer { padding: 16px 24px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 10px; }
+
+@media (max-width: 640px) {
+  .form-row { grid-template-columns: 1fr; }
+}
+
+/* ============ Bouton WhatsApp ============ */
+.btn-whatsapp { background: #25D366; color: #fff; }
+.btn-whatsapp:hover { background: #1eb858; transform: translateY(-1px); }
+
+/* ============ FORM GROUPS HALF-WIDTH LAYOUT ============ */
+#crudForm { display: flex; flex-wrap: wrap; gap: 14px; }
+#crudForm .form-group { flex: 1 1 100%; margin-bottom: 0; }
+#crudForm .form-group.half { flex: 1 1 calc(50% - 7px); }
+
+/* ============ APARTMENT GRID & TILE DESIGNS ============ */
+.apartment-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+.apartment-tile {
+  background: var(--bg-surface-2);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  cursor: pointer;
+  transition: all var(--transition);
+  text-align: center;
+  position: relative;
+}
+.apartment-tile:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+  border-color: var(--primary);
+}
+.apartment-tile.status-free { border-top: 4px solid var(--success); }
+.apartment-tile.status-occupied { border-top: 4px solid var(--info); }
+.apartment-tile.status-maintenance { border-top: 4px solid var(--warning); }
+.apartment-tile.status-reserved { border-top: 4px solid var(--text-muted); }
+.apartment-tile .apt-num { font-weight: 700; font-size: 16px; margin-bottom: 2px; color: var(--text-primary); }
+.apartment-tile .apt-type { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.apartment-tile .apt-rent { font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-top: 6px; }
+
+/* ============ INTERACTIVE TABS BAR ============ */
+.tabs-bar {
+  display: flex;
+  gap: 10px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 20px;
+}
+.tab-btn {
+  padding: 10px 16px;
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  position: relative;
+  transition: all var(--transition);
+}
+.tab-btn:hover {
+  color: var(--primary);
+}
+.tab-btn.active {
+  color: var(--primary);
+}
+.tab-btn.active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--primary);
+}
+
+/* ============ ATTENDANCE TOGGLE STYLES ============ */
+.switch-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 22px;
+}
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--border);
+  transition: .3s;
+  border-radius: 22px;
+}
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 16px;
+  width: 16px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: .3s;
+  border-radius: 50%;
+}
+input:checked + .slider {
+  background-color: var(--success);
+}
+input:checked + .slider:before {
+  transform: translateX(22px);
+}

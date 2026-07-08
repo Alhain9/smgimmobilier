@@ -1,0 +1,77 @@
+/* ===========================================================
+   SMG IMMOBILIER - Système de thème (clair / sombre)
+   Charte : Bleu ciel, Blanc, Gris
+   =========================================================== */
+
+:root {
+  /* Couleurs de marque */
+  --sky-50:  #f0f9ff;
+  --sky-100: #e0f2fe;
+  --sky-200: #bae6fd;
+  --sky-300: #7dd3fc;
+  --sky-400: #38bdf8;
+  --sky-500: #0ea5e9;
+  --sky-600: #0284c7;
+  --sky-700: #0369a1;
+
+  --primary: var(--sky-500);
+  --primary-hover: var(--sky-600);
+  --primary-light: var(--sky-100);
+
+  /* Statuts */
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --danger:  #ef4444;
+  --info:    #3b82f6;
+
+  --radius: 14px;
+  --radius-sm: 8px;
+  --transition: 0.25s ease;
+  --sidebar-width: 260px;
+}
+
+/* ============ THÈME CLAIR (par défaut) ============ */
+:root,
+[data-theme="light"] {
+  --bg-body: #f1f5f9;
+  --bg-surface: #ffffff;
+  --bg-surface-2: #f8fafc;
+  --bg-sidebar: #ffffff;
+  --bg-hover: #f1f5f9;
+
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #94a3b8;
+
+  --border: #e2e8f0;
+  --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-lg: 0 10px 30px rgba(2,132,199,0.10);
+
+  --hero-gradient: linear-gradient(135deg, #0ea5e9 0%, #38bdf8 50%, #7dd3fc 100%);
+}
+
+/* ============ THÈME SOMBRE ============ */
+[data-theme="dark"] {
+  --bg-body: #0b1220;
+  --bg-surface: #131c2e;
+  --bg-surface-2: #1a2538;
+  --bg-sidebar: #0f1626;
+  --bg-hover: #1e293b;
+
+  --text-primary: #f1f5f9;
+  --text-secondary: #cbd5e1;
+  --text-muted: #64748b;
+
+  --border: #243149;
+  --shadow: 0 1px 3px rgba(0,0,0,0.4);
+  --shadow-lg: 0 10px 30px rgba(0,0,0,0.5);
+
+  --primary-light: rgba(56,189,248,0.12);
+  --hero-gradient: linear-gradient(135deg, #0c4a6e 0%, #075985 50%, #0ea5e9 100%);
+}
+
+/* Transition douce lors du changement de thème */
+* { box-sizing: border-box; }
+body, .card, .sidebar, .topbar, .stat-card, input, select, textarea, .modal-content {
+  transition: background-color var(--transition), color var(--transition), border-color var(--transition);
+}

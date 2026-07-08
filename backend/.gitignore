@@ -1,0 +1,9 @@
+node_modules/
+.env
+src/uploads/contracts/*
+src/uploads/photos/*
+src/uploads/payments/*
+src/uploads/documents/*
+!src/uploads/**/.gitkeep
+*.log
+backend/logs/*

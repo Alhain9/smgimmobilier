@@ -1,0 +1,32 @@
+rules_version = '2';
+// Règles de sécurité Firestore — SMG IMMOBILIER
+// Pré-requis : poser des CUSTOM CLAIMS sur les comptes Firebase Auth :
+//   - role            : le rôle interne (super_admin, manager, ... , locataire)
+//   - mysql_user_id   : l'id MySQL de l'utilisateur (pour lier un locataire à ses docs)
+// (à faire via une Cloud Function / un script admin lors de la création du compte).
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function role() { return signedIn() ? request.auth.token.role : ''; }
+    function isStaff() { return signedIn() && role() != '' && role() != 'locataire'; }
+    function myUserId() { return request.auth.token.mysql_user_id; }
+    function ownsTenant(rsc) { return role() == 'locataire' && rsc.data.user_id == myUserId(); }
+
+    match /proprietes/{id}   { allow read: if signedIn(); allow write: if isStaff(); }
+    match /depenses/{id}     { allow read, write: if isStaff(); }
+
+    match /locataires/{id}   { allow read: if isStaff() || ownsTenant(resource); allow write: if isStaff(); }
+    match /contrats/{id}     { allow read: if isStaff() || ownsTenant(resource); allow write: if isStaff(); }
+    match /notifications/{id}{ allow read: if isStaff() || ownsTenant(resource); allow write: if isStaff(); }
+
+    match /paiements/{id} {
+      allow read: if isStaff() || ownsTenant(resource);
+      // un locataire peut DÉCLARER un paiement (origine 'firestore' = validé ensuite côté staff/MySQL)
+      allow create: if isStaff() || (role() == 'locataire' && request.resource.data.sourceSystem == 'firestore');
+      allow update, delete: if isStaff();
+    }
+
+    // Tout le reste est refusé par défaut.
+    match /{document=**} { allow read, write: if false; }
+  }
+}

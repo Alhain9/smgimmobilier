@@ -1,0 +1,15 @@
+{
+    "keep": {
+        "days": true,
+        "amount": 14
+    },
+    "auditLog": "C:\\Users\\USER\\Documents\\xamps\\htdocs\\smg_immobilier\\backend\\logs\\.3dc31df3ebcebecb2baa1e37283ccc77c01d5a0f-audit.json",
+    "files": [
+        {
+            "date": 1783514394424,
+            "name": "C:\\Users\\USER\\Documents\\xamps\\htdocs\\smg_immobilier\\backend\\logs\\app-2026-07-08.log",
+            "hash": "942165c8908dfd85f8b429a9234dc7af0a3f2f253f723e868d0e1e10dc024de6"
+        }
+    ],
+    "hashType": "sha256"
+}

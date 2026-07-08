@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SMG IMMOBILIER — Gestion immobilière professionnelle</title>
+  <meta name="description" content="Plateforme de gestion immobilière SMG IMMOBILIER : immeubles, locataires, contrats, paiements, maintenances." />
+  <link rel="stylesheet" href="css/theme.css" />
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/landing.css" />
+  <script src="js/utils/config.js"></script>
+  <script src="js/utils/theme.js"></script>
+</head>
+<body>
+
+  <!-- NAVBAR -->
+  <nav class="landing-nav">
+    <div class="nav-container">
+      <a href="index.html" class="brand">
+        <div class="brand-logo">🏢</div>
+        SMG <span>IMMOBILIER</span>
+      </a>
+      <div class="nav-links">
+        <a href="#accueil">Accueil</a>
+        <a href="#services">Services</a>
+        <a href="#fonctionnalites">Fonctionnalités</a>
+        <a href="#avantages">Avantages</a>
+        <a href="#temoignages">Témoignages</a>
+        <a href="#faq">FAQ</a>
+      </div>
+      <div class="nav-actions">
+        <button class="theme-toggle" onclick="Theme.toggle()" title="Changer de thème">🌙</button>
+        <a href="pages/login.html" class="btn btn-primary">Connexion</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- HERO -->
+  <header class="hero" id="accueil">
+    <div class="hero-content">
+      <h1>La gestion immobilière, simplifiée et centralisée</h1>
+      <p>SMG IMMOBILIER digitalise la gestion de vos immeubles, locataires, contrats, paiements et maintenances dans une seule plateforme moderne et sécurisée.</p>
+      <div class="hero-btns">
+        <a href="pages/login.html" class="btn btn-light">Accéder à la plateforme →</a>
+        <a href="#services" class="btn btn-outline" style="color:#fff;border-color:rgba(255,255,255,.6)">Découvrir les services</a>
+      </div>
+    </div>
+  </header>
+
+  <!-- PRÉSENTATION / SERVICES -->
+  <section class="section" id="services">
+    <div class="section-head">
+      <span class="eyebrow">Nos services</span>
+      <h2>Une solution complète pour SMG IMMOBILIER</h2>
+      <p>Centralisez toutes les opérations immobilières, administratives, financières et techniques de l'entreprise.</p>
+    </div>
+    <div class="features-grid">
+      <div class="feature-card"><div class="feature-icon">🏢</div><h3>Gestion des immeubles</h3><p>Gérez vos immeubles, appartements, statuts d'occupation et historique en temps réel.</p></div>
+      <div class="feature-card"><div class="feature-icon">👤</div><h3>Suivi des locataires</h3><p>Dossiers locataires complets : coordonnées, CNI, contrats et historique de paiement.</p></div>
+      <div class="feature-card"><div class="feature-icon">📄</div><h3>Contrats de bail</h3><p>Création de baux, upload de PDF signés et consultation par le locataire.</p></div>
+      <div class="feature-card"><div class="feature-icon">💰</div><h3>Paiements & dettes</h3><p>Loyers, justificatifs Orange Money / MTN / virement et suivi des impayés.</p></div>
+      <div class="feature-card"><div class="feature-icon">🔧</div><h3>Maintenances</h3><p>Tickets, assignation des techniciens et photos avant / pendant / après travaux.</p></div>
+      <div class="feature-card"><div class="feature-icon">📊</div><h3>Tableaux de bord</h3><p>Un dashboard adapté à chaque rôle avec statistiques et indicateurs clés.</p></div>
+    </div>
+  </section>
+
+  <!-- STATS BAND -->
+  <section class="stats-band">
+    <div class="stats-band-inner">
+      <div><div class="stat-big">8</div><div class="stat-label">Rôles utilisateurs</div></div>
+      <div><div class="stat-big">12+</div><div class="stat-label">Modules de gestion</div></div>
+      <div><div class="stat-big">100%</div><div class="stat-label">Sécurisé (JWT)</div></div>
+      <div><div class="stat-big">24/7</div><div class="stat-label">Accès plateforme</div></div>
+    </div>
+  </section>
+
+  <!-- FONCTIONNALITÉS -->
+  <section class="section section-alt" id="fonctionnalites">
+    <div class="section-head">
+      <span class="eyebrow">Fonctionnalités</span>
+      <h2>Tout ce dont l'entreprise a besoin</h2>
+      <p>Des outils pensés pour les équipes administratives, techniques et financières.</p>
+    </div>
+    <div class="features-grid">
+      <div class="feature-card"><div class="feature-icon">🛠</div><h3>Dépenses & équipements</h3><p>Gérez le stock (peinture, ciment, plomberie…), les quantités et les coûts.</p></div>
+      <div class="feature-card"><div class="feature-icon">📸</div><h3>Photos d'intervention</h3><p>Documentez chaque travaux avec galerie avant / pendant / après.</p></div>
+      <div class="feature-card"><div class="feature-icon">📅</div><h3>Calendrier interne</h3><p>Vues jour / semaine / mois pour tâches, échéances et maintenances.</p></div>
+      <div class="feature-card"><div class="feature-icon">✅</div><h3>Gestion des tâches</h3><p>Assignez et suivez les tâches des équipes techniques et administratives.</p></div>
+      <div class="feature-card"><div class="feature-icon">🔐</div><h3>Rôles & permissions</h3><p>Système RBAC avec 8 rôles : du super-admin au locataire.</p></div>
+      <div class="feature-card"><div class="feature-icon">🌗</div><h3>Mode clair / sombre</h3><p>Interface confortable de jour comme de nuit, selon vos préférences.</p></div>
+    </div>
+  </section>
+
+  <!-- AVANTAGES -->
+  <section class="section" id="avantages">
+    <div class="section-head">
+      <span class="eyebrow">Avantages</span>
+      <h2>Pourquoi SMG IMMOBILIER ?</h2>
+    </div>
+    <div class="adv-grid">
+      <div class="adv-item"><div class="adv-check">✓</div><div><h4>Centralisation totale</h4><p>Toutes les données immobilières au même endroit.</p></div></div>
+      <div class="adv-item"><div class="adv-check">✓</div><div><h4>Collaboration en équipe</h4><p>Chaque rôle accède à son espace dédié.</p></div></div>
+      <div class="adv-item"><div class="adv-check">✓</div><div><h4>Sécurité renforcée</h4><p>Authentification JWT et contrôle d'accès par rôle.</p></div></div>
+      <div class="adv-item"><div class="adv-check">✓</div><div><h4>Suivi financier clair</h4><p>Revenus, dépenses et impayés en un coup d'œil.</p></div></div>
+      <div class="adv-item"><div class="adv-check">✓</div><div><h4>Responsive</h4><p>Accessible sur ordinateur, tablette et mobile.</p></div></div>
+      <div class="adv-item"><div class="adv-check">✓</div><div><h4>Interface moderne</h4><p>Design professionnel et ergonomique.</p></div></div>
+    </div>
+  </section>
+
+  <!-- TÉMOIGNAGES -->
+  <section class="section section-alt" id="temoignages">
+    <div class="section-head">
+      <span class="eyebrow">Témoignages</span>
+      <h2>Ils utilisent SMG IMMOBILIER</h2>
+      <p>La parole aux équipes et partenaires de l'entreprise.</p>
+    </div>
+    <div class="features-grid">
+      <div class="feature-card">
+        <p style="font-size:15px;color:var(--text-secondary)">« La plateforme nous a fait gagner un temps précieux sur le suivi des loyers et des impayés. Tout est centralisé. »</p>
+        <div class="flex items-center gap-3" style="margin-top:18px">
+          <div class="feature-icon" style="width:46px;height:46px;font-size:18px;margin:0">MM</div>
+          <div><b>Marc M.</b><div class="text-muted" style="font-size:13px">Directeur Général</div></div>
+        </div>
+      </div>
+      <div class="feature-card">
+        <p style="font-size:15px;color:var(--text-secondary)">« Je reçois mes interventions et j'envoie mes photos avant/après directement depuis mon espace technicien. Très pratique. »</p>
+        <div class="flex items-center gap-3" style="margin-top:18px">
+          <div class="feature-icon" style="width:46px;height:46px;font-size:18px;margin:0">TT</div>
+          <div><b>Théo T.</b><div class="text-muted" style="font-size:13px">Technicien</div></div>
+        </div>
+      </div>
+      <div class="feature-card">
+        <p style="font-size:15px;color:var(--text-secondary)">« En tant que locataire, je consulte mon bail et mes paiements en ligne, et je signale mes problèmes en un clic. »</p>
+        <div class="flex items-center gap-3" style="margin-top:18px">
+          <div class="feature-icon" style="width:46px;height:46px;font-size:18px;margin:0">JL</div>
+          <div><b>Jean L.</b><div class="text-muted" style="font-size:13px">Locataire</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FAQ -->
+  <section class="section" id="faq">
+    <div class="section-head">
+      <span class="eyebrow">FAQ</span>
+      <h2>Questions fréquentes</h2>
+    </div>
+    <div style="max-width:760px;margin:0 auto">
+      <details class="faq-item"><summary>Qui peut créer un compte ?</summary>
+        <p>Tous les comptes (personnel et locataires) sont créés par le Directeur Général ou une personne qu'il a déléguée, depuis le tableau de bord. Il n'y a pas d'inscription publique.</p></details>
+      <details class="faq-item"><summary>Quels moyens de paiement sont gérés ?</summary>
+        <p>Orange Money, MTN Mobile Money, virement bancaire et espèces, avec upload des justificatifs et suivi des impayés.</p></details>
+      <details class="faq-item"><summary>Mes données sont-elles sécurisées ?</summary>
+        <p>Oui : authentification JWT avec refresh token, contrôle d'accès par rôle (RBAC), validation des données et hashage des mots de passe (bcrypt).</p></details>
+      <details class="faq-item"><summary>La plateforme est-elle accessible sur mobile ?</summary>
+        <p>Absolument. L'interface est entièrement responsive et fonctionne sur ordinateur, tablette et smartphone, en mode clair ou sombre.</p></details>
+      <details class="faq-item"><summary>Peut-on suivre les travaux de maintenance ?</summary>
+        <p>Oui, chaque ticket suit un cycle (signalé → validé → en cours → terminé) avec affectation d'un technicien et photos avant/pendant/après.</p></details>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="cta-section">
+    <div class="cta-box">
+      <h2>Prêt à digitaliser votre gestion ?</h2>
+      <p>Connectez-vous à la plateforme SMG IMMOBILIER avec les identifiants fournis par votre administration.</p>
+      <div class="flex gap-3" style="justify-content:center;flex-wrap:wrap">
+        <a href="pages/login.html" class="btn btn-light">Se connecter</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer class="landing-footer">
+    <div class="footer-grid">
+      <div class="footer-col">
+        <a href="index.html" class="brand" style="margin-bottom:14px">
+          <div class="brand-logo">🏢</div> SMG <span>IMMOBILIER</span>
+        </a>
+        <p>Plateforme professionnelle de gestion immobilière, administrative, financière et technique.</p>
+      </div>
+      <div class="footer-col"><h4>Plateforme</h4><a href="#services">Services</a><a href="#fonctionnalites">Fonctionnalités</a><a href="pages/login.html">Connexion</a></div>
+      <div class="footer-col"><h4>Gestion</h4><a href="#">Immeubles</a><a href="#">Locataires</a><a href="#">Paiements</a><a href="#">Maintenances</a></div>
+      <div class="footer-col"><h4>Contact</h4><p>📍 Douala, Cameroun</p><p>📞 +237 6 00 00 00 00</p><p>✉️ contact@smg-immobilier.com</p></div>
+    </div>
+    <div class="footer-bottom">© 2026 SMG IMMOBILIER — Tous droits réservés.</div>
+  </footer>
+
+</body>
+</html>

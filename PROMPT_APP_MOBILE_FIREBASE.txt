@@ -1,0 +1,515 @@
+================================================================================
+PROMPT — RECONSTRUCTION DE SMG IMMOBILIER EN APPLICATION MOBILE
+Architecture Clean • Backend Firebase
+================================================================================
+
+# COMMENT UTILISER CE PROMPT
+Donne ce document à un assistant de code (ou à une équipe de dev). Il décrit
+DE A À Z l'application web existante « SMG IMMOBILIER » (gestion locative), puis
+la cible : une application MOBILE avec une ARCHITECTURE CLEAN et un BACKEND
+FIREBASE. L'objectif est de reproduire fidèlement toutes les fonctionnalités,
+règles métier et permissions de l'app web, en mobile.
+
+--------------------------------------------------------------------------------
+## 0. STACK CIBLE (modifiable)
+--------------------------------------------------------------------------------
+- Application : MOBILE (Android + iOS).
+- Framework recommandé : FLUTTER (Dart).  [Alternative : React Native — adaptable.]
+- Gestion d'état : Riverpod (ou BLoC). Navigation : go_router.
+- Backend : FIREBASE
+    • Firebase Authentication (email/mot de passe) + Custom Claims pour les rôles.
+    • Cloud Firestore (base de données temps réel, NoSQL).
+    • Cloud Storage (fichiers : preuves, photos, contrats, justificatifs).
+    • Cloud Functions (logique métier sécurisée, intégrations, tâches planifiées).
+    • Cloud Messaging (FCM) pour les notifications push.
+    • (Optionnel) Firebase Hosting pour un éventuel back-office web.
+- Architecture : CLEAN ARCHITECTURE (3 couches : domain / data / presentation).
+- Langue : 100% FRANÇAIS. Monnaie : FRANC CFA (FCFA). Pays : Cameroun.
+- Contrainte réseau : réseau parfois lent/instable → prévoir cache hors-ligne
+  (Firestore offline persistence), images compressées, et aucune dépendance à un
+  CDN bloquant. Pas de service tiers payant hors Firebase + (optionnel) l'IA.
+
+--------------------------------------------------------------------------------
+## 1. CONTEXTE MÉTIER
+--------------------------------------------------------------------------------
+SMG IMMOBILIER est une société de gestion locative. Elle gère des IMMEUBLES
+contenant des LOGEMENTS (appartements, studios, chambres…) loués à des
+LOCATAIRES via des CONTRATS DE BAIL. Elle encaisse des LOYERS, refacture des
+CHARGES (électricité/eau au compteur divisionnel), gère la MAINTENANCE
+(chantiers, techniciens, matériel, photos), les DÉPENSES, les ÉQUIPEMENTS, les
+SALAIRES du personnel, des TÂCHES, un CALENDRIER partagé, des DOCUMENTS, des
+NOTIFICATIONS, des RAPPORTS, des TABLEAUX DE BORD statistiques, et un ASSISTANT IA.
+
+L'application sert DEUX grands publics :
+  (A) Le PERSONNEL (8 rôles internes) — administration, finance, technique.
+  (B) Les LOCATAIRES — espace réduit (leur bail, leurs paiements, leurs charges,
+      leurs demandes de maintenance).
+
+--------------------------------------------------------------------------------
+## 2. RÔLES & PERMISSIONS (RBAC)
+--------------------------------------------------------------------------------
+8 rôles (code interne → libellé) :
+  - super_admin       → Super Administrateur (tous les droits, bypass).
+  - manager           → Manager / Directeur Général (DG) — droits maximaux métier.
+  - dir_admin         → Directeur Administratif.
+  - dir_technique     → Directeur Technique.
+  - gestionnaire      → Gestionnaire.
+  - comptable         → Comptable.
+  - technicien        → Technicien.
+  - locataire         → Locataire (externe).
+
+PERMISSIONS « À LA CARTE » (booléens sur l'utilisateur, attribuables UNIQUEMENT
+par manager/super_admin à n'importe quel utilisateur — délégation) :
+  - can_manage_users        : peut créer/gérer les comptes (déléguer l'inscription).
+  - can_view_all_calendars  : peut voir tous les calendriers (sauf privé du manager).
+  - can_manage_utilities    : peut générer/gérer les factures de charges (eau/élec).
+
+RÈGLE RBAC : super_admin passe partout. Sinon, un accès est autorisé si le rôle
+est dans la liste autorisée de l'action OU si l'utilisateur a le drapeau de
+permission correspondant. EN FIREBASE : les rôles et drapeaux sont des CUSTOM
+CLAIMS du token Auth, vérifiés à la fois dans les Security Rules Firestore/Storage
+ET dans les Cloud Functions. Ne JAMAIS faire confiance au client seul.
+
+IMPORTANT : il n'y a PAS d'inscription publique. SEUL le manager (ou un délégué
+`can_manage_users`) crée les comptes du personnel. Les comptes locataires sont
+créés automatiquement à la création d'une fiche locataire.
+
+--------------------------------------------------------------------------------
+## 3. ARCHITECTURE CLEAN (structure du projet mobile)
+--------------------------------------------------------------------------------
+Découpage en features, chaque feature en 3 couches :
+
+  lib/
+    core/                  (constantes, thèmes, helpers, formatage FCFA/dates,
+                            erreurs, widgets communs, RBAC helpers, DI)
+    features/<feature>/
+        domain/
+            entities/        (objets métier purs, sans dépendance Firebase)
+            repositories/    (interfaces abstraites)
+            usecases/        (cas d'usage : 1 action = 1 usecase)
+        data/
+            models/          (DTO <-> Firestore : fromMap/toMap)
+            datasources/     (FirebaseFirestore, Auth, Storage, Functions)
+            repositories/    (implémentations des interfaces domain)
+        presentation/
+            providers/ (ou bloc/)   (état, logique de présentation)
+            pages/                  (écrans)
+            widgets/                (composants UI réutilisables)
+
+Règle de dépendance : presentation → domain ← data. Le domain ne connaît NI
+Firebase NI Flutter. Injection de dépendances via get_it/Riverpod.
+
+--------------------------------------------------------------------------------
+## 4. BACKEND FIREBASE — MAPPING
+--------------------------------------------------------------------------------
+### 4.1 Authentication
+- Email + mot de passe. À la connexion, l'app lit les Custom Claims (role +
+  can_manage_users, can_view_all_calendars, can_manage_utilities).
+- Les claims sont posés par une Cloud Function `setUserRole` (admin) lors de la
+  création/édition d'un utilisateur. Statut compte : active/inactive/suspended
+  (un compte non-actif est refusé à la connexion).
+- Réinitialisation de mot de passe via Firebase Auth (email de reset).
+
+### 4.2 Cloud Firestore — collections (NoSQL ; voir modèle détaillé §6)
+  users, roles(optionnel/claims), properties, apartments, tenants, leases,
+  payments, payment_history(journal des modifs de paiement),
+  utility_bills, maintenances, maintenance_images(sous-collection),
+  maintenance_team(sous-collection), expenses, equipment, salaries, tasks,
+  calendar_events, calendar_event_participants(sous-collection ou tableau),
+  notifications, documents.
+- Dénormaliser ce qui est lu souvent (ex. stocker dans `payments` le nom du
+  locataire, le n° de logement, le nom de l'immeuble pour l'affichage liste).
+- Champs `created_at`/`updated_at` (serverTimestamp). IDs auto.
+
+### 4.3 Cloud Storage (arborescence)
+  /contracts/      (contrats de bail PDF)
+  /payments/       (preuves de paiement de loyer ET de charges)
+  /photos/         (photos de maintenance avant/pendant/après)
+  /salaries/       (preuves de paiement de salaire)
+  /documents/      (documents divers)
+  /profiles/       (avatars)
+Règles Storage : lecture/écriture selon rôle + propriété (un locataire ne lit
+que ses propres preuves).
+
+### 4.4 Cloud Functions (logique sécurisée — NE PAS faire côté client)
+  - setUserRole(uid, role, flags)            : pose les custom claims (admin only).
+  - onTenantCreate                           : crée le compte Auth du locataire.
+  - recordPayment / addPaymentProof / verifyPayment : enregistrer un paiement (avec
+        preuve OPTIONNELLE + date), ajouter une preuve plus tard (valide automatiquement),
+        corriger montant/date, valider/rejeter (staff). Journalise tout (payment_history).
+        >>> PAS de passerelle de paiement automatique : saisie MANUELLE (preuve + date). <<<
+  - tenantLedger                             : calcule le relevé/solde d'un locataire (§6, §7.5).
+  - tenantsSituation / periodRecap            : situation des locataires + récaps par période (§7.14).
+  - computeUtilityBill                        : calcule total charges = conso*prix + frais.
+  - lastUtilityIndex                          : renvoie le dernier index (report).
+  - computeExpenseTotal / computeNetSalary    : colonnes calculées (total, net).
+  - dashboardStats / periodStats / dayActivity: agrégations (peuvent être appelables).
+  - recomputeAlerts (planifiée, ex. toutes les 30 min) : recalcule les alertes.
+  - sendNotification + FCM                    : crée notif Firestore + push.
+  - assistantChat / assistantAlertes          : proxy sécurisé vers l'IA (clé serveur).
+
+### 4.5 Security Rules (principe)
+- Tout accès exige `request.auth != null`.
+- Helpers : isRole('manager'), hasClaim('can_manage_utilities'),
+  isOwnerTenant(resource) etc.
+- Un LOCATAIRE ne lit QUE : sa fiche, son bail, ses paiements, ses charges, ses
+  demandes de maintenance, ses notifications. Aucune donnée d'un autre locataire.
+- Les écritures sensibles (validation paiement, salaires, rôles, factures) ne
+  passent QUE par Cloud Functions (rules: écriture client interdite, lecture
+  filtrée par rôle).
+
+### 4.6 Notifications (FCM)
+- À chaque événement clé (affectation maintenance, relance, paiement validé,
+  réunion), créer un document `notifications` + envoyer un push FCM au(x)
+  utilisateur(s) concerné(s). Badge non-lus dans la barre supérieure.
+
+--------------------------------------------------------------------------------
+## 5. NAVIGATION PAR RÔLE (écrans mobiles)
+--------------------------------------------------------------------------------
+Menu PERSONNEL (sections) :
+  Principal      : Tableau de bord, Activité du jour, Calendrier.
+  Immobilier     : Immeubles, Logements, Locataires, Contrats de bail,
+                   Situation & rapports (super_admin/manager/dir_admin/gestionnaire).
+  Finance        : Paiements, Charges & compteurs, Dépenses, Salaires & paie,
+                   (Mon salaire pour les employés).
+  Technique      : Maintenances, Équipements, Tâches.
+  Administration : Documents, Rapports, Utilisateurs (manager/super_admin).
+  Compte         : Mon profil.
+  + Assistant IA : barre/bouton de commande accessible partout.
+
+Menu LOCATAIRE (réduit) :
+  Mon espace : Accueil, Mon bail, Mes paiements, Mes charges, Mes demandes.
+  Compte     : Mon profil.
+
+Chaque entrée n'apparaît que si le rôle y a droit (voir §2 et chaque module).
+Adapter en mobile : barre de navigation inférieure + tiroir (drawer) pour les
+sections, ou une page "Plus".
+
+--------------------------------------------------------------------------------
+## 6. MODÈLE DE DONNÉES DÉTAILLÉ (entités → collections Firestore)
+--------------------------------------------------------------------------------
+(Types indicatifs ; en Firestore, références = id de document. Conserver les
+relations via des champs *_id + dénormalisation pour l'affichage.)
+
+USER (users)
+  id, full_name, email, phone, role (code), profile_image, status
+  (active|inactive|suspended), can_manage_users(bool), can_view_all_calendars(bool),
+  can_manage_utilities(bool), created_at.
+
+PROPERTY / IMMEUBLE (properties)
+  id, property_name, property_type (immeuble|maison|terrain), address, city,
+  district, latitude(num,null), longitude(num,null),
+  utilities_enabled(bool)  ← redistribution des charges activée pour cet immeuble,
+  electricity_price(num), water_price(num), garbage_fee(num), transport_fee(num),
+  description, status (active|inactive), image, created_at.
+  Relation : 1 immeuble → N logements.
+
+APARTMENT / LOGEMENT (apartments)
+  id, property_id, apartment_number, floor, apartment_type (texte :
+  appartement|studio|chambre|duplex|villa|boutique|bureau|magasin|espace_commercial),
+  rent_amount(num), status (free|occupied|maintenance|reserved), description.
+  (NB : la superficie m² a été retirée de l'app — ne pas la remettre.)
+  Création par COMPOSITION : à la création d'un immeuble, on déclare sa
+  composition (ex. 7 appartements @150000, 4 studios @90000, 9 chambres @45000)
+  et les logements sont générés automatiquement (numérotés APP-01, STU-01, CHB-01…).
+
+TENANT / LOCATAIRE (tenants)
+  id, user_id (compte Auth lié), apartment_id (logement direct, optionnel),
+  national_id (CNI), profession, emergency_contact, start_date, end_date,
+  status (active|inactive|terminated).
+  Le lien locataire→logement→immeuble se fait via le CONTRAT DE BAIL (lease) ;
+  si apartment_id direct est vide, déduire le logement du bail actif.
+
+LEASE / BAIL (leases)
+  id, tenant_id, apartment_id, contract_file (PDF Storage), start_date, end_date,
+  monthly_rent(num), deposit_amount(num) (caution),
+  status (pending|active|expired|terminated).
+
+PAYMENT / PAIEMENT DE LOYER (payments)  ← saisie MANUELLE, AUCUNE passerelle de paiement
+  id, tenant_id, apartment_id, amount(num)  ← peut être PARTIEL (paiement d'une partie),
+  payment_method (cash|bank_transfer|mobile_money|orange_money|mtn_mobile_money),
+  payment_date  ← DATE DU PAIEMENT (saisie, modifiable),
+  payment_proof (PHOTO / REÇU, fichier Storage ; OPTIONNEL — peut être ajouté plus tard),
+  status (awaiting_confirmation = « en attente de justification » | completed = « validé »
+          | pending | failed | refunded),
+  created_by (qui a saisi/déclaré).
+  >>> Pas d'API de paiement en ligne. On ENREGISTRE un paiement avec sa DATE et,
+      si disponible, sa PREUVE (photo/reçu). La preuve peut arriver plus tard. <<<
+
+PAYMENT_HISTORY / JOURNAL DES MODIFICATIONS (payment_history)
+  id, payment_id, action (created|updated|proof_added|validated|rejected),
+  description (ex. « Montant : 50000 → 60000 FCFA », « Preuve ajoutée → paiement validé »),
+  amount, status (instantané au moment du changement), changed_by, created_at.
+
+RELEVÉ / SOLDE DU LOCATAIRE  (CALCULÉ — pas une collection)
+  loyer_mensuel = du bail actif.
+  total_du = (nombre de mois écoulés depuis le début du bail, mois courant inclus)
+             × loyer_mensuel   ← LE LOYER S'ACCUMULE automatiquement chaque mois.
+  total_valide      = somme des paiements status = completed (validés).
+  en_attente_preuve = somme des paiements status = awaiting_confirmation.
+  SOLDE RESTANT DÛ  = total_du − total_valide.
+  STATUT : À JOUR (solde ≤ 0) | PARTIELLEMENT À JOUR (a payé une partie) | EN RETARD.
+
+UTILITY_BILL / FACTURE DE CHARGES (utility_bills)  ← électricité/eau au compteur
+  id, apartment_id, type (electricity|water), period_month, period_year,
+  previous_index(num)  ← ANCIEN index, current_index(num) ← NOUVEL index,
+  unit_price(num)      ← prix du kWh / m³ (≈100 FCFA pour l'élec),
+  garbage_fee(num) (poubelle), transport_fee(num), other_fee(num), other_label,
+  total_amount(num)    ← calculé = (current-previous)*unit_price + frais,
+  status (pending|paid), paid_date, payment_proof (Storage), notes, created_by.
+  RÈGLE CLÉ « REPORT D'INDEX » : le NOUVEL index d'un mois devient
+  automatiquement l'ANCIEN index du mois suivant. À la création d'une nouvelle
+  facture pour un logement+type, pré-remplir previous_index = current_index de la
+  dernière facture (ainsi que unit_price et les frais). L'utilisateur ne saisit
+  en général QUE le nouvel index. Unicité : 1 facture par (logement, type, mois,
+  année). Activé uniquement pour les immeubles `utilities_enabled = true`.
+
+MAINTENANCE / CHANTIER (maintenances)
+  id, apartment_id, tenant_id, assigned_technician_id (technicien principal),
+  title, description, priority (low|medium|high|urgent),
+  status (reported|validated|in_progress|completed|cancelled), completed_at.
+  Sous-collection maintenance_images : { image_url, image_type (before|during|after) }.
+  Équipe : maintenance_team (plusieurs techniciens) — relation N..N.
+  Matériel/équipement du chantier = via EXPENSES liées (voir Expense) avec coût
+  total = somme des dépenses.
+
+EXPENSE / DÉPENSE (expenses)
+  id, maintenance_id, created_by, item_name (« nom équipement/matériel »),
+  category, quantity(num), unit_price(num), supplier, total_price(num, calculé),
+  invoice_file, photo (justificatifs Storage).
+
+EQUIPMENT / ÉQUIPEMENT (equipment)
+  id, equipment_name, quantity(num), price(num),
+  status (available|in_use|out_of_stock|maintenance).
+
+SALARY / SALAIRE (salaries)
+  id, user_id (employé), period_month, period_year, base_salary(num), bonus(num),
+  deductions(num), net_salary(num, calculé = base+bonus-deductions),
+  payment_type (deposit|cash), proof_photo (Storage), status (pending|paid),
+  paid_date, notes, created_by.
+
+TASK / TÂCHE (tasks)
+  id, maintenance_id(optionnel), assigned_to, created_by, title, description,
+  start_date, end_date, status (pending|in_progress|completed|cancelled).
+
+CALENDAR_EVENT / ÉVÉNEMENT (calendar_events)
+  id, task_id(optionnel), title, start_datetime, end_datetime, created_by,
+  is_meeting(bool). Participants (réunion) : liste d'user_id.
+
+NOTIFICATION (notifications)
+  id, user_id, title, message, is_read(bool), created_at.
+
+DOCUMENT / UPLOAD (documents)
+  id, related_table, related_id, uploaded_by, file_url, name, type, created_at.
+
+--------------------------------------------------------------------------------
+## 7. MODULES & FONCTIONNALITÉS (A → Z)
+--------------------------------------------------------------------------------
+Pour chaque module : qui y accède, écrans mobiles, actions, règles.
+
+### 7.1 AUTHENTIFICATION & PROFIL
+- Écran connexion (email + mot de passe). Pas d'inscription publique.
+- Mot de passe oublié (email de reset Firebase).
+- Mon profil : modifier nom, téléphone, email, avatar ; changer mot de passe.
+- À la connexion : router vers l'espace PERSONNEL ou LOCATAIRE selon le rôle.
+
+### 7.2 TABLEAU DE BORD (dashboard) — adaptatif par rôle
+- Manager/super_admin : KPI globaux (immeubles, logements libres, locataires,
+  taux d'occupation, revenus, impayés, charges, maintenances, salaires à payer,
+  documents, équipements, tâches), graphe revenus mensuels, synthèse temps réel.
+- VUE PAR SECTEUR (cartes cliquables → détail) selon rôle :
+    patrimoine (super_admin/manager/dir_admin/gestionnaire),
+    finances (super_admin/manager/dir_admin/comptable),
+    technique (super_admin/manager/dir_technique/gestionnaire),
+    rh (super_admin/manager/comptable),
+    taches (super_admin/manager/dir_admin/dir_technique/gestionnaire/comptable).
+- PERFORMANCE PAR PÉRIODE : sélecteur 7j / 30j / 3 mois / 6 mois / 12 mois +
+  dates personnalisées → revenus, dépenses, salaires, SOLDE NET, nb transactions,
+  nouveaux locataires, baux signés, maintenances ouvertes/terminées + graphe
+  revenus vs dépenses (granularité auto jour/semaine/mois) + IMPRESSION/EXPORT.
+- Technicien : ses interventions + sa productivité (tâches faites, taux).
+- Locataire : accueil (son logement, loyer mensuel, SOLDE restant dû, paiements
+  effectués / en attente).
+
+### 7.3 ACTIVITÉ DU JOUR (« Ma journée » / « Activité de l'équipe »)
+- Ma journée : tâches À FAIRE (pending), EN COURS (in_progress), FAITES
+  aujourd'hui (completed du jour) + événements du jour + sélecteur de date.
+- Encadrement (manager/dir/gestionnaire ou can_view_all_calendars) : « Activité
+  de l'équipe » — la journée de chaque collaborateur (hors locataires), pour
+  piloter la productivité.
+
+### 7.4 IMMOBILIER
+- IMMEUBLES : liste + recherche ; création avec LOCALISATION (adresse, quartier,
+  ville) + COMPOSITION (types de logements + nombre + loyer → génère les
+  logements) + option « redistribution des charges » (active utilities_enabled +
+  prix élec/eau, poubelle, transport). Fiche immeuble = localisation +
+  composition récapitulée par type + occupation.
+- LOGEMENTS : liste + recherche ; n°, type, immeuble, loyer, statut, locataire.
+- LOCATAIRES : liste + recherche ; fiche = coordonnées, CNI, profession,
+  LOGEMENT + IMMEUBLE (via bail), baux, récap paiements. La création d'un
+  locataire crée son compte (rôle locataire).
+- CONTRATS DE BAIL : tenant + logement + loyer mensuel + caution + dates + PDF.
+  Accès création/édition : manager, dir_admin, gestionnaire.
+
+### 7.5 PAIEMENTS (LOYERS) — saisie manuelle (preuve + date), AUCUNE passerelle
+- Liste (staff finance/gestion) avec recherche : locataire, IMMEUBLE, logement
+  (+ type), MONTANT, DATE, méthode, statut, PREUVE. Voir aussi « impayés ».
+- ENREGISTRER UN PAIEMENT (staff OU déclaration locataire) : saisir le MONTANT
+  (peut être PARTIEL), la DATE DU PAIEMENT, la méthode, et — si disponible — la
+  PREUVE (photo / reçu : image ou PDF).
+    • Avec preuve  → « validé » (completed).
+    • SANS preuve  → « en attente de justification » (awaiting_confirmation).
+      La PREUVE peut être ajoutée plus tard ; cet ajout VALIDE automatiquement le
+      paiement. Le staff peut aussi valider/rejeter manuellement.
+- MODIFICATIONS : corriger le montant, changer la date, ajouter une preuve → CHAQUE
+  changement est journalisé dans payment_history (qui, quand, quoi).
+- RELEVÉ DE COMPTE (par locataire) — bouton « Relevé » : affiche
+  Total loyers dus · Paiements validés · En attente de preuve · SOLDE RESTANT DÛ ·
+  STATUT (À jour / Partiellement à jour / En retard) · historique des transactions
+  · historique des modifications. (Calcul §6 « RELEVÉ / SOLDE ».)
+- ESPACE LOCATAIRE « Mes paiements » : son SOLDE (dû / validés / en attente /
+  restant) + l'historique de ses paiements et leurs preuves.
+- PDF reçu / relance ; relance d'un locataire (notification).
+- IMPORTANT : il n'y a PAS d'intégration de paiement en ligne (Mobile Money/CamPay
+  retirés). Tout paiement est ENREGISTRÉ à la main avec sa date et, si fournie, sa
+  preuve. (Une passerelle pourra être ajoutée plus tard, en option.)
+
+### 7.6 CHARGES & COMPTEURS (factures électricité/eau) — module clé
+- Activé seulement pour les immeubles `utilities_enabled`.
+- DROIT DÉLÉGABLE : générer/gérer ces factures = rôles finance/gestion par défaut
+  OU tout utilisateur ayant `can_manage_utilities` (le manager peut l'attribuer à
+  une personne précise, ex. un technicien releveur de compteurs).
+- Création d'une facture : choisir logement (des immeubles éligibles) + type
+  (élec/eau) + mois/année → l'ANCIEN INDEX + le prix + les frais sont
+  PRÉ-REMPLIS depuis la dernière facture (report) ; saisir le NOUVEL INDEX →
+  TOTAL calculé en direct = (nouvel-ancien)*prix + poubelle + transport + autre.
+- Statut payé/en attente, PREUVE de paiement (upload), facture PDF.
+- Espace LOCATAIRE « Mes charges » : ses factures (type, période, conso, total,
+  statut, reçu).
+
+### 7.7 TECHNIQUE — MAINTENANCE / CHANTIERS
+- Ticket de maintenance sur un logement (le locataire peut signaler). Priorité,
+  statut (signalé→validé→en cours→terminé/annulé).
+- ÉQUIPE DE TECHNICIENS : plusieurs techniciens affectés à un chantier (+
+  technicien principal). Notifier chaque technicien affecté.
+- MATÉRIEL & ÉQUIPEMENTS du chantier = dépenses liées (nom, qté, prix,
+  fournisseur, justificatif) + COÛT TOTAL du chantier.
+- PHOTOS avant / pendant / après. TÂCHES liées. Fiche chantier = immeuble +
+  locataire + équipe + matériel + coût + tâches + photos.
+- Devis PDF.
+
+### 7.8 DÉPENSES, ÉQUIPEMENTS
+- Dépenses : liées à une maintenance, avec justificatif (facture/photo), total
+  calculé. Équipements : stock (nom, quantité, prix, statut).
+
+### 7.9 SALAIRES & PAIE
+- Fiches de salaire (employé, période, base+prime-retenues=net, mode dépôt/
+  espèces, preuve de paiement, statut payé/en attente, date).
+- « Mon salaire » (espace employé) : historique + preuve + date de paiement.
+
+### 7.10 TÂCHES & CALENDRIER
+- Tâches : assignées à un employé, statut, liées éventuellement à une maintenance.
+- CALENDRIER avec VISIBILITÉ HIÉRARCHIQUE :
+    • Chaque employé a SON calendrier.
+    • super_admin et manager voient TOUT le monde.
+    • Un délégué `can_view_all_calendars` voit tout le monde SAUF le calendrier
+      privé du manager.
+    • gestionnaire / dir_technique voient leur calendrier + ceux des techniciens.
+    • Les autres : seulement leur propre calendrier.
+    • RÉUNIONS PARTAGÉES (is_meeting + participants) : visibles par le créateur ET
+      tous les participants, même si le calendrier du créateur ne leur est pas
+      normalement visible.
+
+### 7.11 DOCUMENTS, RAPPORTS, NOTIFICATIONS
+- Documents : pièces jointes (contrats, justificatifs) liées aux entités.
+- Rapports : exports/synthèses (réutiliser les agrégats du dashboard).
+- Notifications : cloche + push FCM ; marquer lu / tout lu.
+
+### 7.12 UTILISATEURS (gestion des comptes)
+- Réservé manager/super_admin (ou délégué can_manage_users).
+- Créer/éditer un utilisateur : rôle, statut, et — pour manager/super_admin —
+  cocher les permissions déléguées (can_manage_users, can_view_all_calendars,
+  can_manage_utilities).
+
+### 7.13 RECHERCHE (toutes les listes)
+- Chaque page liste a une barre de recherche : filtre INSTANTANÉ (texte libre sur
+  toutes les colonnes), avec compteur de résultats mis à jour.
+
+### 7.14 SITUATION & RAPPORTS (réservé à ceux qui gèrent les locataires)
+Accès : super_admin, manager, dir_admin, gestionnaire (PAS comptable/technique).
+- SITUATION DES LOCATAIRES (tableau, avec recherche) — par locataire :
+  Nom · Téléphone · CE QU'IL DOIT (solde restant dû) · STATUT (À jour / Partiel /
+  En retard) · PROCHAINE ÉCHÉANCE (s'il est à jour) · FIN DE BAIL · LOGEMENT ·
+  IMMEUBLE. Bouton « Relevé » → relevé de compte complet (§7.5).
+- RÉCAPS PAR PÉRIODE (sélecteur Ce mois / 30 j / 3 mois / Cette année / dates) :
+    • par LOCATAIRE : encaissé, impayé, nb de paiements ;
+    • par IMMEUBLE  : encaissé, impayé, occupation, nb maintenances, coût maint. ;
+    • MAINTENANCE   : total, ouvertes, terminées, coût matériel, détail par immeuble.
+- IMPRESSION (mise en page propre, sans la barre de navigation).
+
+--------------------------------------------------------------------------------
+## 8. ASSISTANT IA (barre de commande)
+--------------------------------------------------------------------------------
+Assistant interne (réservé au personnel ; locataires = refus). 4 piliers :
+  1) RÉPONDRE/ANALYSER : interroger les données (CA d'un mois par locataire et par
+     immeuble, impayés, incidents, biens vacants, comparaisons par période…).
+  2) AGIR (avec CONFIRMATION OBLIGATOIRE) : enregistrer un paiement, déclarer un
+     incident, changer le statut d'un bien, envoyer une relance — l'IA décrit
+     l'action et n'exécute qu'après un « oui » explicite de l'utilisateur.
+  3) ALERTER : à l'ouverture, afficher les retards de loyers, incidents ouverts,
+     échéances (recalcul périodique planifié).
+  4) RÉDIGER : quittances, relances, rapports à partir des données réelles.
+Règles : l'IA n'invente jamais (toute donnée vient d'un appel d'outil réel) ;
+le RBAC s'applique (l'IA agit avec les droits de l'utilisateur) ; FCFA ; français ;
+saisie texte + VOIX (reconnaissance vocale native du téléphone, fr-FR).
+Mise en œuvre mobile : un écran/feuille « assistant » ; les appels au modèle IA
+passent par une Cloud Function (clé API côté serveur), qui exécute les « outils »
+en lisant/écrivant Firestore avec les droits de l'utilisateur.
+MOTEUR IA actuel : GROQ (API compatible OpenAI, function-calling, palier gratuit) —
+configurable (on peut basculer sur un autre fournisseur compatible OpenAI). La clé
+reste côté serveur ; si elle est absente, l'assistant se masque proprement.
+NB : « enregistrer un paiement » via l'assistant = saisie d'un paiement (montant +
+date + méthode), pas de passerelle en ligne.
+
+--------------------------------------------------------------------------------
+## 9. RÈGLES MÉTIER TRANSVERSES (à respecter absolument)
+--------------------------------------------------------------------------------
+- RBAC strict (rôles + permissions déléguées) appliqué côté serveur (Rules +
+  Functions), jamais seulement côté client.
+- Locataire : accès limité à SES données uniquement.
+- Toute ÉCRITURE sensible (validation paiement, salaires, factures, rôles)
+  contrôlée serveur ; confirmation explicite pour les actions de l'assistant.
+- Report d'index des charges (le nouvel index devient l'ancien le mois suivant).
+- LOYER : s'ACCUMULE chaque mois (total_du = mois écoulés × loyer). Paiements
+  PARTIELS autorisés. SOLDE = total_du − paiements validés. Un paiement peut être
+  enregistré SANS preuve (« en attente de justification ») puis validé quand la
+  preuve (photo/reçu) est ajoutée. Toute correction (montant/date/preuve) est
+  journalisée. AUCUNE passerelle de paiement automatique.
+- Lien locataire→logement→immeuble via le bail ; affichages toujours « traçables »
+  (qui, quel logement, quel immeuble, combien).
+- Montants en FCFA, dates au format FR, libellés en français.
+
+--------------------------------------------------------------------------------
+## 10. MIGRATION DES DONNÉES EXISTANTES (optionnel)
+--------------------------------------------------------------------------------
+L'app web actuelle tourne sur MySQL (tables = noms ci-dessus, en anglais). Prévoir
+un script d'import (Node + firebase-admin) : lire MySQL → écrire Firestore en
+respectant les collections du §6, uploader les fichiers (preuves/contrats/photos)
+vers Cloud Storage et remplacer les chemins, recréer les comptes Auth + claims.
+
+--------------------------------------------------------------------------------
+## 11. LIVRABLES ATTENDUS
+--------------------------------------------------------------------------------
+1. Projet Flutter (clean architecture, §3) compilable Android + iOS.
+2. Config Firebase complète : Auth, Firestore (collections §6), Storage, Functions
+   (§4.4), Security Rules (Firestore + Storage), FCM.
+3. Toutes les fonctionnalités §7 + l'assistant §8, par rôle (§5), en français/FCFA.
+4. Gestion hors-ligne (cache Firestore), états de chargement/erreur, recherche
+   sur les listes, thème clair/sombre.
+5. README d'installation (Firebase project, google-services, déploiement Functions
+   et Rules) + (optionnel) script de migration §10.
+
+================================================================================
+FIN DU PROMPT — Toute fonctionnalité décrite ci-dessus doit être reproduite à
+l'identique en mobile, avec le backend Firebase et l'architecture clean.
+================================================================================

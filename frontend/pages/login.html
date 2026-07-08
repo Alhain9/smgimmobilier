@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Connexion — SMG IMMOBILIER</title>
+  <link rel="stylesheet" href="../css/theme.css" />
+  <link rel="stylesheet" href="../css/style.css" />
+  <script src="../js/utils/config.js"></script>
+  <script src="../js/utils/theme.js"></script>
+  <style>
+    .login-wrap { min-height: 100vh; display: grid; grid-template-columns: 1fr 1fr; }
+    .login-side {
+      background: var(--hero-gradient); color: #fff; padding: 60px;
+      display: flex; flex-direction: column; justify-content: center;
+    }
+    .login-side .brand-logo { width: 60px; height: 60px; font-size: 30px; margin-bottom: 24px; }
+    .login-side h2 { font-size: 34px; font-weight: 800; margin-bottom: 16px; }
+    .login-side p { font-size: 17px; opacity: .95; max-width: 420px; }
+    .login-side ul { margin-top: 30px; }
+    .login-side li { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; font-size: 16px; }
+    .login-form-side { display: flex; align-items: center; justify-content: center; padding: 40px; position: relative; }
+    .login-card { width: 100%; max-width: 400px; }
+    .login-card h1 { font-size: 28px; margin-bottom: 6px; }
+    .login-card .sub { color: var(--text-muted); margin-bottom: 28px; }
+    .login-top { position: absolute; top: 24px; right: 24px; display: flex; gap: 10px; }
+    .demo-box { margin-top: 22px; padding: 14px; background: var(--bg-surface-2); border: 1px dashed var(--border); border-radius: var(--radius-sm); font-size: 12.5px; color: var(--text-secondary); }
+    .demo-box b { color: var(--text-primary); }
+    @media (max-width: 880px) { .login-wrap { grid-template-columns: 1fr; } .login-side { display: none; } }
+  </style>
+</head>
+<body>
+  <div class="login-wrap">
+    <!-- Côté présentation -->
+    <div class="login-side">
+      <div class="brand-logo" style="background:rgba(255,255,255,.2)">🏢</div>
+      <h2>SMG IMMOBILIER</h2>
+      <p>Plateforme centralisée de gestion immobilière, administrative, financière et technique.</p>
+      <ul>
+        <li>🏢 Gestion des immeubles & appartements</li>
+        <li>📄 Contrats de bail & documents</li>
+        <li>💰 Paiements & suivi financier</li>
+        <li>🔧 Maintenances & interventions</li>
+      </ul>
+    </div>
+
+    <!-- Côté formulaire -->
+    <div class="login-form-side">
+      <div class="login-top">
+        <button class="theme-toggle" onclick="Theme.toggle()">🌙</button>
+        <a href="../index.html" class="theme-toggle" title="Accueil">←</a>
+      </div>
+
+      <div class="login-card">
+        <h1>Connexion</h1>
+        <p class="sub">Accédez à votre espace SMG IMMOBILIER</p>
+
+        <form id="loginForm">
+          <div class="form-group">
+            <label>Adresse email</label>
+            <input type="email" id="email" class="form-control" placeholder="vous@smg.com" required />
+          </div>
+          <div class="form-group">
+            <label>Mot de passe</label>
+            <input type="password" id="password" class="form-control" placeholder="••••••••" required />
+          </div>
+          <div style="text-align:right;margin-bottom:14px;margin-top:-6px">
+            <a href="forgot-password.html" style="font-size:13px;color:var(--primary)">Mot de passe oublié ?</a>
+          </div>
+          <button type="submit" class="btn btn-primary btn-block" id="loginBtn">Se connecter</button>
+        </form>
+
+        <div class="demo-box">
+          <b>Comptes de démonstration :</b><br />
+          Admin : admin@smg.com / admin123<br />
+          Manager : manager@smg.com / manager123<br />
+          Comptable : compta@smg.com / compta123<br />
+          Technicien : technicien@smg.com / tech123<br />
+          Locataire : locataire@smg.com / loc123
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="../js/utils/toast.js"></script>
+  <script src="../js/utils/api.js"></script>
+  <script src="../js/utils/auth.js"></script>
+  <script>
+    if (Auth.isLoggedIn()) window.location.href = 'dashboard.html';
+
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('loginBtn');
+      btn.disabled = true; btn.textContent = 'Connexion...';
+      try {
+        const res = await API.post('/auth/login', {
+          email: document.getElementById('email').value.trim(),
+          password: document.getElementById('password').value,
+        });
+        Auth.setSession(res.data.token, res.data.user, res.data.refreshToken);
+        Toast.success('Connexion réussie');
+        setTimeout(() => window.location.href = 'dashboard.html', 500);
+      } catch (err) {
+        Toast.error(err.message);
+        btn.disabled = false; btn.textContent = 'Se connecter';
+      }
+    });
+  </script>
+</body>
+</html>

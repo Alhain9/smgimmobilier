@@ -139,17 +139,6 @@ export default function LoginPage() {
             </button>
           </form>
 
-          {/* Demo Credentials Box */}
-          <div className="mt-8 p-4 rounded-xl border border-dashed border-border-custom bg-bg-surface-2 text-xs text-text-secondary leading-relaxed">
-            <div className="font-bold text-text-primary mb-1">Comptes de démonstration :</div>
-            <ul className="space-y-1">
-              <li><b>Admin :</b> admin@smg.com / admin123</li>
-              <li><b>Manager :</b> manager@smg.com / manager123</li>
-              <li><b>Comptable :</b> compta@smg.com / compta123</li>
-              <li><b>Technicien :</b> technicien@smg.com / tech123</li>
-              <li><b>Locataire :</b> locataire@smg.com / loc123</li>
-            </ul>
-          </div>
         </div>
       </div>
     </div>

@@ -3,11 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
+    "postinstall": "cd backend && npm install",
+    "build": "cd backend && npm install",
     "start": "node backend/src/server.js",
-    "start:prod": "node backend/src/server.js",
-    "build": "cd backend && npm install"
-  },
-  "dependencies": {
-    "dotenv": "^16.3.1"
+    "start:prod": "node backend/src/server.js"
   }
 }

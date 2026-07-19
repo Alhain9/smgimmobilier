@@ -1,8 +1,0 @@
-{
-  "name": "smg-monorepo",
-  "private": true,
-  "scripts": {
-    "build": "npm --prefix frontend-nextjs run build",
-    "start": "npm --prefix frontend-nextjs start"
-  }
-}

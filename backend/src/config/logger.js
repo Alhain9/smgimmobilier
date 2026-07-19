@@ -63,10 +63,8 @@ const logger = winston.createLogger({
   rejectionHandlers: [errorTransport],
 });
 
-// Console en dev uniquement
-if (process.env.NODE_ENV === 'development') {
-  logger.add(new winston.transports.Console({ format: consoleFormat }));
-}
+// Console transport (toujours actif pour capter les logs sur Render/Cloud)
+logger.add(new winston.transports.Console({ format: consoleFormat }));
 
 // Logger d'audit séparé (pour les logs d'actions métier)
 const auditLogger = winston.createLogger({

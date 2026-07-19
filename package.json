@@ -1,0 +1,13 @@
+{
+  "name": "smg-backend-root",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node backend/src/server.js",
+    "start:prod": "node backend/src/server.js",
+    "build": "cd backend && npm install"
+  },
+  "dependencies": {
+    "dotenv": "^16.3.1"
+  }
+}

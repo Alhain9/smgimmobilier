@@ -1,0 +1,6 @@
+{
+  "framework": "nextjs",
+  "installCommand": "npm --prefix frontend-nextjs install",
+  "buildCommand": "npm --prefix frontend-nextjs run build",
+  "outputDirectory": "frontend-nextjs/.next"
+}

@@ -38,4 +38,19 @@ const upload = multer({
   limits: { fileSize: parseInt(process.env.MAX_FILE_SIZE) || 10485760 },
 });
 
+const excelFilter = (req, file, cb) => {
+  const allowed = /xlsx|xls/;
+  const ext = allowed.test(path.extname(file.originalname).toLowerCase());
+  if (ext) return cb(null, true);
+  cb(new Error('Format non autorisé. Fichiers Excel uniquement (.xlsx, .xls).'));
+};
+
+const uploadExcel = multer({
+  storage,
+  fileFilter: excelFilter,
+  limits: { fileSize: parseInt(process.env.MAX_FILE_SIZE) || 10485760 },
+});
+
+upload.uploadExcel = uploadExcel;
+
 module.exports = upload;

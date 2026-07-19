@@ -10,7 +10,7 @@ const PageUsers = {
       { name: 'full_name', label: 'Nom complet', required: true },
       { name: 'email', label: 'Email', type: 'email', required: true, half: true },
       { name: 'phone', label: 'Téléphone', half: true },
-      { name: 'role_id', label: 'Rôle', type: 'select', required: true, options: this._roles.map((r) => ({ value: r.id, label: r.label })) },
+      { name: 'role_id', label: 'Rôle', type: 'select', required: true, options: this._roles.filter(r => r.name !== 'locataire').map((r) => ({ value: r.id, label: r.label })) },
       { name: 'status', label: 'Statut', type: 'select', options: [
         { value: 'active', label: 'Actif' }, { value: 'inactive', label: 'Inactif' }, { value: 'suspended', label: 'Suspendu' }] },
       { name: 'password', label: isEdit ? 'Nouveau mot de passe (laisser vide)' : 'Mot de passe', type: 'password', required: !isEdit },
@@ -27,7 +27,8 @@ const PageUsers = {
 
   async render() {
     try {
-      this._users = (await API.get('/users')).data;
+      const allUsers = (await API.get('/users')).data || [];
+      this._users = allUsers.filter(u => u.role && u.role.name !== 'locataire' && u.role.name !== 'Locataire');
       this._roles = (await API.get('/users/roles')).data;
       this.renderLayout();
       this.switchTab(this._activeTab || 'list');

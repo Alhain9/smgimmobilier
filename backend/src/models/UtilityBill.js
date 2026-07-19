@@ -6,7 +6,7 @@ const UtilityBill = sequelize.define('UtilityBill', {
   id: { type: DataTypes.BIGINT.UNSIGNED, primaryKey: true, autoIncrement: true },
   apartment_id: { type: DataTypes.BIGINT.UNSIGNED, allowNull: false },
   type: { type: DataTypes.ENUM('electricity', 'water'), allowNull: false, defaultValue: 'electricity' },
-  period_month: { type: DataTypes.TINYINT.UNSIGNED, allowNull: false },
+  period_month: { type: DataTypes.SMALLINT.UNSIGNED, allowNull: false },
   period_year: { type: DataTypes.SMALLINT.UNSIGNED, allowNull: false },
   previous_index: { type: DataTypes.DECIMAL(12, 2), allowNull: false, defaultValue: 0 }, // ancien index
   current_index: { type: DataTypes.DECIMAL(12, 2), allowNull: false, defaultValue: 0 },  // nouvel index

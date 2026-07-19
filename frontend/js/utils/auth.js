@@ -11,7 +11,8 @@ const Auth = {
   },
   getRole() {
     const u = this.getUser();
-    return u && u.role ? u.role.name : null;
+    if (!u || !u.role) return null;
+    return u.role.name || u.role.role_name || null;
   },
   isLoggedIn() { return !!localStorage.getItem(CONFIG.TOKEN_KEY); },
 
@@ -31,9 +32,13 @@ const Auth = {
     return true;
   },
 
-  // Vérifie qu'un rôle est autorisé
+  // Vérifie qu'un rôle est autorisé (insensible à la casse, super_admin et manager passent toujours)
   hasRole(...roles) {
-    const r = this.getRole();
-    return r === 'super_admin' || roles.includes(r);
+    const rawRole = this.getRole() || '';
+    const r = String(rawRole).toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (!r) return false;
+    if (r === 'superadmin' || r === 'manager') return true;
+    const allowed = roles.map((x) => String(x).toLowerCase().replace(/[^a-z0-9]/g, ''));
+    return allowed.includes(r);
   },
 };

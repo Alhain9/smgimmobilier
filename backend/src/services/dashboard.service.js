@@ -257,13 +257,17 @@ class DashboardService {
 
   async getMonthlyRevenue() {
     const year = new Date().getFullYear();
+    const isPostgres = Payment.sequelize.options.dialect === 'postgres';
+    const monthFunc = isPostgres ? fn('date_part', 'month', col('payment_date')) : fn('MONTH', col('payment_date'));
+    const yearFunc = isPostgres ? fn('date_part', 'year', col('payment_date')) : fn('YEAR', col('payment_date'));
+
     const rows = await Payment.findAll({
-      attributes: [[fn('MONTH', col('payment_date')), 'month'], [fn('SUM', col('amount')), 'total']],
-      where: { status: 'completed', [Op.and]: [where(fn('YEAR', col('payment_date')), year)] },
-      group: [fn('MONTH', col('payment_date'))], raw: true,
+      attributes: [[monthFunc, 'month'], [fn('SUM', col('amount')), 'total']],
+      where: { status: 'completed', [Op.and]: [where(yearFunc, year)] },
+      group: [monthFunc], raw: true,
     });
     const months = Array(12).fill(0);
-    rows.forEach((r) => { if (r.month) months[r.month - 1] = +r.total; });
+    rows.forEach((r) => { if (r.month) months[Math.round(r.month) - 1] = +r.total; });
     return months;
   }
 

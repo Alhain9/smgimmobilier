@@ -4,7 +4,7 @@ const { sequelize } = require('../config/database');
 const Salary = sequelize.define('Salary', {
   id: { type: DataTypes.BIGINT.UNSIGNED, primaryKey: true, autoIncrement: true },
   user_id: { type: DataTypes.BIGINT.UNSIGNED, allowNull: false },
-  period_month: { type: DataTypes.TINYINT.UNSIGNED, allowNull: false },
+  period_month: { type: DataTypes.SMALLINT.UNSIGNED, allowNull: false },
   period_year: { type: DataTypes.SMALLINT.UNSIGNED, allowNull: false },
   base_salary: { type: DataTypes.DECIMAL(12, 2), defaultValue: 0 },
   bonus: { type: DataTypes.DECIMAL(12, 2), defaultValue: 0 },

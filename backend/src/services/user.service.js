@@ -13,7 +13,23 @@ const stripPrivilegedFields = (data, requesterRole) => {
 
 class UserService {
   async getAll() {
-    const users = await User.findAll({ include: [{ model: Role, as: 'role' }], order: [['created_at', 'DESC']] });
+    const locataireRole = await Role.findOne({
+      where: {
+        [require('sequelize').Op.or]: [
+          { role_name: 'Locataire' },
+          { role_name: 'locataire' }
+        ]
+      }
+    });
+    const where = {};
+    if (locataireRole) {
+      where.role_id = { [require('sequelize').Op.ne]: locataireRole.id };
+    }
+    const users = await User.findAll({
+      where,
+      include: [{ model: Role, as: 'role' }],
+      order: [['created_at', 'DESC']]
+    });
     return users.map(shapeUser);
   }
   async getById(id) {

@@ -89,9 +89,16 @@ class TenantService {
       end_date: data.end_date ?? t.end_date,
       status: data.status ?? t.status,
     });
-    if (t.user_id && (data.full_name || data.email || data.phone)) {
+    if (t.user_id && (data.full_name || data.email || data.phone || data.password)) {
       const u = await User.findByPk(t.user_id);
-      if (u) await u.update({ full_name: data.full_name ?? u.full_name, email: data.email ?? u.email, phone: data.phone ?? u.phone });
+      if (u) {
+        const updateData = {};
+        if (data.full_name !== undefined) updateData.full_name = data.full_name;
+        if (data.email !== undefined) updateData.email = data.email;
+        if (data.phone !== undefined) updateData.phone = data.phone;
+        if (data.password !== undefined && data.password.trim() !== '') updateData.password = data.password;
+        await u.update(updateData);
+      }
     }
     return this.getById(id);
   }

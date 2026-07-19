@@ -1,0 +1,9 @@
+node_modules/
+.env
+*.log
+backend/logs/
+backend/.env
+frontend-nextjs/node_modules/
+frontend-nextjs/.next/
+frontend-nextjs/out/
+frontend-nextjs/.env*

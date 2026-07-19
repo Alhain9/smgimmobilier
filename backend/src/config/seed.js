@@ -9,10 +9,18 @@ require('dotenv').config();
 const seed = async () => {
   try {
     await sequelize.authenticate();
-    console.log('🔄 Chargement des rôles existants...');
+    console.log('🔄 Initialisation des rôles si absents...');
+    const defaultRoles = [
+      'Super Admin', 'Manager', 'Directeur Administratif', 'Directeur Technique',
+      'Gestionnaire', 'Comptable', 'Technicien', 'Locataire'
+    ];
+    for (const name of defaultRoles) {
+      await Role.findOrCreate({ where: { role_name: name } });
+    }
+
+    console.log('🔄 Chargement des rôles...');
     const roles = {};
     (await Role.findAll()).forEach((r) => { roles[r.code()] = r.id; });
-    if (!Object.keys(roles).length) throw new Error('Aucun rôle en base. Importez d\'abord smg_immobilier.sql');
 
     const ensureUser = async (data) => {
       const [u] = await User.findOrCreate({ where: { email: data.email }, defaults: data });

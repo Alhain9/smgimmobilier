@@ -13,26 +13,21 @@ const PageTenants = {
 
 
   fields(isEdit = false) {
-    const list = [
+    return [
       { name: 'full_name', label: 'Nom complet', required: true },
       { name: 'phone', label: 'Téléphone', required: true, half: true },
-    ];
-    if (!isEdit) {
-      list.push({ name: 'email', label: 'Email', type: 'email', half: true });
-    }
-    list.push(
+      { name: 'email', label: 'Email (pour connexion)', type: 'email', required: true, half: true },
+      { name: 'password', label: isEdit ? 'Nouveau mot de passe (laisser vide)' : 'Mot de passe', type: 'password', required: false, half: true, placeholder: isEdit ? 'Laisser vide pour ne pas modifier...' : 'Par défaut: loc123' },
       { name: 'cni', label: 'Numéro CNI', half: true },
       { name: 'profession', label: 'Profession', half: true },
       { name: 'emergency_contact', label: 'Contact d\'urgence' }
-    );
-    return list;
+    ];
   },
 
   async render() {
-    const canEdit = Auth.hasRole('manager', 'dir_admin', 'gestionnaire');
     const data = await CrudPage.list({
       endpoint: '/tenants', title: 'Locataires',
-      canCreate: canEdit, onCreate: 'PageTenants.create',
+      canCreate: true, onCreate: 'PageTenants.create',
       columns: [
         { label: 'Nom', render: (r) => `<div class="flex items-center gap-3">
           <div class="user-avatar" style="width:34px;height:34px;font-size:13px">${Helpers.initials(r.full_name)}</div><b>${r.full_name}</b></div>` },
@@ -49,9 +44,9 @@ const PageTenants = {
       rowActions: (r) => `
         <button class="btn btn-sm btn-whatsapp" title="WhatsApp" onclick="PageTenants.whatsapp(${r.id})">🟢</button>
         <button class="btn btn-sm btn-outline" title="Appeler" onclick="PageTenants.call(${r.id})">📞</button>
-        <button class="btn btn-sm btn-outline" onclick="PageTenants.view(${r.id})">👁</button>
-        ${canEdit ? `<button class="btn btn-sm btn-outline" onclick="PageTenants.edit(${r.id})">✏️</button>` : ''}
-        ${Auth.hasRole('manager','dir_admin') ? `<button class="btn btn-sm btn-danger" onclick="PageTenants.remove(${r.id})">🗑</button>` : ''}`,
+        <button class="btn btn-sm btn-outline" title="Dossier complet" onclick="PageTenants.view(${r.id})">👁</button>
+        <button class="btn btn-sm btn-outline" title="Modifier" onclick="PageTenants.edit(${r.id})">✏️</button>
+        <button class="btn btn-sm btn-danger" title="Supprimer" onclick="PageTenants.remove(${r.id})">🗑</button>`,
     });
     this._rows = {}; (data || []).forEach((r) => { this._rows[r.id] = r; });
   },

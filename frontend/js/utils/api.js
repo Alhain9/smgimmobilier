@@ -32,7 +32,15 @@ const API = {
     if (body && !isFormData && typeof body !== 'string') body = JSON.stringify(body);
 
     try {
-      const res = await fetch(`${CONFIG.API_URL}${endpoint}`, { ...options, headers, body });
+      const fetchOpts = {
+        method: options.method || 'GET',
+        mode: 'cors',
+        headers,
+      };
+      if (body && options.method !== 'GET' && options.method !== 'HEAD') {
+        fetchOpts.body = body;
+      }
+      const res = await fetch(`${CONFIG.API_URL}${endpoint}`, fetchOpts);
       const data = await res.json().catch(() => ({}));
 
       if (res.status === 401 && !endpoint.includes('/auth/')) {

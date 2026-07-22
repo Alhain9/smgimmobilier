@@ -16,10 +16,12 @@ const app = express();
 // Confiance dans le proxy inverse (Render) pour le rate limiter et req.ip
 app.set('trust proxy', 1);
 
-// Sécurité
-app.use(helmet({ crossOriginResourcePolicy: false }));
+// Sécurité & CORS
 app.use(cors({ origin: true, credentials: true }));
-app.options('*', cors({ origin: true, credentials: true }));
+app.use(helmet({
+  crossOriginResourcePolicy: false,
+  crossOriginOpenerPolicy: false,
+}));
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true }));
 

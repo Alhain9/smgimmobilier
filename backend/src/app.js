@@ -13,9 +13,20 @@ const { logger } = require('./config/logger');
 
 const app = express();
 
+// Confiance dans le proxy inverse (Render) pour le rate limiter et req.ip
+app.set('trust proxy', 1);
+
 // Sécurité
 app.use(helmet({ crossOriginResourcePolicy: false }));
-app.use(cors({ origin: '*', credentials: true }));
+app.use(cors({
+  origin: (origin, callback) => {
+    // Reflète l'origine appelante (Vercel, local IP, mobile) pour être compatible avec credentials: true
+    callback(null, origin || true);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+}));
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -44,7 +55,7 @@ app.use(auditMiddleware);
 app.use('/api/v1', routes);
 app.use('/api', routes);
 
-app.get('/health', (req, res) => res.json({ status: 'OK', service: 'IMSM API', version: '2.0.0' }));
+app.get('/health', (req, res) => res.json({ status: 'OK', service: 'SMG IMMOBILIER API', version: '2.0.0' }));
 
 // Erreurs
 app.use(notFound);

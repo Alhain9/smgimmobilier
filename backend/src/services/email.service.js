@@ -11,14 +11,14 @@ class EmailService {
     <body style="font-family:Arial,sans-serif;background:#f5f7fa;margin:0;padding:20px;">
       <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.1);overflow:hidden;">
         <div style="background:#1E3A5F;color:#fff;padding:20px 30px;">
-          <h1 style="margin:0;font-size:20px;">IMSM <span style="color:#3498DB;">IMMOBILIER</span></h1>
+          <h1 style="margin:0;font-size:20px;">SMG <span style="color:#3498DB;">IMMOBILIER</span></h1>
           <p style="margin:5px 0 0;font-size:13px;opacity:0.8;">${title}</p>
         </div>
         <div style="padding:30px;">
           ${body}
         </div>
         <div style="background:#f5f7fa;padding:15px 30px;font-size:11px;color:#999;text-align:center;">
-          IMSM — Plateforme de Gestion Immobilière<br>
+          SMG IMMOBILIER — Plateforme de Gestion Immobilière<br>
           Cet email a été envoyé automatiquement, merci de ne pas y répondre.
         </div>
       </div>
@@ -37,7 +37,7 @@ class EmailService {
         <tr><td style="padding:8px;color:#666;">Logement</td><td style="padding:8px;">${apartmentNumber}</td></tr>
       </table>
       <p>Merci de régulariser votre situation dans les meilleurs délais.</p>
-      <p style="color:#666;font-size:13px;">Cordialement,<br>L'équipe IMSM</p>
+      <p style="color:#666;font-size:13px;">Cordialement,<br>L'équipe SMG IMMOBILIER</p>
     `);
 
     return sendMail({ to, subject: `Rappel de paiement — ${amount} FCFA`, html });
@@ -55,7 +55,7 @@ class EmailService {
         <tr><td style="padding:8px;color:#666;">Mode</td><td style="padding:8px;">${method}</td></tr>
       </table>
       <p style="color:#27AE60;font-weight:bold;">✅ Paiement enregistré avec succès</p>
-      <p style="color:#666;font-size:13px;">Cordialement,<br>L'équipe IMSM</p>
+      <p style="color:#666;font-size:13px;">Cordialement,<br>L'équipe SMG IMMOBILIER</p>
     `);
 
     return sendMail({ to, subject: `Paiement confirmé — ${amount} FCFA`, html });
@@ -73,7 +73,7 @@ class EmailService {
         <p style="margin:5px 0 0;color:#666;">Logement : ${apartmentNumber} — ${propertyName}</p>
       </div>
       <p>Veuillez contacter votre gestionnaire pour discuter du renouvellement.</p>
-      <p style="color:#666;font-size:13px;">Cordialement,<br>L'équipe IMSM</p>
+      <p style="color:#666;font-size:13px;">Cordialement,<br>L'équipe SMG IMMOBILIER</p>
     `);
 
     return sendMail({ to, subject: `Fin de bail dans ${daysLeft} jour(s)`, html });
@@ -91,7 +91,7 @@ class EmailService {
         <tr><td style="padding:8px;border-bottom:1px solid #eee;color:#666;">Logement</td><td style="padding:8px;border-bottom:1px solid #eee;">${apartmentNumber} — ${propertyName}</td></tr>
         <tr><td style="padding:8px;color:#666;">Description</td><td style="padding:8px;">${description || '—'}</td></tr>
       </table>
-      <p style="color:#666;font-size:13px;">Cordialement,<br>L'équipe IMSM</p>
+      <p style="color:#666;font-size:13px;">Cordialement,<br>L'équipe SMG IMMOBILIER</p>
     `);
 
     return sendMail({ to, subject: `Maintenance : ${title} — ${statusLabels[status] || status}`, html });

@@ -1,5 +1,5 @@
 -- =====================================================================
--- Migration 012 : Nouveaux modules métiers IMSM
+-- Migration 012 : Nouveaux modules métiers SMG IMMOBILIER
 --   • RH : services, equipes, plannings, pointages, conges
 --   • Approbations/Workflow : workflow_validation, workflow_etapes
 --   • Collaboration : messages_internes

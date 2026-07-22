@@ -1,7 +1,26 @@
 // Configuration globale frontend SMG IMMOBILIER
+const getBaseUrl = () => {
+  if (typeof window !== 'undefined' && window.location) {
+    const customApi = window.ENV_SERVER_URL || localStorage.getItem('smg_custom_api_url');
+    if (customApi) return customApi.replace(/\/$/, '');
+
+    const hostname = window.location.hostname;
+    const protocol = window.location.protocol;
+    if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
+      if (hostname.includes('vercel.app')) {
+        return window.ENV_SERVER_URL || localStorage.getItem('smg_custom_api_url') || 'http://localhost:5000';
+      }
+      return `${protocol}//${hostname}:5000`;
+    }
+  }
+  return 'http://localhost:5000';
+};
+
+const BASE_URL = getBaseUrl();
+
 const CONFIG = {
-  API_URL: 'http://localhost:5000/api',
-  SERVER_URL: 'http://localhost:5000',
+  API_URL: `${BASE_URL}/api`,
+  SERVER_URL: BASE_URL,
   TOKEN_KEY: 'smg_token',
   REFRESH_KEY: 'smg_refresh',
   USER_KEY: 'smg_user',

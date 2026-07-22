@@ -15,7 +15,7 @@ class ExcelService {
    */
   createWorkbook({ title, columns, rows, sheetName = 'Données', totals = {} }) {
     const wb = new ExcelJS.Workbook();
-    wb.creator = 'IMSM';
+    wb.creator = 'SMG IMMOBILIER';
     wb.created = new Date();
 
     const ws = wb.addWorksheet(sheetName);

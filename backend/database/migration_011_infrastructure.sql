@@ -1,5 +1,5 @@
 -- =====================================================================
--- Migration 011 : Infrastructure IMSM
+-- Migration 011 : Infrastructure SMG IMMOBILIER
 --   • audit_logs — traçabilité des actions critiques
 --   • refresh_tokens — rotation JWT côté serveur
 --   • permissions / roles_permissions — RBAC granulaire

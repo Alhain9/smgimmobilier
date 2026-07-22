@@ -27,7 +27,7 @@ module.exports = {
   utilityBillRepo: new BaseRepository(UtilityBill),
   paymentHistoryRepo: new BaseRepository(PaymentHistory),
   taskHistoryRepo: new BaseRepository(TaskHistory),
-  // Nouveaux repos IMSM
+  // Nouveaux repos SMG IMMOBILIER
   auditLogRepo: new BaseRepository(AuditLog),
   refreshTokenRepo: new BaseRepository(RefreshToken),
   permissionRepo: new BaseRepository(Permission),

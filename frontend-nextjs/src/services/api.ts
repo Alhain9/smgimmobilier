@@ -1,6 +1,34 @@
+const getBaseApiUrl = (): string => {
+  if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL;
+  if (typeof window !== 'undefined' && window.location) {
+    const custom = localStorage.getItem('smg_custom_api_url');
+    if (custom) return custom.endsWith('/api') ? custom : `${custom.replace(/\/$/, '')}/api`;
+    const hostname = window.location.hostname;
+    const protocol = window.location.protocol;
+    if (hostname !== 'localhost' && hostname !== '127.0.0.1' && !hostname.includes('vercel.app')) {
+      return `${protocol}//${hostname}:5000/api`;
+    }
+  }
+  return 'http://localhost:5000/api';
+};
+
+const getBaseServerUrl = (): string => {
+  if (process.env.NEXT_PUBLIC_SERVER_URL) return process.env.NEXT_PUBLIC_SERVER_URL;
+  if (typeof window !== 'undefined' && window.location) {
+    const custom = localStorage.getItem('smg_custom_api_url');
+    if (custom) return custom.replace(/\/api$/, '').replace(/\/$/, '');
+    const hostname = window.location.hostname;
+    const protocol = window.location.protocol;
+    if (hostname !== 'localhost' && hostname !== '127.0.0.1' && !hostname.includes('vercel.app')) {
+      return `${protocol}//${hostname}:5000`;
+    }
+  }
+  return 'http://localhost:5000';
+};
+
 export const CONFIG = {
-  API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api',
-  SERVER_URL: process.env.NEXT_PUBLIC_SERVER_URL || 'http://localhost:5000',
+  get API_URL() { return getBaseApiUrl(); },
+  get SERVER_URL() { return getBaseServerUrl(); },
   TOKEN_KEY: 'smg_token',
   REFRESH_KEY: 'smg_refresh',
   USER_KEY: 'smg_user',

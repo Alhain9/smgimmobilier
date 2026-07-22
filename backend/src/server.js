@@ -21,15 +21,12 @@ const start = async () => {
 
   // Pas de sync : le schéma MySQL est géré par les migrations SQL
   assistantScheduler.start(); // recalcul périodique des compteurs d'alertes (assistant)
-  cronScheduler.start(); // tâches planifiées quotidiennes et mensuelles (IMSM)
+  cronScheduler.start(); // tâches planifiées quotidiennes et mensuelles (SMG IMMOBILIER)
 
-  server.listen(PORT, () => {
-    logger.info(`🚀 IMSM API sur http://localhost:${PORT}`);
+  server.listen(PORT, '0.0.0.0', () => {
+    logger.info(`🚀 SMG IMMOBILIER API sur http://0.0.0.0:${PORT}`);
     logger.info(`📡 API: http://localhost:${PORT}/api`);
     logger.info(`🔌 Socket.IO: ws://localhost:${PORT}`);
   });
-
-  // Synchronisation MySQL <-> Firestore (inactive tant que Firebase n'est pas configuré)
-  require('./sync').initSync();
 };
 start().catch((err) => { logger.error('❌ Échec démarrage:', { error: err.message, stack: err.stack }); process.exit(1); });

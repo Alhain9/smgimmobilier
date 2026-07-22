@@ -18,7 +18,7 @@ const COLORS = {
 
 class PdfService {
   /**
-   * Crée un document PDF avec en-tête IMSM.
+   * Crée un document PDF avec en-tête SMG IMMOBILIER.
    * @param {object} options - { title, subtitle, landscape }
    * @returns {{ doc: PDFDocument, finalize: () => Promise<Buffer> }}
    */
@@ -29,9 +29,9 @@ class PdfService {
       margins: { top: 50, bottom: 50, left: 50, right: 50 },
       bufferPages: true,
       info: {
-        Title: title || 'Rapport IMSM',
-        Author: 'IMSM - Gestion Immobilière',
-        Creator: 'IMSM PDFKit',
+        Title: title || 'Rapport SMG IMMOBILIER',
+        Author: 'SMG IMMOBILIER - Gestion Immobilière',
+        Creator: 'SMG IMMOBILIER PDFKit',
       },
     });
 
@@ -61,7 +61,7 @@ class PdfService {
 
     // Logo texte
     doc.fontSize(22).fillColor(COLORS.primary).font('Helvetica-Bold')
-      .text('IMSM', 50, 25, { continued: true })
+      .text('SMG', 50, 25, { continued: true })
       .fillColor(COLORS.accent).text(' IMMOBILIER');
 
     if (title) {
@@ -86,7 +86,7 @@ class PdfService {
   _footer(doc, pageNum, totalPages) {
     const bottom = doc.page.height - 35;
     doc.fontSize(8).fillColor(COLORS.muted).font('Helvetica')
-      .text(`IMSM — Gestion Immobilière`, 50, bottom, { align: 'left' })
+      .text(`SMG IMMOBILIER — Gestion Immobilière`, 50, bottom, { align: 'left' })
       .text(`Page ${pageNum} / ${totalPages}`, 50, bottom, { align: 'right', width: doc.page.width - 100 });
   }
 
@@ -207,7 +207,7 @@ class PdfService {
 
     // Informations
     doc.fontSize(12).fillColor(COLORS.text).font('Helvetica-Bold').text('Bailleur :');
-    doc.fontSize(10).font('Helvetica').text(`${property?.property_name || 'IMSM'}`);
+    doc.fontSize(10).font('Helvetica').text(`${property?.property_name || 'SMG IMMOBILIER'}`);
     doc.moveDown(0.5);
 
     doc.fontSize(12).font('Helvetica-Bold').text('Locataire :');

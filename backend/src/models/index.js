@@ -21,7 +21,7 @@ const Salary = require('./Salary');
 const UtilityBill = require('./UtilityBill');
 const PaymentHistory = require('./PaymentHistory');
 const TaskHistory = require('./TaskHistory');
-// ===== Nouveaux modèles IMSM =====
+// ===== Nouveaux modèles SMG IMMOBILIER =====
 const AuditLog = require('./AuditLog');
 const RefreshToken = require('./RefreshToken');
 const Permission = require('./Permission');
@@ -133,7 +133,7 @@ UtilityBill.belongsTo(Apartment, { foreignKey: 'apartment_id', as: 'apartment' }
 User.hasMany(UtilityBill, { foreignKey: 'created_by', as: 'createdUtilityBills' });
 UtilityBill.belongsTo(User, { foreignKey: 'created_by', as: 'creator' });
 
-// ===== Nouvelles associations IMSM =====
+// ===== Nouvelles associations SMG IMMOBILIER =====
 
 // AuditLog <-> User
 User.hasMany(AuditLog, { foreignKey: 'user_id', as: 'auditLogs' });
@@ -189,6 +189,6 @@ GPSTracking.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
 module.exports = {
   sequelize, Role, User, Property, Apartment, Tenant, Lease, Payment,
   Maintenance, MaintenanceImage, MaintenanceTechnician, Equipment, Expense, Task, Upload, CalendarEvent, CalendarEventParticipant, Notification, Salary, UtilityBill, PaymentHistory, TaskHistory,
-  // Nouveaux modèles IMSM
+  // Nouveaux modèles SMG IMMOBILIER
   AuditLog, RefreshToken, Permission, RolePermission, Service, Equipe, Planning, Pointage, Conge, WorkflowValidation, WorkflowEtape, MessageInterne, GPSTracking,
 };

@@ -11,7 +11,13 @@ let io = null;
  */
 const initSocket = (httpServer) => {
   io = new Server(httpServer, {
-    cors: { origin: '*', methods: ['GET', 'POST'] },
+    cors: {
+      origin: (origin, callback) => {
+        callback(null, origin || true);
+      },
+      methods: ['GET', 'POST'],
+      credentials: true
+    },
     transports: ['websocket', 'polling'],
   });
 

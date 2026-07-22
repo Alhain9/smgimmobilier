@@ -48,11 +48,11 @@ const sendMail = async (options) => {
     return null;
   }
 
-  const from = process.env.SMTP_FROM || process.env.SMTP_USER || 'noreply@imsm.local';
+  const from = process.env.SMTP_FROM || process.env.SMTP_USER || 'noreply@smg-immobilier.local';
 
   try {
     const info = await t.sendMail({
-      from: `"IMSM" <${from}>`,
+      from: `"SMG IMMOBILIER" <${from}>`,
       ...options,
     });
     logger.info('📧 Email envoyé', { to: options.to, subject: options.subject, messageId: info.messageId });

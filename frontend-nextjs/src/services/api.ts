@@ -1,28 +1,48 @@
+// URL de base du backend Render (utilisé en production sur Vercel si NEXT_PUBLIC_API_URL n'est pas défini)
+const RENDER_API_URL = 'https://smg-a5e3.onrender.com/api';
+const RENDER_SERVER_URL = 'https://smg-a5e3.onrender.com';
+
 const getBaseApiUrl = (): string => {
+  // 1. Variable d'environnement Vercel (prioritaire)
   if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL;
   if (typeof window !== 'undefined' && window.location) {
+    // 2. URL personnalisée stockée dans localStorage
     const custom = localStorage.getItem('smg_custom_api_url');
     if (custom) return custom.endsWith('/api') ? custom : `${custom.replace(/\/$/, '')}/api`;
     const hostname = window.location.hostname;
     const protocol = window.location.protocol;
-    if (hostname !== 'localhost' && hostname !== '127.0.0.1' && !hostname.includes('vercel.app')) {
+    // 3. Déploiement Vercel → pointer vers Render
+    if (hostname.includes('vercel.app')) {
+      return RENDER_API_URL;
+    }
+    // 4. Autre domaine personnalisé (ex: VPS, réseau local)
+    if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
       return `${protocol}//${hostname}:5000/api`;
     }
   }
+  // 5. Développement local
   return 'http://localhost:5000/api';
 };
 
 const getBaseServerUrl = (): string => {
+  // 1. Variable d'environnement Vercel (prioritaire)
   if (process.env.NEXT_PUBLIC_SERVER_URL) return process.env.NEXT_PUBLIC_SERVER_URL;
   if (typeof window !== 'undefined' && window.location) {
+    // 2. URL personnalisée stockée dans localStorage
     const custom = localStorage.getItem('smg_custom_api_url');
     if (custom) return custom.replace(/\/api$/, '').replace(/\/$/, '');
     const hostname = window.location.hostname;
     const protocol = window.location.protocol;
-    if (hostname !== 'localhost' && hostname !== '127.0.0.1' && !hostname.includes('vercel.app')) {
+    // 3. Déploiement Vercel → pointer vers Render
+    if (hostname.includes('vercel.app')) {
+      return RENDER_SERVER_URL;
+    }
+    // 4. Autre domaine personnalisé
+    if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
       return `${protocol}//${hostname}:5000`;
     }
   }
+  // 5. Développement local
   return 'http://localhost:5000';
 };
 

@@ -1,18 +1,26 @@
 // Configuration globale frontend SMG IMMOBILIER
+const RENDER_SERVER_URL = 'https://smg-a5e3.onrender.com';
+
 const getBaseUrl = () => {
   if (typeof window !== 'undefined' && window.location) {
+    // 1. URL personnalisée (variable globale ou localStorage)
     const customApi = window.ENV_SERVER_URL || localStorage.getItem('smg_custom_api_url');
     if (customApi) return customApi.replace(/\/$/, '');
 
     const hostname = window.location.hostname;
     const protocol = window.location.protocol;
+
+    // 2. Déploiement Vercel → pointer vers Render
+    if (hostname.includes('vercel.app')) {
+      return RENDER_SERVER_URL;
+    }
+
+    // 3. Autre domaine personnalisé (VPS, réseau local)
     if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
-      if (hostname.includes('vercel.app')) {
-        return window.ENV_SERVER_URL || localStorage.getItem('smg_custom_api_url') || 'http://localhost:5000';
-      }
       return `${protocol}//${hostname}:5000`;
     }
   }
+  // 4. Développement local
   return 'http://localhost:5000';
 };
 

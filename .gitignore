@@ -6,4 +6,7 @@ backend/.env
 frontend-nextjs/node_modules/
 frontend-nextjs/.next/
 frontend-nextjs/out/
-frontend-nextjs/.env*
+frontend-nextjs/.env
+frontend-nextjs/.env.local
+frontend-nextjs/.env.development*
+frontend-nextjs/.env.production.local

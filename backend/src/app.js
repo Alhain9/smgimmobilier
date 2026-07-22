@@ -33,11 +33,6 @@ if (process.env.NODE_ENV === 'development') {
   }));
 }
 
-// Rate limit sur l'auth
-const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 50 });
-app.use('/api/auth/login', authLimiter);
-app.use('/api/v1/auth/login', authLimiter);
-
 // Fichiers uploadés (statique)
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 

@@ -49,8 +49,9 @@ const API = {
       if (!res.ok) throw new Error(data.message || 'Erreur serveur');
       return data;
     } catch (err) {
+      console.error(`[API Error] Request to ${CONFIG.API_URL}${endpoint} failed:`, err);
       if (err.message === 'Failed to fetch') {
-        throw new Error('Impossible de joindre le serveur. Vérifiez que le backend est démarré.');
+        throw new Error(`Impossible de joindre le serveur (${CONFIG.API_URL}). Vérifiez que le backend est démarré.`);
       }
       throw err;
     }

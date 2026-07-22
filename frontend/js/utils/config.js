@@ -3,9 +3,11 @@ const RENDER_SERVER_URL = 'https://smg-a5e3.onrender.com';
 
 const getBaseUrl = () => {
   if (typeof window !== 'undefined' && window.location) {
-    // 1. URL personnalisée (variable globale ou localStorage)
+    // 1. URL personnalisée (variable globale ou localStorage, ignorée si localhost sur Vercel)
     const customApi = window.ENV_SERVER_URL || localStorage.getItem('smg_custom_api_url');
-    if (customApi) return customApi.replace(/\/$/, '');
+    if (customApi && (!window.location.hostname.includes('vercel.app') || !customApi.includes('localhost'))) {
+      return customApi.replace(/\/$/, '');
+    }
 
     const hostname = window.location.hostname;
     const protocol = window.location.protocol;

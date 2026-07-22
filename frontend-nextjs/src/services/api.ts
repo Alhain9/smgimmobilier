@@ -6,9 +6,11 @@ const getBaseApiUrl = (): string => {
   // 1. Variable d'environnement Vercel (prioritaire)
   if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL;
   if (typeof window !== 'undefined' && window.location) {
-    // 2. URL personnalisée stockée dans localStorage
+    // 2. URL personnalisée stockée dans localStorage (ignorée sur Vercel si elle pointe vers localhost)
     const custom = localStorage.getItem('smg_custom_api_url');
-    if (custom) return custom.endsWith('/api') ? custom : `${custom.replace(/\/$/, '')}/api`;
+    if (custom && (!window.location.hostname.includes('vercel.app') || !custom.includes('localhost'))) {
+      return custom.endsWith('/api') ? custom : `${custom.replace(/\/$/, '')}/api`;
+    }
     const hostname = window.location.hostname;
     const protocol = window.location.protocol;
     // 3. Déploiement Vercel → pointer vers Render
@@ -30,7 +32,9 @@ const getBaseServerUrl = (): string => {
   if (typeof window !== 'undefined' && window.location) {
     // 2. URL personnalisée stockée dans localStorage
     const custom = localStorage.getItem('smg_custom_api_url');
-    if (custom) return custom.replace(/\/api$/, '').replace(/\/$/, '');
+    if (custom && (!window.location.hostname.includes('vercel.app') || !custom.includes('localhost'))) {
+      return custom.replace(/\/api$/, '').replace(/\/$/, '');
+    }
     const hostname = window.location.hostname;
     const protocol = window.location.protocol;
     // 3. Déploiement Vercel → pointer vers Render
@@ -148,8 +152,9 @@ export const API = {
 
       return data;
     } catch (err: any) {
+      console.error(`[API Error] Request to ${CONFIG.API_URL}${endpoint} failed:`, err);
       if (err.message === 'Failed to fetch') {
-        throw new Error('Impossible de joindre le serveur. Vérifiez que le backend est démarré.');
+        throw new Error(`Impossible de joindre le serveur (${CONFIG.API_URL}). Vérifiez que le backend est démarré.`);
       }
       throw err;
     }

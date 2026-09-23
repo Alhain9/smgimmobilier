@@ -15,6 +15,9 @@ const API = {
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.data && data.data.token) {
         localStorage.setItem(CONFIG.TOKEN_KEY, data.data.token);
+        if (data.data.refreshToken) {
+          localStorage.setItem(CONFIG.REFRESH_KEY, data.data.refreshToken);
+        }
         return true;
       }
     } catch (_) { /* ignore */ }
@@ -54,7 +57,14 @@ const API = {
         Auth.logout();
         return Promise.reject(new Error('Session expirée'));
       }
-      if (!res.ok) throw new Error(data.message || 'Erreur serveur');
+      if (!res.ok) {
+        let msg = data.message || 'Erreur serveur';
+        if (Array.isArray(data.errors) && data.errors.length) {
+          const details = data.errors.map((e) => e.message || (e.field ? `${e.field} invalide` : '')).filter(Boolean).join(', ');
+          if (details && !msg.includes(details)) msg += ` (${details})`;
+        }
+        throw new Error(msg);
+      }
       return data;
     } catch (err) {
       console.error(`[API Error] Request to ${CONFIG.API_URL}${endpoint} failed:`, err);
@@ -71,4 +81,15 @@ const API = {
   patch(e, body) { return this.request(e, { method: 'PATCH', body }); },
   delete(e) { return this.request(e, { method: 'DELETE' }); },
   upload(e, formData, method = 'POST') { return this.request(e, { method, body: formData }); },
+  async downloadBlob(endpoint) {
+    const headers = {};
+    const token = this.token();
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const res = await fetch(`${CONFIG.API_URL}${endpoint}`, { headers });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.message || 'Erreur lors du téléchargement');
+    }
+    return res.blob();
+  },
 };

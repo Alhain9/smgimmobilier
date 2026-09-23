@@ -1,29 +1,29 @@
-// ============ Helper générique de page CRUD ============
-// Usage: CrudPage.build({ endpoint, title, columns, fields, ... })
+// ============ Helper générique de page CRUD (avec sélection multiple & suppression par lot) ============
 const CrudPage = {
   _current: null,
 
-  // Texte recherchable d'une ligne (concatène les colonnes, sans HTML)
   _rowText(row) {
     const { columns } = this._current;
     return columns.map((c) => (c.render ? c.render(row) : (row[c.key] ?? '')))
       .join(' ').replace(/<[^>]*>/g, ' ').replace(/&[a-z]+;/gi, ' ').toLowerCase();
   },
 
-  // Construit le corps du tableau (réutilisé au rendu initial et à la recherche)
   _renderBody(rows) {
-    const { columns, rowActions } = this._current;
+    const { columns, rowActions, selectable } = this._current;
+    const colCount = columns.length + (rowActions ? 1 : 0) + (selectable ? 1 : 0);
     if (!rows.length) {
-      return `<tr><td colspan="${columns.length + (rowActions ? 1 : 0)}" class="text-center text-muted" style="padding:36px">Aucun résultat</td></tr>`;
+      return `<tr><td colspan="${colCount}" class="text-center text-muted" style="padding:36px">Aucun résultat</td></tr>`;
     }
     return rows.map((row) => {
+      const selectCell = selectable
+        ? `<td style="width:36px;text-align:center"><input type="checkbox" class="row-select" value="${row.id}" onchange="CrudPage.updateBulkBar()"/></td>`
+        : '';
       const cells = columns.map((c) => `<td>${c.render ? c.render(row) : (row[c.key] ?? '—')}</td>`).join('');
       const actions = rowActions ? `<td>${rowActions(row)}</td>` : '';
-      return `<tr>${cells}${actions}</tr>`;
+      return `<tr>${selectCell}${cells}${actions}</tr>`;
     }).join('');
   },
 
-  // Filtre instantané (appelé depuis le champ de recherche)
   filter(q) {
     if (!this._current) return;
     const query = String(q || '').trim().toLowerCase();
@@ -33,21 +33,112 @@ const CrudPage = {
     tbody.innerHTML = this._renderBody(rows);
     const count = document.getElementById('crudCount');
     if (count) count.textContent = `${rows.length} élément(s)`;
+    this.updateBulkBar();
     if (typeof Icons !== 'undefined') Icons.enhance(tbody);
   },
 
-  // Construit la barre + tableau (avec recherche intégrée)
-  async list({ endpoint, title, columns, rowActions, canCreate, onCreate, toolbar = '', mapData, searchable = true }) {
+  toggleSelectAll(master) {
+    const checked = master.checked;
+    document.querySelectorAll('.row-select').forEach((chk) => {
+      chk.checked = checked;
+    });
+    this.updateBulkBar();
+  },
+
+  getSelectedIds() {
+    const ids = [];
+    document.querySelectorAll('.row-select:checked').forEach((chk) => {
+      const val = Number(chk.value) || chk.value;
+      if (val) ids.push(val);
+    });
+    return ids;
+  },
+
+  updateBulkBar() {
+    const ids = this.getSelectedIds();
+    const bar = document.getElementById('bulkBar');
+    const cnt = document.getElementById('bulkCount');
+    const master = document.getElementById('selectAllRows');
+
+    if (cnt) cnt.textContent = ids.length;
+    if (bar) {
+      bar.style.display = ids.length > 0 ? 'flex' : 'none';
+    }
+
+    if (master) {
+      const allBoxes = document.querySelectorAll('.row-select');
+      if (allBoxes.length > 0 && ids.length === allBoxes.length) {
+        master.checked = true;
+        master.indeterminate = false;
+      } else if (ids.length > 0) {
+        master.checked = false;
+        master.indeterminate = true;
+      } else {
+        master.checked = false;
+        master.indeterminate = false;
+      }
+    }
+  },
+
+  async deleteSelected() {
+    const ids = this.getSelectedIds();
+    if (!ids.length) return;
+    if (!confirm(`Voulez-vous vraiment supprimer les ${ids.length} élément(s) sélectionné(s) ?`)) return;
+
+    try {
+      const { endpoint, reloadFn } = this._current;
+      await API.post(`${endpoint}/bulk-delete`, { ids });
+      Toast.success(`${ids.length} élément(s) supprimé(s) avec succès`);
+      if (reloadFn) {
+        reloadFn();
+      } else if (this._current.onReload) {
+        this._current.onReload();
+      } else {
+        this.list(this._current.options);
+      }
+    } catch (err) {
+      // Fallback si bulk-delete n'est pas supporté sur la route
+      try {
+        let count = 0;
+        for (const id of ids) {
+          await API.delete(`${this._current.endpoint}/${id}`);
+          count++;
+        }
+        Toast.success(`${count} élément(s) supprimé(s) avec succès`);
+        if (this._current.onReload) this._current.onReload();
+        else this.list(this._current.options);
+      } catch (e) {
+        Toast.error(e.message || 'Erreur lors de la suppression par lot');
+      }
+    }
+  },
+
+  async list(options) {
+    const { endpoint, title, columns, rowActions, canCreate, onCreate, toolbar = '', mapData, searchable = true, selectable = true, onReload } = options;
     Layout.setTitle(title);
     const res = await API.get(endpoint);
     let data = res.data || [];
     if (mapData) data = mapData(data);
 
-    this._current = { data, columns, rowActions };
-    const head = columns.map((c) => `<th>${c.label}</th>`).join('') + (rowActions ? '<th>Actions</th>' : '');
+    // Seul le Manager (et super_admin) a le droit de supprimer des éléments par lot
+    const canSelect = selectable && Auth.hasRole('manager', 'super_admin');
+
+    this._current = { data, columns, rowActions, endpoint, selectable: canSelect, onReload, options };
+
+    const selectHead = canSelect
+      ? `<th style="width:36px;text-align:center"><input type="checkbox" id="selectAllRows" onclick="CrudPage.toggleSelectAll(this)" title="Tout sélectionner / désélectionner"/></th>`
+      : '';
+    const head = selectHead + columns.map((c) => `<th>${c.label}</th>`).join('') + (rowActions ? '<th>Actions</th>' : '');
 
     const search = searchable
       ? `<div class="toolbar"><input class="form-control search" id="crudSearch" type="search" placeholder="🔎 Rechercher dans ${title.toLowerCase()}…" oninput="CrudPage.filter(this.value)" style="max-width:340px"/></div>`
+      : '';
+
+    const bulkBar = canSelect
+      ? `<div id="bulkBar" style="display:none; background:var(--bg-surface-2); padding:10px 16px; border-radius:var(--radius-sm); margin-bottom:14px; align-items:center; justify-content:space-between; border:1px solid var(--border);">
+          <div style="font-weight:600; font-size:13.5px;"><span id="bulkCount">0</span> élément(s) sélectionné(s)</div>
+          <button class="btn btn-sm btn-danger" onclick="CrudPage.deleteSelected()">🗑 Supprimer la sélection</button>
+        </div>`
       : '';
 
     Layout.content(`
@@ -57,6 +148,7 @@ const CrudPage = {
       </div>
       ${search}
       ${toolbar}
+      ${bulkBar}
       <div class="card"><div class="table-wrap"><table>
         <thead><tr>${head}</tr></thead><tbody id="crudTbody">${this._renderBody(data)}</tbody>
       </table></div></div>
@@ -64,7 +156,6 @@ const CrudPage = {
     return data;
   },
 
-  // Génère les champs d'un formulaire
   formFields(fields, values = {}) {
     return fields.map((f) => {
       const val = values[f.name] ?? f.default ?? '';
@@ -102,7 +193,6 @@ const CrudPage = {
     return data;
   },
 
-  // Modale d'édition/création générique
   openForm({ title, fields, values = {}, onSubmit }) {
     Modal.open(title,
       `<form id="crudForm">${this.formFields(fields, values)}</form>`,
@@ -116,7 +206,7 @@ const CrudPage = {
 
   async confirmDelete(endpoint, onDone) {
     if (!confirm('Confirmer la suppression ?')) return;
-    try { await API.delete(endpoint); Toast.success('Supprimé'); onDone(); }
+    try { await API.delete(endpoint); Toast.success('Supprimé avec succès'); onDone(); }
     catch (e) { Toast.error(e.message); }
   },
 };

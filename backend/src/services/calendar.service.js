@@ -83,6 +83,7 @@ class CalendarService {
     const isMeeting = !!data.is_meeting;
     const event = await CalendarEvent.create({
       title: data.title,
+      description: data.description ? data.description.trim() : null,
       start_datetime: data.start_datetime,
       end_datetime: data.end_datetime || null,
       task_id: data.task_id || null,
@@ -106,9 +107,10 @@ class CalendarService {
     }
     const isMeeting = data.is_meeting !== undefined ? !!data.is_meeting : e.is_meeting;
     await e.update({
-      title: data.title,
-      start_datetime: data.start_datetime,
-      end_datetime: data.end_datetime || null,
+      title: data.title !== undefined ? data.title : e.title,
+      description: data.description !== undefined ? (data.description ? data.description.trim() : null) : e.description,
+      start_datetime: data.start_datetime !== undefined ? data.start_datetime : e.start_datetime,
+      end_datetime: data.end_datetime !== undefined ? data.end_datetime : e.end_datetime,
       is_meeting: isMeeting,
     });
     if (Array.isArray(data.participant_ids)) {
@@ -124,8 +126,8 @@ class CalendarService {
   async remove(id, currentUser) {
     const e = await CalendarEvent.findByPk(id);
     if (!e) throw Object.assign(new Error('Événement introuvable'), { status: 404 });
-    if (e.created_by !== currentUser.id && !['manager', 'super_admin'].includes(currentUser.role)) {
-      throw Object.assign(new Error('Action non autorisée'), { status: 403 });
+    if (!['manager', 'super_admin'].includes(currentUser.role)) {
+      throw Object.assign(new Error('Seul le manager a l\'autorisation de supprimer un événement'), { status: 403 });
     }
     await e.destroy();
     return true;

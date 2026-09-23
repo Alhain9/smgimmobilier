@@ -92,21 +92,59 @@ const saveGroups = (groups) => {
   }
 };
 
-router.get('/whatsapp-groups', (req, res) => {
-  res.json({ success: true, data: getGroups() });
+router.get('/whatsapp-groups', async (req, res) => {
+  let groups = getGroups();
+
+  if (req.user && req.user.role === 'locataire') {
+    try {
+      const { Tenant, Apartment, Lease } = require('../models');
+      const tenant = await Tenant.findOne({
+        where: { user_id: req.user.id },
+        include: [
+          { model: Apartment, as: 'apartment', attributes: ['id', 'property_id'] },
+          { model: Lease, as: 'leases', include: [{ model: Apartment, as: 'apartment', attributes: ['id', 'property_id'] }] }
+        ]
+      });
+
+      const tenantPropId = tenant ? (tenant.apartment?.property_id || (tenant.leases && tenant.leases[0]?.apartment?.property_id)) : null;
+
+      if (tenantPropId) {
+        const specificGroups = groups.filter(g => String(g.property_id) === String(tenantPropId));
+        if (specificGroups.length > 0) {
+          groups = specificGroups;
+        } else {
+          groups = groups.filter(g => !g.property_id || String(g.property_id) === String(tenantPropId));
+        }
+      }
+    } catch (_) {}
+  }
+
+  res.json({ success: true, data: groups });
 });
 
-router.post('/whatsapp-groups', authorize('super_admin', 'manager', 'dir_admin'), (req, res) => {
-  const { name, description, link } = req.body;
+router.post('/whatsapp-groups', authorize('super_admin', 'manager', 'dir_admin'), async (req, res) => {
+  const { name, description, link, property_id } = req.body;
   if (!name || !link) {
     return res.status(400).json({ success: false, message: 'Le nom et le lien sont requis.' });
   }
+
+  let property_name = null;
+  if (property_id) {
+    try {
+      const { Property } = require('../models');
+      const prop = await Property.findByPk(property_id);
+      if (prop) property_name = prop.property_name;
+    } catch (_) {}
+  }
+
   const groups = getGroups();
   const newGroup = {
     id: 'grp_' + Date.now(),
     name,
     description: description || '',
-    link
+    link,
+    property_id: property_id || null,
+    property_name
   };
   groups.push(newGroup);
   saveGroups(groups);

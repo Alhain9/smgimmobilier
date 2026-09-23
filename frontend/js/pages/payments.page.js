@@ -19,9 +19,42 @@ const PagePayments = {
   },
   whatsapp(id) { Communication.openWhatsApp(this.ctxOf(this._rows[id])); },
   call(id) { Communication.call(this._rows[id]?.tenant?.user?.phone); },
-  pdfReceipt(id) { PDF.paymentReceipt(this._rows[id]); },
-  pdfInvoice(id) { PDF.invoice(this._rows[id]); },
-  pdfReminder(id) { PDF.paymentReminder(this.ctxOf(this._rows[id])); },
+  pdfReceipt(id) {
+    const p = this._rows[id];
+    if (window.ReceiptManager) {
+      ReceiptManager.open(p);
+    } else {
+      const pdf = window.PDF || (typeof PDF !== 'undefined' ? PDF : null);
+      if (pdf && pdf.paymentReceipt) pdf.paymentReceipt(p);
+    }
+  },
+  async downloadPdf(id) {
+    Toast.info('Téléchargement du reçu officiel PDF...');
+    try {
+      const blob = await API.downloadBlob(`/payments/${id}/receipt-pdf`);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Recu_Paiement_${id}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => window.URL.revokeObjectURL(url), 2000);
+      Toast.success('Reçu PDF officiel téléchargé ✅');
+    } catch (err) {
+      console.warn('Erreur download receipt-pdf backend:', err);
+      const p = this._rows[id];
+      if (window.PDF && p) PDF.paymentReceipt(p);
+    }
+  },
+  pdfInvoice(id) {
+    const pdf = window.PDF || (typeof PDF !== 'undefined' ? PDF : null);
+    if (pdf && pdf.invoice) pdf.invoice(this._rows[id]);
+  },
+  pdfReminder(id) {
+    const pdf = window.PDF || (typeof PDF !== 'undefined' ? PDF : null);
+    if (pdf && pdf.paymentReminder) pdf.paymentReminder(this.ctxOf(this._rows[id]));
+  },
 
   async fields() {
     this._tenants = (await API.get('/tenants')).data;
@@ -34,7 +67,7 @@ const PagePayments = {
       { name: 'payment_method', label: 'Méthode', type: 'select', options: [
         { value: 'orange_money', label: 'Orange Money' }, { value: 'mtn_mobile_money', label: 'MTN MoMo' },
         { value: 'bank_transfer', label: 'Virement bancaire' }, { value: 'cash', label: 'Espèces' },
-        { value: 'kang', label: 'Mobile Money (Kang)' }] },
+        { value: 'campay', label: 'Mobile Money (CamPay)' }] },
       { name: 'status', label: 'Statut', type: 'select', options: [
         { value: 'completed', label: 'Payé' }, { value: 'pending', label: 'En attente' },
         { value: 'awaiting_confirmation', label: 'À vérifier' },
@@ -67,7 +100,10 @@ const PagePayments = {
         <button class="btn btn-sm btn-danger" title="Rejeter" onclick="PagePayments.verify(${r.id},'failed')">❌</button>` : ''}
         ${canContact ? `<button class="btn btn-sm btn-whatsapp" title="WhatsApp" onclick="PagePayments.whatsapp(${r.id})">🟢</button>
         <button class="btn btn-sm btn-outline" title="Appeler" onclick="PagePayments.call(${r.id})">📞</button>` : ''}
-        <button class="btn btn-sm btn-outline" title="${r.status === 'completed' ? 'Reçu PDF' : 'Rappel PDF'}" onclick="PagePayments.${r.status === 'completed' ? 'pdfReceipt' : 'pdfReminder'}(${r.id})">📄</button>
+        ${r.status === 'completed' 
+          ? `<button class="btn btn-sm btn-primary" title="Voir et imprimer le reçu officiel" onclick="PagePayments.pdfReceipt(${r.id})" style="font-weight:600;display:inline-flex;align-items:center;gap:4px;">👁️ Voir le reçu</button>
+             <button class="btn btn-sm btn-outline" title="Télécharger le reçu officiel PDF" onclick="PagePayments.downloadPdf(${r.id})" style="font-weight:600;display:inline-flex;align-items:center;gap:4px;">📄 PDF</button>` 
+          : `<button class="btn btn-sm btn-outline" title="Rappel de paiement PDF" onclick="PagePayments.pdfReminder(${r.id})">📄 Rappel</button>`}
         ${r.tenant?.id ? `<button class="btn btn-sm btn-outline" title="Relevé de compte" onclick="PageSituation.ledger(${r.tenant.id})">📋</button>` : ''}
         ${canEdit ? `<button class="btn btn-sm btn-outline" onclick="PagePayments.uploadProof(${r.id})">⬆</button>
         <button class="btn btn-sm btn-outline" onclick="PagePayments.edit(${r.id})">✏️</button>
@@ -94,15 +130,262 @@ const PagePayments = {
     Layout.content(`<div class="page-head"><h2>🔴 Impayés & relances</h2><button class="btn btn-outline" onclick="Router.go('payments')">← Retour</button></div>
       <div class="card"><div class="table-wrap"><table><thead><tr><th>Locataire</th><th>Immeuble</th><th>Logement</th><th>Montant</th><th>Date</th><th>Statut</th><th>Relance</th></tr></thead><tbody>${rows}</tbody></table></div></div>`);
   },
+  async openPaymentModal(options = {}) {
+    const { isEdit = false, values = {} } = options;
+    const title = isEdit ? 'Modifier le paiement' : 'Nouveau paiement de loyer';
+
+    try {
+      // Charger les locataires et les logements en parallèle de façon sécurisée
+      const [tenantsRes, aptsRes] = await Promise.all([
+        API.get('/tenants').catch(e => { console.warn('Erreur chargement locataires:', e); return { data: [] }; }),
+        API.get('/apartments').catch(e => { console.warn('Erreur chargement logements:', e); return { data: [] }; })
+      ]);
+      this._tenants = tenantsRes.data || [];
+      this._apartments = aptsRes.data || [];
+    } catch (e) {
+      console.warn('Erreur globale chargement paiement:', e);
+      this._tenants = this._tenants || [];
+      this._apartments = this._apartments || [];
+    }
+
+    const defaultDate = values.payment_date || new Date().toISOString().slice(0, 10);
+    const defaultAmount = values.amount || '';
+    const defaultMethod = values.payment_method || 'orange_money';
+    const defaultStatus = values.status || 'completed';
+    const selectedAptId = values.apartment_id || (values.apartment ? values.apartment.id : '');
+
+    // Options du sélecteur de logements enrichies (Immeuble + Numéro + Loyer)
+    const aptOptions = [
+      '<option value="">— Aucun logement (Paiement direct) —</option>',
+      ...(this._apartments || []).map(a => {
+        const propName = a.property?.property_name || 'Immeuble';
+        const city = a.property?.city ? ` (${a.property.city})` : '';
+        const rentInfo = a.rent_amount > 0 ? ` · ${Helpers.formatMoney(a.rent_amount)}/m` : '';
+        const isSelected = String(a.id) === String(selectedAptId) ? 'selected' : '';
+        return `<option value="${a.id}" ${isSelected}>Logement ${Helpers.escapeHtml(a.apartment_number)} — ${Helpers.escapeHtml(propName)}${city}${rentInfo}</option>`;
+      })
+    ].join('');
+
+    const tp = window.TenantPicker || (typeof TenantPicker !== 'undefined' ? TenantPicker : null);
+    const tenantSelectorHtml = (tp && typeof tp.html === 'function')
+      ? tp.html({
+          name: 'tenant_id',
+          label: 'Locataire concerné *',
+          placeholder: '🔍 Tapez le nom, téléphone, immeuble ou logement...',
+          required: true
+        })
+      : `
+        <div class="form-group" style="position:relative;">
+          <label for="tp_hidden_id" style="font-weight:600;">Locataire concerné *</label>
+          <select id="tp_hidden_id" class="form-control" required style="font-size:13.5px;">
+            <option value="">— Sélectionner un locataire —</option>
+            ${(this._tenants || []).map(t => {
+              const name = t.user?.full_name || t.full_name || ('Locataire #' + t.id);
+              const sel = (String(values.tenant_id) === String(t.id) || (values.tenant && String(values.tenant.id) === String(t.id))) ? 'selected' : '';
+              return `<option value="${t.id}" ${sel}>${Helpers.escapeHtml(name)}</option>`;
+            }).join('')}
+          </select>
+        </div>
+      `;
+
+    const modalBody = `
+      <form id="payForm" onsubmit="return false;" style="display:flex;flex-direction:column;gap:14px;">
+        
+        <!-- 1. SÉLECTEUR DE LOCATAIRE INTELLIGENT (RECHERCHE + DÉFILEMENT) -->
+        ${tenantSelectorHtml}
+
+        <!-- 2. LOGEMENT ASSOCIÉ (SÉLECTION AUTOMATIQUE) -->
+        <div class="form-group" style="position:relative;">
+          <label for="pay_apartment_id" style="font-weight:600;display:flex;justify-content:space-between;align-items:center;">
+            <span>🏢 Logement & Immeuble attribué</span>
+            <span class="badge badge-info" id="pay_apt_auto_tag" style="font-size:10.5px;padding:2px 6px;">
+              Auto-détecté
+            </span>
+          </label>
+          <select class="form-control" id="pay_apartment_id" style="font-size:13.5px;">
+            ${aptOptions}
+          </select>
+          <small id="pay_apt_hint" class="text-muted" style="font-size:11.5px;margin-top:3px;display:block;">
+            💡 Dès le choix du locataire, son logement officiel est sélectionné automatiquement ici.
+          </small>
+        </div>
+
+        <!-- 3. MONTANT & DATE -->
+        <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div class="form-group">
+            <label for="pay_amount" style="font-weight:600;">Montant encaissé (FCFA) *</label>
+            <input type="number" id="pay_amount" class="form-control" value="${defaultAmount}" placeholder="ex: 150000" step="500" required />
+          </div>
+          <div class="form-group">
+            <label for="pay_date" style="font-weight:600;">Date de paiement *</label>
+            <input type="date" id="pay_date" class="form-control" value="${defaultDate}" required />
+          </div>
+        </div>
+
+        <!-- 4. MÉTHODE & STATUT -->
+        <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div class="form-group">
+            <label for="pay_method" style="font-weight:600;">Mode de paiement *</label>
+            <select id="pay_method" class="form-control">
+              <option value="orange_money" ${defaultMethod === 'orange_money' ? 'selected' : ''}>Orange Money</option>
+              <option value="mtn_mobile_money" ${defaultMethod === 'mtn_mobile_money' ? 'selected' : ''}>MTN MoMo</option>
+              <option value="cash" ${defaultMethod === 'cash' ? 'selected' : ''}>Espèces</option>
+              <option value="bank_transfer" ${defaultMethod === 'bank_transfer' ? 'selected' : ''}>Virement bancaire</option>
+              <option value="campay" ${defaultMethod === 'campay' ? 'selected' : ''}>Mobile Money (CamPay)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="pay_status" style="font-weight:600;">Statut du règlement *</label>
+            <select id="pay_status" class="form-control">
+              <option value="completed" ${defaultStatus === 'completed' ? 'selected' : ''}>Payé (Validé)</option>
+              <option value="pending" ${defaultStatus === 'pending' ? 'selected' : ''}>En attente</option>
+              <option value="awaiting_confirmation" ${defaultStatus === 'awaiting_confirmation' ? 'selected' : ''}>À vérifier</option>
+              <option value="failed" ${defaultStatus === 'failed' ? 'selected' : ''}>Échoué</option>
+              <option value="refunded" ${defaultStatus === 'refunded' ? 'selected' : ''}>Remboursé</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- 5. JUSTIFICATIF OPTIONNEL -->
+        <div class="form-group">
+          <label for="pay_proof" style="font-weight:600;">Justificatif / Reçu (Optionnel)</label>
+          <input type="file" id="pay_proof" class="form-control" accept="image/*,application/pdf" />
+        </div>
+
+      </form>
+    `;
+
+    const modalFooter = `
+      <button class="btn btn-outline" onclick="Modal.close()">Annuler</button>
+      <button class="btn btn-primary" id="btnSubmitPayment">
+        ${isEdit ? '💾 Mettre à jour' : '✅ Enregistrer le paiement'}
+      </button>
+    `;
+
+    Modal.open({
+      title,
+      content: modalBody,
+      footer: modalFooter,
+      size: 'medium'
+    });
+
+    // Initialiser TenantPicker avec l'auto-liaison du logement et du montant
+    if (tp && typeof tp.init === 'function') {
+      tp.init({
+        tenants: this._tenants,
+        apartments: this._apartments,
+        selectedTenantId: values.tenant_id || (values.tenant ? values.tenant.id : null),
+        apartmentSelectId: 'pay_apartment_id',
+        rentInputId: 'pay_amount',
+        onSelect: (tenant, meta) => {
+          const hintEl = document.getElementById('pay_apt_hint');
+          if (hintEl && meta.hasApartment) {
+            hintEl.innerHTML = `<span style="color:#16a34a;font-weight:600;">✓ Logement attribué à ${Helpers.escapeHtml(meta.name)} : ${Helpers.escapeHtml(meta.propertyName)} (${Helpers.escapeHtml(meta.apartmentNumber)})</span>`;
+          }
+        }
+      });
+    } else {
+      const selectEl = document.getElementById('tp_hidden_id');
+      if (selectEl) {
+        selectEl.addEventListener('change', () => {
+          const tId = selectEl.value;
+          const tenant = (this._tenants || []).find(t => String(t.id) === String(tId));
+          if (tenant) {
+            const aptId = tenant.apartment_id || (tenant.apartment ? tenant.apartment.id : null);
+            if (aptId) {
+              const aptSelect = document.getElementById('pay_apartment_id');
+              if (aptSelect) aptSelect.value = String(aptId);
+            }
+          }
+        });
+      }
+    }
+
+    // Soumission du formulaire
+    document.getElementById('btnSubmitPayment').onclick = async () => {
+      const tenantId = document.getElementById('tp_hidden_id')?.value;
+      const apartmentId = document.getElementById('pay_apartment_id')?.value;
+      const amount = document.getElementById('pay_amount')?.value;
+      const paymentDate = document.getElementById('pay_date')?.value;
+      const paymentMethod = document.getElementById('pay_method')?.value;
+      const status = document.getElementById('pay_status')?.value;
+      const proofFile = document.getElementById('pay_proof')?.files[0];
+
+      if (!tenantId) {
+        Toast.error('Veuillez sélectionner un locataire dans la liste');
+        document.getElementById('tp_search_input')?.focus();
+        return;
+      }
+      if (!amount || parseFloat(amount) <= 0) {
+        Toast.error('Veuillez renseigner un montant valide en FCFA');
+        document.getElementById('pay_amount')?.focus();
+        return;
+      }
+      if (!paymentDate) {
+        Toast.error('Veuillez indiquer la date de paiement');
+        return;
+      }
+
+      const payload = {
+        tenant_id: parseInt(tenantId, 10),
+        amount: parseFloat(amount),
+        payment_date: paymentDate,
+        payment_method: paymentMethod,
+        status: status,
+      };
+      if (apartmentId) {
+        payload.apartment_id = parseInt(apartmentId, 10);
+      }
+
+      try {
+        let paymentId = values.id;
+        if (isEdit) {
+          await API.put(`/payments/${values.id}`, payload);
+          Toast.success('Paiement mis à jour avec succès');
+        } else {
+          const res = await API.post('/payments', payload);
+          paymentId = res.data ? res.data.id : null;
+          Toast.success('Paiement enregistré avec succès');
+        }
+
+        // Si justificatif fourni, l'uploader
+        if (proofFile && paymentId) {
+          const fd = new FormData();
+          fd.append('proof', proofFile);
+          try {
+            await API.upload(`/payments/${paymentId}/proof`, fd);
+          } catch (e) {
+            console.warn('Erreur téléversement justificatif:', e);
+          }
+        }
+
+        Modal.close();
+        PagePayments.render();
+      } catch (err) {
+        Toast.error(err.message || 'Erreur lors de l’enregistrement du paiement');
+      }
+    };
+  },
+
   async create() {
-    CrudPage.openForm({ title: 'Nouveau paiement', fields: await this.fields(),
-      onSubmit: async (d) => { if (!d.apartment_id) delete d.apartment_id; await API.post('/payments', d); Toast.success('Paiement enregistré'); PagePayments.render(); } });
+    try {
+      await this.openPaymentModal({ isEdit: false });
+    } catch (err) {
+      console.error('Erreur create payment:', err);
+      Toast.error('Erreur lors de l’ouverture du formulaire: ' + (err.message || err));
+    }
   },
+
   async edit(id) {
-    const r = (await API.get('/payments/' + id)).data;
-    CrudPage.openForm({ title: 'Modifier paiement', fields: await this.fields(), values: r,
-      onSubmit: async (d) => { if (!d.apartment_id) delete d.apartment_id; await API.put('/payments/' + id, d); Toast.success('Mis à jour'); PagePayments.render(); } });
+    try {
+      const r = (await API.get('/payments/' + id)).data;
+      await this.openPaymentModal({ isEdit: true, values: r });
+    } catch (err) {
+      console.error('Erreur edit payment:', err);
+      Toast.error('Erreur lors de la modification du paiement: ' + (err.message || err));
+    }
   },
+
   uploadProof(id) {
     Modal.open('Uploader le justificatif', '<div class="form-group"><label>Reçu (image ou PDF)</label><input type="file" id="proofFile" class="form-control" accept="image/*,application/pdf"/></div>',
       `<button class="btn btn-outline" onclick="Modal.close()">Annuler</button><button class="btn btn-primary" onclick="PagePayments.submitProof(${id})">Uploader</button>`);
@@ -122,3 +405,4 @@ const PagePayments = {
     } catch (e) { Toast.error(e.message); }
   },
 };
+

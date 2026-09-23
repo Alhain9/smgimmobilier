@@ -7,11 +7,31 @@ exports.list = async (req, res, next) => {
     return success(res, { items, unread });
   } catch (err) { next(err); }
 };
+
 exports.markRead = async (req, res, next) => {
-  try { await service.markRead(req.params.id, req.user.id); return success(res, null, 'Marquée comme lue'); }
-  catch (err) { next(err); }
+  try {
+    await service.markRead(req.params.id, req.user.id);
+    return success(res, null, 'Marquée comme lue');
+  } catch (err) { next(err); }
 };
+
 exports.markAllRead = async (req, res, next) => {
-  try { await service.markAllRead(req.user.id); return success(res, null, 'Toutes marquées comme lues'); }
-  catch (err) { next(err); }
+  try {
+    await service.markAllRead(req.user.id);
+    return success(res, null, 'Toutes marquées comme lues');
+  } catch (err) { next(err); }
+};
+
+exports.delete = async (req, res, next) => {
+  try {
+    await service.delete(req.params.id, req.user.id);
+    return success(res, null, 'Notification supprimée');
+  } catch (err) { next(err); }
+};
+
+exports.deleteAll = async (req, res, next) => {
+  try {
+    await service.deleteAll(req.user.id);
+    return success(res, null, 'Toutes les notifications ont été supprimées');
+  } catch (err) { next(err); }
 };

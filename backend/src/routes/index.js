@@ -20,7 +20,6 @@ router.use('/salaries', require('./salary.routes'));
 router.use('/relances', require('./relance.routes'));
 router.use('/utility-bills', require('./utility.routes'));
 router.use('/reports', require('./report.routes'));
-router.use('/assistant', require('./assistant.routes'));
 // ===== Nouvelles routes SMG IMMOBILIER =====
 router.use('/exports', require('./export.routes'));
 router.use('/audit-logs', require('./audit.routes'));
@@ -28,6 +27,14 @@ router.use('/rh', require('./rh.routes'));
 router.use('/workflows', require('./workflow.routes'));
 router.use('/messages', require('./message.routes'));
 router.use('/gps', require('./gps.routes'));
+router.use('/receipts', require('./receipt.routes'));
+router.use('/management-reports', require('./management-report.routes'));
+router.use('/suppliers', require('./supplier.routes'));
+router.use('/stock', require('./stock.routes'));
+router.use('/warehouses', require('./warehouse.routes'));
+router.use('/worksites', require('./worksite.routes'));
+router.use('/delegations', require('./delegation.routes'));
+router.use('/company-settings', require('./company-settings.routes'));
 
 router.get('/', (req, res) => {
   res.json({ message: 'API SMG IMMOBILIER v2.0', status: 'online', version: '2.0.0' });

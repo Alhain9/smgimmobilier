@@ -13,11 +13,15 @@ const UtilityBill = sequelize.define('UtilityBill', {
   unit_price: { type: DataTypes.DECIMAL(10, 2), allowNull: false, defaultValue: 0 },     // prix kWh / m3
   garbage_fee: { type: DataTypes.DECIMAL(10, 2), allowNull: false, defaultValue: 0 },    // poubelle
   transport_fee: { type: DataTypes.DECIMAL(10, 2), allowNull: false, defaultValue: 0 },
+  impayer: { type: DataTypes.DECIMAL(10, 2), allowNull: false, defaultValue: 0 },         // arriéré / impayé reporté
   other_fee: { type: DataTypes.DECIMAL(10, 2), allowNull: false, defaultValue: 0 },
   other_label: { type: DataTypes.STRING(80) },
   total_amount: { type: DataTypes.DECIMAL(14, 2), allowNull: false, defaultValue: 0 },   // calculé au service
   status: { type: DataTypes.ENUM('pending', 'paid'), allowNull: false, defaultValue: 'pending' },
   paid_date: { type: DataTypes.DATEONLY },
+  due_date: { type: DataTypes.DATEONLY },                                                 // date limite de paiement
+  payment_method: { type: DataTypes.STRING(50), defaultValue: 'Espèces' },               // mode de règlement
+  receipt_number: { type: DataTypes.STRING(50) },                                         // numéro de reçu officiel
   payment_proof: { type: DataTypes.STRING(255) },
   notes: { type: DataTypes.TEXT },
   created_by: { type: DataTypes.BIGINT.UNSIGNED },

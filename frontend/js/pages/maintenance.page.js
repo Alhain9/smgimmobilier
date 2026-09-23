@@ -12,6 +12,7 @@ const PageMaintenance = {
       { name: 'title', label: 'Titre', required: true },
       { name: 'priority', label: 'Priorité', type: 'select', options: [
         { value: 'low', label: 'Basse' }, { value: 'medium', label: 'Normale' }, { value: 'high', label: 'Haute' }, { value: 'urgent', label: 'Urgente' }] },
+      { name: 'photo', label: 'Photo du problème (Obligatoire)', type: 'file', accept: 'image/*', required: true },
       { name: 'description', label: 'Description', type: 'textarea' },
     ];
   },
@@ -95,7 +96,26 @@ const PageMaintenance = {
     });
     Modal.close();
   },
-  async create() { CrudPage.openForm({ title: 'Nouveau ticket maintenance', fields: await this.fields(), onSubmit: async (d) => { await API.post('/maintenance', d); Toast.success('Ticket créé'); PageMaintenance.render(); } }); },
+  async create() {
+    CrudPage.openForm({
+      title: 'Nouveau ticket maintenance',
+      fields: await this.fields(),
+      onSubmit: async (d) => {
+        const fileInput = document.getElementById('f_photo');
+        const file = fileInput ? fileInput.files[0] : null;
+        if (!file) {
+          Toast.error('Une photo du problème est obligatoire');
+          throw new Error('Photo manquante');
+        }
+        const fd = new FormData();
+        Object.keys(d).forEach((k) => { if (d[k] != null) fd.append(k, d[k]); });
+        fd.append('photo', file);
+        await API.upload('/maintenance', fd);
+        Toast.success('Ticket créé avec succès');
+        PageMaintenance.render();
+      }
+    });
+  },
   async assign(id) {
     await this.loadRefs();
     const opts = this._technicians.map((t) => `<option value="${t.id}">${t.full_name}</option>`).join('');
@@ -199,35 +219,52 @@ const PageMaintenance = {
     catch (e) { Toast.error(e.message); }
   },
 
-  // ---- Ajouter du matériel / équipement (dépense liée au chantier) ----
-  addMaterial(id) {
-    Modal.open('Ajouter matériel / équipement', `
-      <div class="form-group"><label>Nom du matériel / équipement</label><input class="form-control" id="matName" required placeholder="Ex: Tuyau PVC"/></div>
-      <div class="form-row">
-        <div class="form-group" style="flex:1"><label>Catégorie</label><input class="form-control" id="matCat" placeholder="Plomberie..."/></div>
-        <div class="form-group" style="flex:1"><label>Fournisseur</label><input class="form-control" id="matSupplier"/></div>
+  // ---- Ajouter du matériel / équipement (depuis le stock ou achat direct) ----
+  async addMaterial(id) {
+    let stockItems = [];
+    try {
+      const res = await API.get('/stock/items');
+      stockItems = res.data || [];
+    } catch (_) {}
+
+    const stockOptions = stockItems.map((it) => `<option value="${it.id}">${it.name} [${it.item_code}] (Dispo: ${it.quantity} ${it.unit} · PUMP: ${it.unit_price_avg} FCFA)</option>`).join('');
+
+    Modal.open('Prélever du matériel pour l\'intervention', `
+      <p class="text-muted" style="font-size:12px;margin-bottom:12px">
+        Choisissez un article disponible dans l'entrepôt. La déduction du stock et la dépense imputée à l'immeuble seront automatiques.
+      </p>
+      <div class="form-group">
+        <label>Article en Stock *</label>
+        <select class="form-control" id="matStockId">
+          <option value="">Sélectionner un article du stock...</option>
+          ${stockOptions}
+        </select>
       </div>
-      <div class="form-row">
-        <div class="form-group" style="flex:1"><label>Quantité</label><input type="number" class="form-control" id="matQty" value="1"/></div>
-        <div class="form-group" style="flex:1"><label>Prix unitaire (FCFA)</label><input type="number" class="form-control" id="matPrice" value="0"/></div>
-      </div>
-      <div class="form-group"><label>Justificatif (facture / photo)</label><input type="file" class="form-control" id="matReceipt" accept="image/*,application/pdf"/></div>`,
-      `<button class="btn btn-outline" onclick="PageMaintenance.view(${id})">Annuler</button><button class="btn btn-primary" onclick="PageMaintenance.submitMaterial(${id})">Enregistrer</button>`);
+      <div class="form-group">
+        <label>Quantité utilisée *</label>
+        <input type="number" class="form-control" id="matQty" value="1" min="1" step="any"/>
+      </div>`,
+      `<button class="btn btn-outline" onclick="PageMaintenance.view(${id})">Annuler</button>
+       <button class="btn btn-primary" onclick="PageMaintenance.submitMaterial(${id})">Prélever & Valider</button>`);
   },
   async submitMaterial(id) {
-    const name = document.getElementById('matName').value.trim();
-    if (!name) { Toast.error('Le nom est requis'); return; }
-    const fd = new FormData();
-    fd.append('maintenance_id', id);
-    fd.append('item_name', name);
-    fd.append('category', document.getElementById('matCat').value);
-    fd.append('supplier', document.getElementById('matSupplier').value);
-    fd.append('quantity', document.getElementById('matQty').value || 1);
-    fd.append('unit_price', document.getElementById('matPrice').value || 0);
-    const file = document.getElementById('matReceipt').files[0];
-    if (file) fd.append('receipt', file);
-    try { await API.upload('/expenses', fd); Toast.success('Matériel enregistré'); PageMaintenance.view(id); }
-    catch (e) { Toast.error(e.message); }
+    const stock_item_id = parseInt(document.getElementById('matStockId').value, 10);
+    const quantity = parseFloat(document.getElementById('matQty').value);
+
+    if (!stock_item_id || quantity <= 0) {
+      Toast.error('Veuillez sélectionner un article et une quantité');
+      return;
+    }
+
+    try {
+      await API.post(`/maintenance/${id}/materials`, {
+        materials: [{ stock_item_id, quantity }],
+      });
+      Toast.success('Matériel prélevé du stock et dépense imputée avec succès ✅');
+      PageMaintenance.view(id);
+    } catch (e) {
+      Toast.error(e.message || 'Erreur lors du prélèvement');
+    }
   },
   async uploadPhotos(id) {
     const files = document.getElementById('photoFiles').files;

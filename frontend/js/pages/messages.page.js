@@ -23,9 +23,17 @@ const PageMessages = {
   },
 
   async render() {
+    if (Auth.getRole() === 'locataire') {
+      Router.go('dashboard');
+      return;
+    }
     Layout.setTitle('Messagerie Interne');
     Layout.content(`
-      <div style="display:flex; height:calc(100vh - 160px); background:#fff; border-radius:8px; border:1px solid var(--border); overflow:hidden;">
+      <div class="flex gap-2 mb-3">
+        <button class="btn btn-primary">💬 Messagerie Interne</button>
+        <button class="btn btn-outline" onclick="Router.go('whatsapp-groups')">📱 Groupes WhatsApp</button>
+      </div>
+      <div style="display:flex; height:calc(100vh - 200px); background:var(--bg-surface); border-radius:12px; border:1px solid var(--border-color); overflow:hidden;">
         <!-- Liste de contacts -->
         <div style="width:300px; border-right:1px solid var(--border); display:flex; flex-direction:column; background:#F8F9FA;">
           <div style="padding:15px; border-bottom:1px solid var(--border); font-weight:bold; font-size:16px;">💬 Discussions</div>

@@ -51,10 +51,46 @@ module.exports = {
       return success(res, await ledgerService.tenantLedger(tenant.id));
     } catch (err) { next(err); }
   },
-  kangWebhook: async (req, res, next) => {
+  campayWebhook: async (req, res, next) => {
     try {
-      await paymentService.handleKangWebhook(req.body);
+      await paymentService.handleCampayWebhook(req.body);
       return success(res, null, 'OK');
+    } catch (err) { next(err); }
+  },
+  getReceiptPdf: async (req, res, next) => {
+    try {
+      const receiptService = require('../services/receipt.service');
+      const receiptPdfService = require('../services/receipt-pdf.service');
+
+      const { Payment } = require('../models');
+      const payment = await Payment.findByPk(req.params.id);
+      if (!payment) {
+        return error(res, 'Paiement introuvable', 404);
+      }
+
+      if (req.user && req.user.role === 'locataire') {
+        const tenant = await Tenant.findOne({ where: { user_id: req.user.id } });
+        if (!tenant || payment.tenant_id !== tenant.id) {
+          return error(res, 'Accès refusé : ce reçu ne vous appartient pas', 403);
+        }
+      }
+
+      let receipt = await receiptService.generateRentReceipt(req.params.id, req.user?.id);
+      if (!receipt) {
+        return error(res, 'Reçu introuvable pour ce paiement', 404);
+      }
+
+      if (req.ownerPropertyIds && receipt.property_id && !req.ownerPropertyIds.includes(receipt.property_id)) {
+        return error(res, 'Accès refusé', 403);
+      }
+
+      receipt = await receiptService.getById(receipt.id);
+      const buffer = await receiptPdfService.generate(receipt);
+      const filename = `${receipt.receipt_number || 'recu'}.pdf`;
+
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(buffer);
     } catch (err) { next(err); }
   },
 };

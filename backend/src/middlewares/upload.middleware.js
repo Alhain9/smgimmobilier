@@ -6,7 +6,8 @@ const uploadDir = path.join(__dirname, '..', 'uploads');
 
 // Détermine le sous-dossier selon le type
 const getFolder = (file) => {
-  if (file.mimetype === 'application/pdf') return 'contracts';
+  if (file.fieldname === 'logo') return 'company';
+  if (file.fieldname === 'template' || file.mimetype === 'application/pdf' || /\.docx?$/i.test(file.originalname)) return 'contracts';
   if (file.fieldname === 'proof') return 'payments';
   if (file.fieldname === 'photo' || file.mimetype.startsWith('image/')) return 'photos';
   return 'documents';
@@ -25,11 +26,10 @@ const storage = multer.diskStorage({
 });
 
 const fileFilter = (req, file, cb) => {
-  const allowed = /jpeg|jpg|png|gif|webp|pdf/;
-  const ext = allowed.test(path.extname(file.originalname).toLowerCase());
-  const mime = allowed.test(file.mimetype);
-  if (ext && mime) return cb(null, true);
-  cb(new Error('Format non autorisé. Images et PDF uniquement.'));
+  const allowedExt = /\.(jpeg|jpg|png|gif|webp|pdf|docx|doc)$/i;
+  const extValid = allowedExt.test(path.extname(file.originalname).toLowerCase());
+  if (extValid) return cb(null, true);
+  cb(new Error('Format non autorisé. Images, PDF et documents Word (.docx, .doc) uniquement.'));
 };
 
 const upload = multer({

@@ -12,17 +12,22 @@ const getBaseUrl = () => {
     const hostname = window.location.hostname;
     const protocol = window.location.protocol;
 
-    // 2. Déploiement Vercel → pointer vers Render
+    // 2. Fichier ouvert en local (file://) → fallback localhost
+    if (protocol === 'file:' || !hostname) {
+      return 'http://localhost:5000';
+    }
+
+    // 3. Déploiement Vercel → pointer vers Render
     if (hostname.includes('vercel.app')) {
       return RENDER_SERVER_URL;
     }
 
-    // 3. Autre domaine personnalisé (VPS, réseau local)
+    // 4. Autre domaine personnalisé (VPS, réseau local)
     if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
       return `${protocol}//${hostname}:5000`;
     }
   }
-  // 4. Développement local
+  // 5. Développement local
   return 'http://localhost:5000';
 };
 
@@ -47,4 +52,5 @@ const ROLE_LABELS = {
   comptable: 'Comptable',
   technicien: 'Technicien',
   locataire: 'Locataire',
+  bailleur: 'Bailleur / Propriétaire',
 };

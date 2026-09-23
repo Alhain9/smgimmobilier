@@ -1,12 +1,55 @@
-node_modules/
+# ==========================================
+# .gitignore - SMG Immobilier
+# Stack: HTML / CSS / JavaScript / Node.js / MySQL
+# ==========================================
+
+# --- Environnements & Secrets (CRITIQUE: mots de passe MySQL, JWT, API) ---
 .env
-*.log
-backend/logs/
+.env.*
+!.env.example
 backend/.env
-frontend-nextjs/node_modules/
-frontend-nextjs/.next/
-frontend-nextjs/out/
-frontend-nextjs/.env
-frontend-nextjs/.env.local
-frontend-nextjs/.env.development*
-frontend-nextjs/.env.production.local
+backend/.env.*
+!backend/.env.example
+
+# --- Dépendances Node.js ---
+node_modules/
+backend/node_modules/
+package-lock.json.backup
+
+# --- Logs d'exécution & Debug ---
+*.log
+logs/
+logs/**
+backend/logs/
+backend/logs/**
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# --- Fichiers uploadés par les utilisateurs ---
+backend/src/uploads/contracts/*
+backend/src/uploads/photos/*
+backend/src/uploads/payments/*
+backend/src/uploads/documents/*
+!backend/src/uploads/**/.gitkeep
+# Conserver le dossier company (logo de l'entreprise)
+!backend/src/uploads/company/
+
+# --- Tests temporaires & génération PDF/rapports locaux ---
+backend/test_*.pdf
+*.tmp
+
+# --- Fichiers de travail / Scratch ---
+scratch/
+.agents/
+
+# --- Système d'exploitation & IDE ---
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+
+# --- Nettoyage résiduel ---
+dist/
+build/
+coverage/

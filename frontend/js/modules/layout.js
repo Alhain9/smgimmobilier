@@ -16,38 +16,61 @@ const Layout = {
 
     { section: 'Finance' },
     { id: 'payments', label: 'Paiements', icon: '💰', roles: ['super_admin','manager','comptable','dir_admin','gestionnaire'] },
+    { id: 'receipts', label: 'Reçus de paiement', icon: '🧾', roles: ['super_admin','manager','comptable','dir_admin','gestionnaire','bailleur'] },
     { id: 'utilities', label: 'Charges & compteurs', icon: '⚡', roles: ['super_admin','manager','comptable','dir_admin','gestionnaire'] },
     { id: 'expenses', label: 'Dépenses', icon: '🧾', roles: ['super_admin','manager','comptable','dir_technique'] },
     { id: 'salaries', label: 'Salaires & paie', icon: '💵', roles: ['super_admin','manager','comptable'] },
     { id: 'my-salary', label: 'Mon salaire', icon: '🪙', roles: ['manager','dir_admin','dir_technique','gestionnaire','comptable','technicien'] },
     { id: 'rh', label: 'Ressources Humaines', icon: '👥', roles: ['super_admin','manager','comptable'] },
 
-    { section: 'Technique' },
+    { section: 'Technique & Chantier' },
+    { id: 'stock', label: 'Stock & Entrepôt', icon: '📦', roles: ['super_admin','manager','dir_technique','comptable','gestionnaire'] },
+    { id: 'suppliers', label: 'Fournisseurs', icon: '🏭', roles: ['super_admin','manager','dir_technique','comptable','gestionnaire'] },
+    { id: 'worksites', label: 'Chantiers & Rénovations', icon: '🏗️', roles: ['super_admin','manager','dir_technique','gestionnaire','comptable','technicien'] },
     { id: 'maintenance', label: 'Maintenances', icon: '🔧', roles: ['super_admin','manager','dir_technique','gestionnaire','technicien'] },
-    { id: 'equipment', label: 'Équipements', icon: '🛠', roles: ['super_admin','manager','dir_technique','comptable'] },
+    { id: 'equipment', label: 'Équipements & Outillage', icon: '🛠', roles: ['super_admin','manager','dir_technique','comptable'] },
+    { id: 'gps', label: 'Géolocalisation GPS', icon: '📍', roles: ['super_admin','manager','dir_technique','dir_admin'] },
     { id: 'tasks', label: 'Tâches', icon: '✅', roles: ['*'] },
     { id: 'kanban', label: 'Kanban tâches', icon: '📋', roles: ['*'] },
 
     { section: 'Administration' },
+    { id: 'management-reports', label: 'Rapports de gestion', icon: '📈', roles: ['super_admin','manager','dir_admin','dir_technique','comptable','gestionnaire','bailleur'] },
     { id: 'documents', label: 'Documents', icon: '📂', roles: ['super_admin','manager','dir_admin','gestionnaire','comptable'] },
-    { id: 'reports', label: 'Rapports', icon: '📈', roles: ['super_admin','manager','dir_admin','dir_technique','comptable'] },
+    { id: 'reports', label: 'Bilan Financier & Chantiers', icon: '📊', roles: ['super_admin','manager','dir_admin','dir_technique','comptable'] },
     { id: 'users', label: 'Utilisateurs', icon: '👥', roles: ['super_admin','manager'] },
     { id: 'workflows', label: 'Circuit Validation', icon: '🔄', roles: ['super_admin','manager'] },
-    { id: 'gps', label: 'Géolocalisation', icon: '📍', roles: ['super_admin','manager','dir_technique'] },
+    { id: 'company-settings', label: 'Paramètres Entreprise', icon: '🏢', roles: ['super_admin','manager','dir_admin'] },
 
     { section: 'Collaboration' },
     { id: 'messages', label: 'Messagerie', icon: '💬', roles: ['*'] },
+    { id: 'whatsapp-groups', label: 'Groupes WhatsApp', icon: '📱', roles: ['*'] },
 
     { section: 'Compte' },
     { id: 'profile', label: 'Mon profil', icon: '👤', roles: ['*'] },
   ],
 
-  // Espace locataire : menu réduit
+  bailleurMenu: [
+    { section: 'Mon Patrimoine' },
+    { id: 'dashboard', label: 'Tableau de bord', icon: '📊', roles: ['*'] },
+    { id: 'properties', label: 'Mes Immeubles', icon: '🏢', roles: ['*'] },
+    { id: 'apartments', label: 'Mes Logements', icon: '🚪', roles: ['*'] },
+    { id: 'tenants', label: 'Mes Locataires', icon: '👤', roles: ['*'] },
+    { section: 'Finances & Reçus' },
+    { id: 'receipts', label: 'Reçus de paiement', icon: '🧾', roles: ['*'] },
+    { id: 'management-reports', label: 'Rapports de gestion', icon: '📈', roles: ['*'] },
+    { id: 'situation', label: 'Situation financière', icon: '📋', roles: ['*'] },
+    { section: 'Technique' },
+    { id: 'maintenance', label: 'Maintenances & Travaux', icon: '🔧', roles: ['*'] },
+    { section: 'Compte' },
+    { id: 'profile', label: 'Mon profil', icon: '👤', roles: ['*'] },
+  ],
+
   tenantMenu: [
     { section: 'Mon espace' },
     { id: 'dashboard', label: 'Accueil', icon: '🏠', roles: ['*'] },
     { id: 'my-lease', label: 'Mon bail', icon: '📄', roles: ['*'] },
     { id: 'my-payments', label: 'Mes paiements', icon: '💰', roles: ['*'] },
+    { id: 'my-invoices', label: 'Mes factures & reçus', icon: '🧾', roles: ['*'] },
     { id: 'my-utilities', label: 'Mes charges', icon: '⚡', roles: ['*'] },
     { id: 'my-maintenance', label: 'Mes demandes', icon: '🔧', roles: ['*'] },
     { section: 'Compte' },
@@ -61,7 +84,9 @@ const Layout = {
 
   renderSidebar() {
     const role = Auth.getRole();
-    const items = role === 'locataire' ? this.tenantMenu : this.menu;
+    let items = this.menu;
+    if (role === 'locataire') items = this.tenantMenu;
+    else if (role === 'bailleur') items = this.bailleurMenu;
     const nav = document.getElementById('sidebarNav');
     let html = '';
     items.forEach((item) => {

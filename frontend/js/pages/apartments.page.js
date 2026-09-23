@@ -27,6 +27,7 @@ const PageApartments = {
     await CrudPage.list({
       endpoint: '/apartments', title: 'Logements',
       canCreate: canEdit, onCreate: 'PageApartments.create',
+      toolbar: canEdit ? `<div class="mb-3"><button class="btn btn-outline" onclick="PageProperties.openImportModal()">📤 Importer la situation (Excel)</button></div>` : '',
       columns: [
         { label: 'Numéro', render: (r) => `<b>${r.apartment_number}</b>` },
         { label: 'Type', render: (r) => r.apartment_type || '—' },

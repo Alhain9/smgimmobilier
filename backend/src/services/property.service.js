@@ -1,11 +1,50 @@
-const { Property, Apartment } = require('../models');
+const { Property, Apartment, Tenant, Lease, Payment, Maintenance, UtilityBill, User, ManagerProperty } = require('../models');
+const { Op } = require('sequelize');
 
 class PropertyService {
-  getAll() {
-    return Property.findAll({ include: [{ model: Apartment, as: 'apartments' }], order: [['created_at', 'DESC']] });
+  /**
+   * Retourne tous les immeubles.
+   * Si assignedPropertyIds est fourni (gestionnaire/comptable), les immeubles affectés
+   * au gestionnaire apparaissent EN PREMIER, puis tous les autres.
+   */
+  async getAll(filters = {}, ownerPropertyIds = null, assignedPropertyIds = null) {
+    const where = {};
+    if (Array.isArray(ownerPropertyIds)) {
+      where.id = { [Op.in]: ownerPropertyIds };
+    } else if (filters && filters.owner_id) {
+      where.owner_id = filters.owner_id;
+    }
+
+    const include = [
+      { model: Apartment, as: 'apartments' },
+      { model: User, as: 'owner', attributes: ['id', 'full_name', 'phone', 'email'] },
+    ];
+
+    const all = await Property.findAll({
+      where,
+      include,
+      order: [['created_at', 'DESC']],
+    });
+
+    // Si le gestionnaire a des immeubles affectés, les mettre en premier
+    if (Array.isArray(assignedPropertyIds) && assignedPropertyIds.length > 0) {
+      const assigned = all.filter((p) => assignedPropertyIds.includes(Number(p.id)));
+      const others = all.filter((p) => !assignedPropertyIds.includes(Number(p.id)));
+      // Marquer les immeubles affectés pour le frontend
+      assigned.forEach((p) => { p.dataValues.is_assigned = true; });
+      others.forEach((p) => { p.dataValues.is_assigned = false; });
+      return [...assigned, ...others];
+    }
+
+    return all;
   }
   async getById(id) {
-    const p = await Property.findByPk(id, { include: [{ model: Apartment, as: 'apartments' }] });
+    const p = await Property.findByPk(id, {
+      include: [
+        { model: Apartment, as: 'apartments' },
+        { model: User, as: 'owner', attributes: ['id', 'full_name', 'phone', 'email'] },
+      ],
+    });
     if (!p) throw Object.assign(new Error('Immeuble introuvable'), { status: 404 });
     return p;
   }
@@ -19,7 +58,6 @@ class PropertyService {
   }
 
   // Crée l'immeuble et, si une composition est fournie, génère automatiquement les logements
-  // composition: [{ apartment_type, count, rent_amount }]
   async create(data) {
     const { composition, ...propData } = data;
     const property = await Property.create(propData);
@@ -54,7 +92,34 @@ class PropertyService {
   async remove(id) {
     const p = await Property.findByPk(id);
     if (!p) throw Object.assign(new Error('Immeuble introuvable'), { status: 404 });
-    await p.destroy(); return true;
+
+    // Cascade delete of all related entities in apartments of this property
+    const apts = await Apartment.findAll({ where: { property_id: id } });
+    const aptIds = apts.map(a => a.id);
+
+    if (aptIds.length) {
+      await Lease.destroy({ where: { apartment_id: aptIds } });
+      await Payment.destroy({ where: { apartment_id: aptIds } });
+      await Maintenance.destroy({ where: { apartment_id: aptIds } });
+      await UtilityBill.destroy({ where: { apartment_id: aptIds } });
+      await Tenant.destroy({ where: { apartment_id: aptIds } });
+      await Apartment.destroy({ where: { property_id: id } });
+    }
+
+    await p.destroy();
+    return true;
+  }
+
+  async bulkRemove(ids) {
+    if (!Array.isArray(ids) || !ids.length) return 0;
+    let count = 0;
+    for (const id of ids) {
+      try {
+        await this.remove(id);
+        count++;
+      } catch (_) {}
+    }
+    return count;
   }
 }
 module.exports = new PropertyService();

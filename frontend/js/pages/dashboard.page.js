@@ -5,11 +5,13 @@ const PageDashboard = {
     // Routes espace locataire
     Router.register('my-lease', () => this.renderTenantLease());
     Router.register('my-payments', () => this.renderTenantPayments());
+    Router.register('my-invoices', () => this.renderTenantInvoices());
     Router.register('my-maintenance', () => this.renderTenantMaintenance());
   },
 
-  statCard(icon, color, value, name) {
-    return `<div class="stat-card">
+  statCard(icon, color, value, name, action) {
+    const clickAttr = action ? `onclick="${action}" style="cursor:pointer" title="Cliquer pour voir le détail de ${name}"` : '';
+    return `<div class="stat-card" ${clickAttr}>
       <div class="stat-icon ${color}">${icon}</div>
       <div class="stat-info"><div class="stat-value">${value}</div><div class="stat-name">${name}</div></div>
     </div>`;
@@ -23,6 +25,7 @@ const PageDashboard = {
     const role = Auth.getRole();
     if (role === 'locataire') return this.renderTenantHome();
     if (role === 'technicien') return this.renderTechnician();
+    if (role === 'bailleur') return this.renderBailleur();
     await this.renderAdmin();
     // Rafraîchissement temps réel toutes les 15s (KPI globaux manager/super_admin uniquement)
     if (Auth.hasRole('manager', 'super_admin')) {
@@ -30,6 +33,149 @@ const PageDashboard = {
         if ((window.location.hash.replace('#', '') || 'dashboard') !== 'dashboard') { this.stopRealtime(); return; }
         this.refreshStats();
       }, 15000);
+    }
+  },
+
+  async renderBailleur() {
+    Layout.setTitle('Tableau de bord — Espace Bailleur');
+    const appContent = document.getElementById('appContent');
+    appContent.innerHTML = '<div class="card" style="text-align:center;padding:40px"><div class="spinner"></div><p style="margin-top:12px;color:var(--text-muted)">Chargement de votre patrimoine...</p></div>';
+
+    try {
+      const res = await API.get('/dashboard/bailleur');
+      const d = res.data;
+      const fmt = (n) => Number(n || 0).toLocaleString('fr-FR') + ' FCFA';
+      const pat = d.patrimoine || {};
+      const fin = d.finances || {};
+      const mnt = d.maintenances || {};
+      const props = d.properties || [];
+
+      const balanceColor = (fin.balance >= 0) ? 'var(--success)' : 'var(--danger)';
+
+      appContent.innerHTML = `
+        <!-- BANNIÈRE BIENVENUE -->
+        <div class="card" style="margin-bottom:16px;background:linear-gradient(135deg, #142a45, #1e3a5f);color:#fff">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+            <div>
+              <span class="badge" style="background:rgba(255,255,255,0.2);color:#fff">🏢 Espace Propriétaire</span>
+              <h2 style="font-size:20px;font-weight:800;margin-top:6px;color:#fff">Gestion de Votre Patrimoine Immobilier</h2>
+              <p style="font-size:13px;opacity:0.85;margin-top:4px">Suivez en temps réel la situation de vos immeubles, loyers, dépenses et travaux.</p>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn btn-primary" onclick="Router.go('management-reports')"><span class="btn-icon">📈</span> Générer un Rapport</button>
+              <button class="btn btn-outline" style="color:#fff;border-color:rgba(255,255,255,0.4)" onclick="Router.go('receipts')"><span class="btn-icon">🧾</span> Reçus de Loyer</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- KPI SYNTHÈSE GLOBALE -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:16px">
+          <div class="card stat-card" onclick="Router.go('properties')" style="cursor:pointer">
+            <div class="stat-icon primary">🏢</div>
+            <div class="stat-info">
+              <div class="stat-value">${pat.properties || 0}</div>
+              <div class="stat-name">Immeubles Gérés</div>
+            </div>
+          </div>
+
+          <div class="card stat-card" onclick="Router.go('apartments')" style="cursor:pointer">
+            <div class="stat-icon info">🚪</div>
+            <div class="stat-info">
+              <div class="stat-value">${pat.occupied || 0} / ${pat.apartments || 0}</div>
+              <div class="stat-name">Logements Occupés (${pat.occupancyRate || 0}%)</div>
+            </div>
+          </div>
+
+          <div class="card stat-card" onclick="Router.go('receipts')" style="cursor:pointer">
+            <div class="stat-icon success">💰</div>
+            <div class="stat-info">
+              <div class="stat-value">${fmt(fin.revenue)}</div>
+              <div class="stat-name">Loyers Encaissés</div>
+            </div>
+          </div>
+
+          <div class="card stat-card">
+            <div class="stat-icon danger">⚠️</div>
+            <div class="stat-info">
+              <div class="stat-value">${fmt(fin.unpaid)}</div>
+              <div class="stat-name">Impayés & Retards</div>
+            </div>
+          </div>
+
+          <div class="card stat-card" onclick="Router.go('maintenance')" style="cursor:pointer">
+            <div class="stat-icon warning">🔧</div>
+            <div class="stat-info">
+              <div class="stat-value">${fmt(fin.expenses)}</div>
+              <div class="stat-name">Dépenses (${mnt.active || 0} maint. en cours)</div>
+            </div>
+          </div>
+
+          <div class="card stat-card" style="border:2px solid ${balanceColor}">
+            <div class="stat-icon" style="background:rgba(39,174,96,0.1);color:${balanceColor}">📈</div>
+            <div class="stat-info">
+              <div class="stat-value" style="color:${balanceColor}">${fmt(fin.balance)}</div>
+              <div class="stat-name">Solde Net (Revenus − Dépenses)</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- DÉTAIL PAR IMMEUBLE -->
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+            <h3 style="font-size:16px;font-weight:700">🏢 Vos Immeubles (${props.length})</h3>
+            <span style="font-size:12px;color:var(--text-muted)">Cliquez sur un immeuble pour analyser son bilan</span>
+          </div>
+
+          ${!props.length ? '<p style="color:var(--text-muted);text-align:center;padding:30px">Aucun immeuble assigné à votre compte pour le moment. Contactez SMG IMMOBILIER.</p>' : `
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px">
+              ${props.map((p) => `
+                <div class="card" style="border:1px solid var(--border);border-radius:10px;padding:16px;background:var(--card-bg)">
+                  <div style="display:flex;justify-content:space-between;align-items:flex-start">
+                    <div>
+                      <h4 style="font-size:15px;font-weight:800;color:var(--primary);margin:0">🏢 ${p.property_name}</h4>
+                      <p style="font-size:12px;color:var(--text-muted);margin:2px 0 0">📍 ${p.address || ''}, ${p.city || ''}</p>
+                    </div>
+                    <span class="badge badge-${p.free > 0 ? 'warning' : 'success'}">
+                      ${p.occupied}/${p.apartments} occupés
+                    </span>
+                  </div>
+
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:14px 0;padding:10px;background:var(--secondary-bg, #f8f9fa);border-radius:8px;font-size:12px">
+                    <div>
+                      <span style="color:var(--text-muted);display:block">Loyer mensuel attendu</span>
+                      <b style="color:var(--text)">${fmt(p.loyer_attendu)}</b>
+                    </div>
+                    <div>
+                      <span style="color:var(--text-muted);display:block">Total encaissé</span>
+                      <b style="color:var(--success)">${fmt(p.revenue)}</b>
+                    </div>
+                    <div>
+                      <span style="color:var(--text-muted);display:block">Impayés</span>
+                      <b style="color:var(--danger)">${fmt(p.unpaid)}</b>
+                    </div>
+                    <div>
+                      <span style="color:var(--text-muted);display:block">Maintenances</span>
+                      <b>${p.maintenances_active} en cours</b>
+                    </div>
+                  </div>
+
+                  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">
+                    <button class="btn btn-sm btn-primary" style="flex:1" onclick="Router.go('management-reports')">
+                      📊 Rapport
+                    </button>
+                    <button class="btn btn-sm btn-outline" style="flex:1" onclick="Router.go('situation')">
+                      📋 Situation
+                    </button>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          `}
+        </div>
+      `;
+    } catch (err) {
+      Toast.error('Erreur lors du chargement du tableau de bord bailleur');
+      appContent.innerHTML = '<div class="card" style="text-align:center;padding:30px;color:var(--danger)">Échec de chargement.</div>';
     }
   },
 
@@ -67,6 +213,10 @@ const PageDashboard = {
       body += `<div id="globalActivityTrackerContainer" class="mb-4"></div>`;
     }
 
+    if (Auth.hasRole('super_admin', 'manager', 'dir_admin', 'dir_technique', 'gestionnaire', 'comptable')) {
+      body += `<div id="upcomingRentDuesContainer" class="mb-4"></div>`;
+    }
+
     if (isGlobal) {
       const { data: s } = await API.get('/dashboard/stats');
       const { data: revenue } = await API.get('/dashboard/revenue');
@@ -79,24 +229,24 @@ const PageDashboard = {
 
       body += `
         <div class="stats-grid">
-          ${this.statCard('🏢','sky', s.properties, 'Immeubles')}
-          ${this.statCard('🚪','green', `<span id="st_free">${s.free}</span>`, 'Logements libres')}
-          ${this.statCard('👤','sky', `<span id="st_tenants">${s.tenants}</span>`, 'Locataires')}
-          ${this.statCard('📈','orange', `<span id="st_occ">${s.occupancyRate}%</span>`, "Taux d'occupation")}
+          ${this.statCard('🏢','sky', s.properties, 'Immeubles', "Router.go('properties')")}
+          ${this.statCard('🚪','green', `<span id="st_free">${s.free}</span>`, 'Logements libres', "Router.go('apartments')")}
+          ${this.statCard('👤','sky', `<span id="st_tenants">${s.tenants}</span>`, 'Locataires', "Router.go('tenants')")}
+          ${this.statCard('📈','orange', `<span id="st_occ">${s.occupancyRate}%</span>`, "Taux d'occupation", "Router.go('situation')")}
         </div>
 
         <div class="stats-grid">
-          ${this.statCard('💰','green', `<span id="st_revenue">${Helpers.formatMoney(s.finance.revenue)}</span>`, 'Revenus encaissés')}
-          ${this.statCard('🔴','red', `<span id="st_unpaid">${Helpers.formatMoney(s.finance.unpaid)}</span>`, 'Impayés')}
-          ${this.statCard('🧾','orange', `<span id="st_charges">${Helpers.formatMoney(s.finance.charges)}</span>`, 'Charges (dép.+salaires)')}
-          ${this.statCard('🔧','red', `<span id="st_maint">${s.maintenances.active}</span>`, 'Maintenances actives')}
+          ${this.statCard('💰','green', `<span id="st_revenue">${Helpers.formatMoney(s.finance.revenue)}</span>`, 'Revenus encaissés', "PageDashboard.drillDown('revenue')")}
+          ${this.statCard('🔴','red', `<span id="st_unpaid">${Helpers.formatMoney(s.finance.unpaid)}</span>`, 'Impayés', "PageDashboard.drillDown('unpaid')")}
+          ${this.statCard('🧾','orange', `<span id="st_charges">${Helpers.formatMoney(s.finance.charges)}</span>`, 'Charges (dép.+salaires)', "PageDashboard.drillDown('charges')")}
+          ${this.statCard('🔧','red', `<span id="st_maint">${s.maintenances.active}</span>`, 'Maintenances actives', "PageDashboard.drillDown('maintenances')")}
         </div>
 
         <div class="stats-grid">
-          ${this.statCard('💵','orange', `<span id="st_salpend">${Helpers.formatMoney(s.finance.salariesPending)}</span>`, 'Salaires à payer')}
-          ${this.statCard('📂','sky', `<span id="st_docs">${s.documents}</span>`, 'Documents')}
-          ${this.statCard('🛠','sky', `<span id="st_equip">${s.equipment}</span>`, 'Équipements')}
-          ${this.statCard('✅','green', `<span id="st_tasks">${s.tasksOpen}</span>`, 'Tâches en cours')}
+          ${this.statCard('💵','orange', `<span id="st_salpend">${Helpers.formatMoney(s.finance.salariesPending)}</span>`, 'Salaires à payer', "Router.go('rh')")}
+          ${this.statCard('📂','sky', `<span id="st_docs">${s.documents}</span>`, 'Documents', "Router.go('documents')")}
+          ${this.statCard('🛠','sky', `<span id="st_equip">${s.equipment}</span>`, 'Équipements', "Router.go('equipment')")}
+          ${this.statCard('✅','green', `<span id="st_tasks">${s.tasksOpen}</span>`, 'Tâches en cours', "Router.go('tasks')")}
         </div>
 
         <div class="grid-2">
@@ -145,6 +295,20 @@ const PageDashboard = {
     if (Auth.hasRole('super_admin', 'manager', 'dir_admin', 'dir_technique')) {
       this.loadGlobalActivityTracker();
     }
+    if (Auth.hasRole('super_admin', 'manager', 'dir_admin', 'dir_technique', 'gestionnaire', 'comptable')) {
+      this.loadUpcomingRentDues();
+    }
+  },
+
+  async loadCampayBalance() {
+    try {
+      const { data } = await API.get('/withdrawals/balance');
+      const el = document.getElementById('dashCampayBal');
+      if (el) el.innerText = Helpers.formatMoney(data.available_balance);
+    } catch (_) {
+      const el = document.getElementById('dashCampayBal');
+      if (el) el.innerText = '—';
+    }
   },
 
   periodCardHtml() {
@@ -192,6 +356,7 @@ const PageDashboard = {
 
   // ===== Statistiques par période =====
   _period: { start: null, end: null },
+  _breakdownData: [],
   applyPreset(days) {
     const end = new Date();
     const start = new Date(end.getTime() - (days - 1) * 86400000);
@@ -206,22 +371,28 @@ const PageDashboard = {
   },
   async loadPeriod(start, end) {
     if (!start || !end) {
-      const e = new Date(); const s = new Date(e.getTime() - 29 * 86400000);
+      const e = new Date(); const s = new Date(e.getFullYear(), e.getMonth(), 1);
       start = s.toISOString().slice(0, 10); end = e.toISOString().slice(0, 10);
     }
     this._period = { start, end };
     const body = document.getElementById('periodBody');
     if (body) body.innerHTML = '<div class="spinner"></div>';
     try {
-      const { data } = await API.get(`/dashboard/period?start=${start}&end=${end}`);
+      const [resPeriod, resBreakdown] = await Promise.all([
+        API.get(`/dashboard/period?start=${start}&end=${end}`),
+        API.get(`/dashboard/properties-breakdown?start=${start}&end=${end}`),
+      ]);
+      const data = resPeriod.data;
+      this._breakdownData = resBreakdown.data?.breakdown || [];
+
       const sEl = document.getElementById('perStart'); if (sEl) sEl.value = start;
       const eEl = document.getElementById('perEnd'); if (eEl) eEl.value = end;
-      if (body) body.innerHTML = this.periodHtml(data);
+      if (body) body.innerHTML = this.periodHtml(data, this._breakdownData);
     } catch (e) {
       if (body) body.innerHTML = `<div class="text-muted">Erreur de chargement : ${e.message}</div>`;
     }
   },
-  periodHtml(d) {
+  periodHtml(d, breakdown = []) {
     const s = d.series || { labels: [], revenue: [], expenses: [] };
     const max = Math.max(1, ...s.revenue, ...s.expenses);
     const bars = s.labels.map((lab, i) => `
@@ -233,22 +404,235 @@ const PageDashboard = {
         <span class="pchart-label">${lab}</span>
       </div>`).join('') || '<div class="text-muted" style="padding:20px">Aucune donnée sur la période</div>';
     const fmtRange = `${Helpers.formatDate(d.start)} → ${Helpers.formatDate(d.end)}`;
+
+    // Calculs totaux pour la table par immeuble
+    let totApts = 0, totOcc = 0, totRev = 0, totUnp = 0, totExp = 0, totBal = 0;
+    const breakdownRows = breakdown.map((b) => {
+      totApts += b.totalApartments || 0;
+      totOcc += b.occupiedApartments || 0;
+      totRev += b.revenue || 0;
+      totUnp += b.unpaid || 0;
+      totExp += b.expenses || 0;
+      totBal += b.balance || 0;
+
+      const isHighUnpaid = b.unpaid > 0 && (b.unpaid / ((b.revenue || 0) + b.unpaid)) > 0.2;
+      const badgeUnpaid = isHighUnpaid ? '<span class="badge badge-danger" style="margin-left:4px">Alerte</span>' : '';
+
+      return `<tr>
+        <td><b>${b.property_name}</b><br><span class="text-muted" style="font-size:12px">${b.city || ''} ${b.district ? '· ' + b.district : ''}</span></td>
+        <td>${b.occupiedApartments}/${b.totalApartments} <span class="badge badge-info">${b.occupancyRate}%</span></td>
+        <td style="color:var(--success);font-weight:600">${Helpers.formatMoney(b.revenue)}</td>
+        <td style="color:var(--danger);font-weight:600">${Helpers.formatMoney(b.unpaid)} ${badgeUnpaid}</td>
+        <td style="color:var(--warning)">${Helpers.formatMoney(b.expenses)}</td>
+        <td style="font-weight:700;color:${b.balance >= 0 ? 'var(--success)' : 'var(--danger)'}">${Helpers.formatMoney(b.balance)}</td>
+        <td style="text-align:center"><button class="btn btn-sm btn-outline" onclick="PageDashboard.openPropertyDetail(${b.id})">👁 Détails</button></td>
+      </tr>`;
+    }).join('');
+
+    const overallRate = totApts > 0 ? Math.round((totOcc / totApts) * 100) : 0;
+
     return `
       <div class="period-range text-muted" style="margin-bottom:10px">Période : <b>${fmtRange}</b></div>
       <div class="stats-grid">
-        ${this.statCard('💰', 'green', Helpers.formatMoney(d.revenue), 'Revenus encaissés')}
-        ${this.statCard('🧾', 'orange', Helpers.formatMoney(d.expenses), 'Dépenses')}
-        ${this.statCard('💵', 'sky', Helpers.formatMoney(d.salaries), 'Salaires payés')}
+        ${this.statCard('💰', 'green', Helpers.formatMoney(d.revenue), 'Revenus encaissés', "PageDashboard.drillDown('revenue')")}
+        ${this.statCard('🧾', 'orange', Helpers.formatMoney(d.expenses), 'Dépenses', "PageDashboard.drillDown('charges')")}
+        ${this.statCard('💵', 'sky', Helpers.formatMoney(d.salaries), 'Salaires payés', "Router.go('rh')")}
         ${this.statCard('⚖️', d.balance >= 0 ? 'green' : 'red', Helpers.formatMoney(d.balance), 'Solde net')}
       </div>
       <div class="stats-grid">
-        ${this.statCard('🧮', 'sky', d.paymentsCount, 'Transactions')}
-        ${this.statCard('👤', 'green', d.newTenants, 'Nouveaux locataires')}
-        ${this.statCard('📄', 'sky', d.newLeases, 'Baux signés')}
-        ${this.statCard('🔧', 'orange', `${d.maintenanceOpened} / ${d.maintenanceCompleted}`, 'Maintenances ouvertes / terminées')}
+        ${this.statCard('🧮', 'sky', d.paymentsCount, 'Transactions', "Router.go('payments')")}
+        ${this.statCard('👤', 'green', d.newTenants, 'Nouveaux locataires', "Router.go('tenants')")}
+        ${this.statCard('📄', 'sky', d.newLeases, 'Baux signés', "Router.go('leases')")}
+        ${this.statCard('🔧', 'orange', `${d.maintenanceOpened} / ${d.maintenanceCompleted}`, 'Maintenances ouvertes / terminées', "PageDashboard.drillDown('maintenances')")}
       </div>
       <div class="pchart-legend"><span><i class="dot rev"></i> Revenus</span><span><i class="dot exp"></i> Dépenses</span></div>
-      <div class="pchart">${bars}</div>`;
+      <div class="pchart mb-4">${bars}</div>
+
+      <div class="card mt-4" style="border:1px solid var(--border)">
+        <div class="card-header flex items-center justify-between">
+          <h3>🏢 Performance & Résumé Détaillé par Immeuble</h3>
+          <button class="btn btn-sm btn-outline no-print" onclick="PageDashboard.exportBreakdownExcel()">⬇ Exporter Excel</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Immeuble</th>
+                <th>Occupation</th>
+                <th>Revenus Encaissés</th>
+                <th>Impayés</th>
+                <th>Charges & Dépenses</th>
+                <th>Solde Net</th>
+                <th style="text-align:center">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${breakdownRows || '<tr><td colspan="7" class="text-center text-muted" style="padding:20px">Aucun immeuble enregistré</td></tr>'}
+            </tbody>
+            ${breakdown.length > 0 ? `
+            <tfoot>
+              <tr style="font-weight:bold; background:var(--bg-surface-2)">
+                <td>TOTAL GLOBAL (${breakdown.length} immeuble(s))</td>
+                <td>${totOcc}/${totApts} (${overallRate}%)</td>
+                <td style="color:var(--success)">${Helpers.formatMoney(totRev)}</td>
+                <td style="color:var(--danger)">${Helpers.formatMoney(totUnp)}</td>
+                <td style="color:var(--warning)">${Helpers.formatMoney(totExp)}</td>
+                <td style="color:${totBal >= 0 ? 'var(--success)' : 'var(--danger)'}">${Helpers.formatMoney(totBal)}</td>
+                <td></td>
+              </tr>
+            </tfoot>` : ''}
+          </table>
+        </div>
+      </div>`;
+  },
+
+  async drillDown(type) {
+    const titles = {
+      revenue: '💰 Synthèse des Revenus Encaissés par Immeuble',
+      unpaid: '🔴 Synthèse des Impayés et Retards par Immeuble',
+      charges: '🧾 Synthèse des Charges et Dépenses par Immeuble',
+      maintenances: '🔧 Synthèse des Maintenances Actives par Immeuble',
+    };
+    const title = titles[type] || 'Détails par immeuble';
+
+    try {
+      const res = await API.get(`/dashboard/properties-breakdown?start=${this._period.start || ''}&end=${this._period.end || ''}`);
+      let list = res.data?.breakdown || [];
+
+      if (type === 'revenue') list.sort((a, b) => b.revenue - a.revenue);
+      else if (type === 'unpaid') list.sort((a, b) => b.unpaid - a.unpaid);
+      else if (type === 'charges') list.sort((a, b) => b.expenses - a.expenses);
+      else if (type === 'maintenances') list.sort((a, b) => b.activeMaintenances - a.activeMaintenances);
+
+      const rows = list.map((b) => {
+        let valStr = '';
+        if (type === 'revenue') valStr = `<b style="color:var(--success)">${Helpers.formatMoney(b.revenue)}</b>`;
+        else if (type === 'unpaid') valStr = `<b style="color:var(--danger)">${Helpers.formatMoney(b.unpaid)}</b>`;
+        else if (type === 'charges') valStr = `<b style="color:var(--warning)">${Helpers.formatMoney(b.expenses)}</b>`;
+        else if (type === 'maintenances') valStr = `<b style="color:var(--primary)">${b.activeMaintenances} maintenance(s)</b>`;
+
+        return `<tr>
+          <td><b>${b.property_name}</b> (${b.city || '—'})</td>
+          <td>${b.occupiedApartments}/${b.totalApartments} oct. (${b.occupancyRate}%)</td>
+          <td>${valStr}</td>
+          <td style="text-align:right"><button class="btn btn-sm btn-primary" onclick="PageDashboard.openPropertyDetail(${b.id})">👁 Fiche Immeuble</button></td>
+        </tr>`;
+      }).join('');
+
+      Modal.open(title, `
+        <div class="text-muted" style="margin-bottom:12px;font-size:13px">
+          Classement détaillé des immeubles pour la période : <b>${Helpers.formatDate(this._period.start)} → ${Helpers.formatDate(this._period.end)}</b>
+        </div>
+        <div class="table-wrap" style="max-height:420px;overflow-y:auto">
+          <table>
+            <thead><tr><th>Immeuble</th><th>Occupation</th><th>Indicateur</th><th style="text-align:right">Action</th></tr></thead>
+            <tbody>${rows || '<tr><td colspan="4" class="text-center text-muted">Aucun immeuble</td></tr>'}</tbody>
+          </table>
+        </div>`,
+        `<button class="btn btn-outline" onclick="Modal.close()">Fermer</button>`);
+    } catch (e) {
+      Toast.error(e.message);
+    }
+  },
+
+  async openPropertyDetail(propertyId) {
+    try {
+      const start = this._period.start || '';
+      const end = this._period.end || '';
+      const res = await API.get(`/dashboard/property-detail/${propertyId}?start=${start}&end=${end}`);
+      const data = res.data;
+      const prop = data.property;
+      const stats = data.stats;
+
+      const aptRows = (data.apartments || []).map((a) => {
+        const tenant = a.tenants && a.tenants[0] ? a.tenants[0].user : null;
+        return `<tr>
+          <td><b>${a.apartment_number}</b></td>
+          <td>${a.apartment_type || '—'}</td>
+          <td>${Helpers.formatMoney(a.rent_amount)}</td>
+          <td>${tenant ? `<b>${tenant.full_name}</b><br><span class="text-muted" style="font-size:12px">${tenant.phone || ''}</span>` : '<i>Vacant</i>'}</td>
+          <td>${Helpers.statusBadge(a.status)}</td>
+        </tr>`;
+      }).join('');
+
+      const payRows = (data.payments || []).map((p) => `<tr>
+        <td>${Helpers.formatDate(p.payment_date)}</td>
+        <td>Appt. ${p.apartment?.apartment_number || '—'}</td>
+        <td>${p.tenant?.user?.full_name || '—'}</td>
+        <td style="font-weight:600">${Helpers.formatMoney(p.amount)}</td>
+        <td>${p.payment_method}</td>
+        <td>${Helpers.statusBadge(p.status)}</td>
+      </tr>`).join('');
+
+      const expRows = (data.expenses || []).map((e) => `<tr>
+        <td>${Helpers.formatDate(e.created_at)}</td>
+        <td>Appt. ${e.maintenance?.apartment?.apartment_number || '—'}</td>
+        <td>${e.label || e.category || 'Maintenance'}</td>
+        <td style="color:var(--danger);font-weight:600">${Helpers.formatMoney(e.total_price)}</td>
+      </tr>`).join('');
+
+      Modal.open(`🏢 Fiche Détaillée — ${prop.property_name}`, `
+        <div style="font-size:13px; color:var(--text-muted); margin-bottom:14px;">
+          📍 <b>${prop.address || ''}, ${prop.city || ''} ${prop.district || ''}</b> &nbsp;|&nbsp; 
+          Période d'analyse : <b>${Helpers.formatDate(data.start)} → ${Helpers.formatDate(data.end)}</b>
+        </div>
+        <div class="stats-grid mb-3">
+          <div class="stat-card"><div class="stat-icon green">💰</div><div class="stat-info"><div class="stat-value">${Helpers.formatMoney(stats.revenue)}</div><div class="stat-name">Revenus encaissés</div></div></div>
+          <div class="stat-card"><div class="stat-icon red">🔴</div><div class="stat-info"><div class="stat-value">${Helpers.formatMoney(stats.unpaid)}</div><div class="stat-name">Impayés</div></div></div>
+          <div class="stat-card"><div class="stat-icon orange">🧾</div><div class="stat-info"><div class="stat-value">${Helpers.formatMoney(stats.expenses)}</div><div class="stat-name">Charges & Dépenses</div></div></div>
+          <div class="stat-card"><div class="stat-icon sky">⚖️</div><div class="stat-info"><div class="stat-value" style="color:${stats.balance>=0?'var(--success)':'var(--danger)'}">${Helpers.formatMoney(stats.balance)}</div><div class="stat-name">Solde Net</div></div></div>
+        </div>
+
+        <h4 style="margin-top:16px; margin-bottom:8px">🚪 Logements et Locataires (${stats.occupiedApartments}/${stats.totalApartments} occupés)</h4>
+        <div class="table-wrap mb-4" style="max-height:200px; overflow-y:auto">
+          <table>
+            <thead><tr><th>Numéro</th><th>Type</th><th>Loyer</th><th>Locataire actuel</th><th>Statut</th></tr></thead>
+            <tbody>${aptRows || '<tr><td colspan="5" class="text-center text-muted">Aucun logement</td></tr>'}</tbody>
+          </table>
+        </div>
+
+        <h4 style="margin-bottom:8px">💳 Historique des Versements (Période)</h4>
+        <div class="table-wrap mb-4" style="max-height:180px; overflow-y:auto">
+          <table>
+            <thead><tr><th>Date</th><th>Logement</th><th>Locataire</th><th>Montant</th><th>Mode</th><th>Statut</th></tr></thead>
+            <tbody>${payRows || '<tr><td colspan="6" class="text-center text-muted">Aucun versement sur la période</td></tr>'}</tbody>
+          </table>
+        </div>
+
+        <h4 style="margin-bottom:8px">🛠 Dépenses de Maintenance (Période)</h4>
+        <div class="table-wrap" style="max-height:160px; overflow-y:auto">
+          <table>
+            <thead><tr><th>Date</th><th>Logement</th><th>Motif</th><th>Montant</th></tr></thead>
+            <tbody>${expRows || '<tr><td colspan="4" class="text-center text-muted">Aucune dépense de maintenance sur la période</td></tr>'}</tbody>
+          </table>
+        </div>
+      `, `<button class="btn btn-outline" onclick="Modal.close()">Fermer</button>`);
+    } catch (e) {
+      Toast.error(e.message);
+    }
+  },
+
+  exportBreakdownExcel() {
+    if (!this._breakdownData || !this._breakdownData.length) {
+      Toast.error('Aucune donnée à exporter.'); return;
+    }
+    const rows = this._breakdownData.map((b) => ({
+      'Immeuble': b.property_name,
+      'Ville': b.city || '',
+      'Logements Totaux': b.totalApartments,
+      'Logements Occupés': b.occupiedApartments,
+      "Taux Occupation (%)": b.occupancyRate,
+      'Revenus Encaissés (FCFA)': b.revenue,
+      'Impayés (FCFA)': b.unpaid,
+      'Charges & Dépenses (FCFA)': b.expenses,
+      'Solde Net (FCFA)': b.balance,
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Synthese Immeubles');
+    XLSX.writeFile(wb, `Synthese_Immeubles_${this._period.start}_au_${this._period.end}.xlsx`);
+    Toast.success('Exportation Excel générée avec succès');
   },
 
   sectorCard(sec) {
@@ -428,13 +812,214 @@ const PageDashboard = {
     catch { Layout.content('<div class="empty-state"><div class="icon">👤</div><h3>Profil locataire non configuré</h3><p>Contactez votre gestionnaire.</p></div>'); return; }
 
     const lease = (tenant.leases || [])[0];
+    if (lease) this._tenantRent = lease.monthly_rent;
     const payments = tenant.payments || [];
     const paid = payments.filter((p) => p.status === 'completed').length;
     const unpaid = payments.filter((p) => ['pending','failed','awaiting_confirmation'].includes(p.status)).length;
 
+    let ledgerCard = '';
+    try {
+      const { data: l } = await API.get('/payments/me/ledger');
+      ledgerCard = `
+        <div class="card"><div class="card-header"><h3>Synthèse de compte</h3></div><div class="card-body">
+          <div class="list-item"><div style="flex:1">Cumul loyers dus</div><b>${Helpers.formatMoney(l.total_du)}</b></div>
+          <div class="list-item"><div style="flex:1">Total payé & validé</div><b style="color:var(--success)">${Helpers.formatMoney(l.total_valide)}</b></div>
+          <div class="list-item"><div style="flex:1">En cours de validation</div><b style="color:var(--warning)">${Helpers.formatMoney(l.en_attente_preuve)}</b></div>
+          <div class="list-item"><div style="flex:1">Reste à payer</div><b style="color:${l.solde > 0 ? 'var(--danger)' : 'var(--success)'}">${Helpers.formatMoney(Math.max(0, l.solde))}</b></div>
+        </div></div>`;
+    } catch (_) {
+      ledgerCard = `
+        <div class="card"><div class="card-header"><h3>Actions</h3></div><div class="card-body">
+          <button class="btn btn-primary btn-block mb-4" onclick="PageDashboard.declarePayment()">💰 Déclarer un paiement</button>
+          <button class="btn btn-outline btn-block mb-4" onclick="PageDashboard.requestMaintenance()">🔧 Demander une maintenance</button>
+          <button class="btn btn-outline btn-block" onclick="Router.go('my-payments')">📄 Voir mes paiements</button>
+        </div></div>`;
+    }
+
+    let utilityChargesCard = '';
+    try {
+      const { data: uBills } = await API.get('/utility-bills/mine');
+      const billsList = (uBills || []).slice(0, 5).map((b) => {
+        const typeIcon = b.type === 'water' ? '💧' : '⚡';
+        const typeName = b.type === 'water' ? 'Eau' : 'Électricité';
+        const isPaid = b.status === 'paid';
+        const monthStr = (typeof PageUtilities !== 'undefined' && PageUtilities.monthLabel) ? PageUtilities.monthLabel(b.period_month) : b.period_month;
+        const conso = Math.max(0, Number(b.current_index) - Number(b.previous_index));
+        return `
+          <div class="list-item" style="padding: 10px 0; border-bottom: 1px dashed var(--border-color);">
+            <div style="flex:1">
+              <b>${typeIcon} ${typeName} — ${monthStr} ${b.period_year}</b>
+              <div class="text-muted" style="font-size:12px">Index: ${b.previous_index} → ${b.current_index} (conso: ${conso})</div>
+            </div>
+            <div style="text-align:right; margin-left: 10px;">
+              <b>${Helpers.formatMoney(b.total_amount)}</b>
+              <div style="margin-top:4px">
+                ${isPaid 
+                  ? `<span class="badge badge-success">Payé</span>`
+                  : `<button class="btn btn-sm btn-primary" onclick="PageDashboard.payUtilityBill(${b.id}, ${b.total_amount})">💳 Payer</button>`}
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('') || '<p class="text-muted">Aucune charge attribuée.</p>';
+
+      utilityChargesCard = `
+        <div class="card mt-4">
+          <div class="card-header flex justify-between items-center">
+            <h3>⚡ Mes charges attribuées (Électricité, Eau, etc.)</h3>
+            <button class="btn btn-sm btn-outline" onclick="Router.go('my-utilities')">Voir tout</button>
+          </div>
+          <div class="card-body">
+            ${billsList}
+          </div>
+        </div>
+      `;
+    } catch (_) {}
+
+    let invoicesCard = '';
+    try {
+      const { data: receipts } = await API.get('/receipts');
+      const recList = (receipts || []).slice(0, 4).map((r) => {
+        const typeLabel = {
+          rent: 'Loyer',
+          deposit: 'Caution',
+          advance: 'Avance',
+          utility: 'Charges (Eau/Élec)',
+        }[r.receipt_type] || 'Paiement';
+
+        const typeIcon = {
+          rent: '🏠',
+          deposit: '🔒',
+          advance: '💰',
+          utility: '⚡',
+        }[r.receipt_type] || '🧾';
+
+        const periodStr = (r.period_start && r.period_end) 
+          ? `Période du ${Helpers.formatDate(r.period_start)} au ${Helpers.formatDate(r.period_end)}`
+          : `Date : ${Helpers.formatDate(r.payment_date)}`;
+
+        return `
+          <div class="list-item" style="padding: 10px 0; border-bottom: 1px dashed var(--border-color); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+            <div style="flex:1; min-width:200px;">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span style="font-size:16px;">${typeIcon}</span>
+                <b style="color:var(--text);">${typeLabel} — ${r.receipt_number}</b>
+                <span class="badge badge-success" style="font-size:10.5px; padding:2px 6px;">✓ Signé & Validé</span>
+              </div>
+              <div class="text-muted" style="font-size:12px; margin-top:2px;">
+                ${periodStr} · ${Helpers.methodLabel(r.payment_method || 'Espèces')}
+              </div>
+            </div>
+            <div style="text-align:right; display:flex; align-items:center; gap:6px;">
+              <b style="font-size:14px; color:var(--success); margin-right:6px;">${Helpers.formatMoney(r.amount)}</b>
+              <button class="btn btn-sm btn-outline" onclick="ReceiptManager.open(${JSON.stringify(r).replace(/"/g, '&quot;')})" title="Visualiser le document">👁 Voir</button>
+              <button class="btn btn-sm btn-primary" onclick="PageDashboard.downloadReceiptPdf(${r.id}, '${r.receipt_number}')" title="Télécharger le PDF officiel signé">⬇️ PDF</button>
+            </div>
+          </div>
+        `;
+      }).join('') || '<p class="text-muted" style="padding:10px 0;">Aucune facture ou quittance générée pour le moment.</p>';
+
+      invoicesCard = `
+        <div class="card mt-4">
+          <div class="card-header flex justify-between items-center flex-wrap gap-2">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="font-size:20px;">🧾</span>
+              <h3 style="margin:0;">Mes dernières factures & quittances officielles</h3>
+            </div>
+            <button class="btn btn-sm btn-outline" onclick="Router.go('my-invoices')">Voir toutes mes factures (${(receipts || []).length})</button>
+          </div>
+          <div class="card-body">
+            <div style="font-size:13px; color:var(--text-muted); margin-bottom:12px;">
+              💡 Vos quittances officielles avec cachet et signature de l'agence sont émises automatiquement dès validation de vos paiements.
+            </div>
+            ${recList}
+          </div>
+        </div>
+      `;
+    } catch (_) {}
+
+    // Bandeau d'alerte d'échéance de loyer pour le locataire (J-10, J-7, J-4, etc.)
+    let dueAlertBanner = '';
+    const due = tenant.due_info;
+    if (due && due.prochaine_echeance && lease) {
+      if (due.statut_echeance === 'imminent') {
+        dueAlertBanner = `
+          <div class="card mb-4" style="background:linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%); border-left:6px solid #F59E0B; padding:18px 22px; border-radius:10px; box-shadow:0 4px 12px rgba(245,158,11,0.12);">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+              <div style="display:flex; align-items:center; gap:14px;">
+                <div style="font-size:2.4rem;">🔔</div>
+                <div>
+                  <h3 style="margin:0 0 4px; color:#B45309; font-size:1.15rem; font-weight:700;">
+                    Rappel d'échéance : Votre loyer arrive à terme dans ${due.jours_restants} jour(s) !
+                  </h3>
+                  <p style="margin:0; font-size:14px; color:#92400E;">
+                    Selon votre contrat (entrée le ${Helpers.formatDate(lease.start_date)}), votre loyer mensuel de <b>${Helpers.formatMoney(lease.monthly_rent)}</b> est attendu pour le <b>${Helpers.formatDate(due.prochaine_echeance)}</b>.
+                  </p>
+                </div>
+              </div>
+              <button class="btn btn-primary" onclick="PageDashboard.declarePayment()" style="background:#D97706; border-color:#D97706; font-weight:700; white-space:nowrap; padding:10px 18px;">
+                💰 Payer / Déclarer mon loyer
+              </button>
+            </div>
+          </div>
+        `;
+      } else if (due.statut_echeance === 'aujourdhui') {
+        dueAlertBanner = `
+          <div class="card mb-4" style="background:linear-gradient(135deg, #FEF2F2 0%, #FEE2E2 100%); border-left:6px solid #EF4444; padding:18px 22px; border-radius:10px; box-shadow:0 4px 12px rgba(239,68,68,0.15);">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+              <div style="display:flex; align-items:center; gap:14px;">
+                <div style="font-size:2.4rem;">⚠️</div>
+                <div>
+                  <h3 style="margin:0 0 4px; color:#B91C1C; font-size:1.15rem; font-weight:700;">
+                    Échéance aujourd'hui : Votre loyer est dû ce jour !
+                  </h3>
+                  <p style="margin:0; font-size:14px; color:#991B1B;">
+                    Votre loyer de <b>${Helpers.formatMoney(lease.monthly_rent)}</b> pour cette période arrive à échéance aujourd'hui le <b>${Helpers.formatDate(due.prochaine_echeance)}</b>.
+                  </p>
+                </div>
+              </div>
+              <button class="btn btn-primary" onclick="PageDashboard.declarePayment()" style="background:#DC2626; border-color:#DC2626; font-weight:700; white-space:nowrap; padding:10px 18px;">
+                💳 Régler immédiatement
+              </button>
+            </div>
+          </div>
+        `;
+      } else if (due.statut_echeance === 'retard') {
+        dueAlertBanner = `
+          <div class="card mb-4" style="background:linear-gradient(135deg, #FEF2F2 0%, #FEE2E2 100%); border-left:6px solid #DC2626; padding:18px 22px; border-radius:10px; box-shadow:0 4px 12px rgba(220,38,38,0.18);">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+              <div style="display:flex; align-items:center; gap:14px;">
+                <div style="font-size:2.4rem;">🚨</div>
+                <div>
+                  <h3 style="margin:0 0 4px; color:#991B1B; font-size:1.15rem; font-weight:700;">
+                    Loyer en retard de ${Math.abs(due.jours_restants)} jour(s)
+                  </h3>
+                  <p style="margin:0; font-size:14px; color:#7F1D1D;">
+                    L'échéance était fixée au <b>${Helpers.formatDate(due.prochaine_echeance)}</b>. Solde restant : <b>${Helpers.formatMoney(due.solde || lease.monthly_rent)}</b>. Merci de régulariser votre situation au plus vite.
+                  </p>
+                </div>
+              </div>
+              <button class="btn btn-primary" onclick="PageDashboard.declarePayment()" style="background:#B91C1C; border-color:#B91C1C; font-weight:700; white-space:nowrap; padding:10px 18px;">
+                💳 Régulariser mon loyer
+              </button>
+            </div>
+          </div>
+        `;
+      }
+    }
+
     Layout.content(`
-      <div class="page-head"><div><h2>Bienvenue, ${tenant.full_name.split(' ')[0]} 👋</h2>
-        <div class="subtitle">Votre espace locataire SMG IMMOBILIER</div></div></div>
+      <div class="page-head">
+        <div>
+          <h2>Bienvenue, ${tenant.full_name.split(' ')[0]} 👋</h2>
+          <div class="subtitle">Votre espace locataire SMG IMMOBILIER</div>
+        </div>
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <button class="btn btn-primary" onclick="PageDashboard.declarePayment()">+ Déclarer un paiement</button>
+          <button class="btn btn-outline" onclick="PageDashboard.requestMaintenance()">🔧 Demander une maintenance</button>
+        </div>
+      </div>
+      ${dueAlertBanner}
       <div class="stats-grid">
         ${this.statCard('🏠','sky', lease ? (lease.apartment?.apartment_number || '—') : '—', 'Mon logement')}
         ${this.statCard('💰','green', lease ? Helpers.formatMoney(lease.monthly_rent) : '—', 'Loyer mensuel')}
@@ -442,26 +1027,106 @@ const PageDashboard = {
         ${this.statCard('🔴','red', unpaid, 'Paiements en attente')}
       </div>
       <div class="grid-2">
-        <div class="card"><div class="card-header"><h3>Mon contrat</h3></div><div class="card-body">
+        <div class="card"><div class="card-header flex justify-between items-center"><h3>Mon contrat</h3><button class="btn btn-sm btn-outline" onclick="Router.go('my-lease')">Détails</button></div><div class="card-body">
           ${lease ? `
             <div class="list-item"><div style="flex:1">Logement</div><b>${lease.apartment?.apartment_number || '—'}${lease.apartment?.apartment_type ? ' · ' + lease.apartment.apartment_type : ''}</b></div>
             <div class="list-item"><div style="flex:1">Immeuble</div><b>${lease.apartment?.property?.property_name || '—'}${lease.apartment?.property?.city ? ' (' + lease.apartment.property.city + ')' : ''}</b></div>
-            <div class="list-item"><div style="flex:1">Début</div><b>${Helpers.formatDate(lease.start_date)}</b></div>
+            <div class="list-item"><div style="flex:1">📅 Date de début</div><b>${Helpers.formatDate(lease.start_date)}</b></div>
+            <div class="list-item"><div style="flex:1">🏁 Date de fin</div><b>${lease.end_date ? Helpers.formatDate(lease.end_date) : 'Indéterminée / Renouvelable'}</b></div>
             <div class="list-item"><div style="flex:1">Caution</div><b>${Helpers.formatMoney(lease.deposit_amount)}</b></div>
             <div class="list-item"><div style="flex:1">Statut</div>${Helpers.statusBadge(lease.status)}</div>
-            ${lease.contract_file ? `<a class="btn btn-outline btn-block mt-4" href="${Helpers.fileUrl(lease.contract_file)}" target="_blank">📄 Voir le contrat PDF</a>` : ''}
+            ${lease.contract_file ? `<a class="btn btn-outline btn-block mt-3" href="${Helpers.fileUrl(lease.contract_file)}" target="_blank">📄 Consulter le contrat de bail (PDF)</a>` : ''}
           ` : '<p class="text-muted">Aucun contrat actif.</p>'}
         </div></div>
-        <div class="card"><div class="card-header"><h3>Actions</h3></div><div class="card-body">
-          <button class="btn btn-primary btn-block mb-4" onclick="PageDashboard.requestMaintenance()">🔧 Demander une maintenance</button>
-          <button class="btn btn-outline btn-block" onclick="Router.go('my-payments')">💰 Voir mes paiements</button>
-        </div></div>
+        ${ledgerCard}
       </div>
+      ${utilityChargesCard}
+      ${invoicesCard}
     `);
   },
 
   async renderTenantLease() {
-    Layout.setTitle('Mon bail'); await this.renderTenantHome();
+    Layout.setTitle('Mon bail');
+    const tenant = (await API.get('/tenants/me/profile')).data;
+    const lease = (tenant.leases || [])[0];
+
+    if (!lease) {
+      Layout.content(`
+        <div class="page-head"><h2>📄 Mon contrat de bail</h2></div>
+        <div class="card p-4 text-center text-muted">
+          <div style="font-size:3rem; margin-bottom:12px">📄</div>
+          <h3>Aucun contrat de bail actif</h3>
+          <p>Vous n'avez pas de contrat de bail enregistré actuellement.</p>
+        </div>
+      `);
+      return;
+    }
+
+    const startDateStr = Helpers.formatDate(lease.start_date);
+    const endDateStr = lease.end_date ? Helpers.formatDate(lease.end_date) : 'Indéterminée (Bail renouvelable)';
+    const contractUrl = lease.contract_file ? Helpers.fileUrl(lease.contract_file) : null;
+
+    Layout.content(`
+      <div class="page-head flex justify-between items-center flex-wrap gap-3">
+        <div>
+          <h2>📄 Mon Contrat de Bail</h2>
+          <div class="subtitle">Récapitulatif des conditions contractuelles et document du bail</div>
+        </div>
+        ${contractUrl ? `<a href="${contractUrl}" target="_blank" class="btn btn-primary">📄 Télécharger le contrat (PDF)</a>` : ''}
+      </div>
+
+      <div class="stats-grid mb-4">
+        ${this.statCard('🏢', 'sky', lease.apartment?.property?.property_name || '—', 'Immeuble / Résidence')}
+        ${this.statCard('🚪', 'green', lease.apartment?.apartment_number || '—', 'N° Logement')}
+        ${this.statCard('💰', 'green', Helpers.formatMoney(lease.monthly_rent), 'Loyer Mensuel')}
+        ${this.statCard('📅', 'orange', `${startDateStr} ➔ ${endDateStr}`, 'Période du bail')}
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-header">
+            <h3>📋 Informations Contractuelles</h3>
+          </div>
+          <div class="card-body">
+            <div class="list-item"><div style="flex:1">Nom du locataire</div><b>${tenant.full_name}</b></div>
+            <div class="list-item"><div style="flex:1">Immeuble / Résidence</div><b>${lease.apartment?.property?.property_name || '—'}${lease.apartment?.property?.city ? ' (' + lease.apartment.property.city + ')' : ''}</b></div>
+            <div class="list-item"><div style="flex:1">Logement attribué</div><b>Logement ${lease.apartment?.apartment_number || '—'} ${lease.apartment?.apartment_type ? ' (' + lease.apartment.apartment_type + ')' : ''}</b></div>
+            <div class="list-item"><div style="flex:1">📅 Date de début du bail</div><b>${startDateStr}</b></div>
+            <div class="list-item"><div style="flex:1">🏁 Date de fin du bail</div><b>${endDateStr}</b></div>
+            <div class="list-item"><div style="flex:1">💵 Loyer mensuel</div><b style="color:var(--success)">${Helpers.formatMoney(lease.monthly_rent)}</b></div>
+            <div class="list-item"><div style="flex:1">🔒 Dépôt de garantie / Caution</div><b>${Helpers.formatMoney(lease.deposit_amount)}</b></div>
+            <div class="list-item"><div style="flex:1">Statut du bail</div>${Helpers.statusBadge(lease.status)}</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h3>📄 Document du Contrat de Bail</h3>
+          </div>
+          <div class="card-body text-center" style="padding: 30px 20px;">
+            ${contractUrl ? `
+              <div style="font-size: 3.5rem; margin-bottom: 12px; color: var(--primary);">📄</div>
+              <h4 style="margin-bottom: 8px;">Document Officiel du Contrat Signé</h4>
+              <p class="text-muted mb-4" style="font-size: 0.9rem;">
+                Le fichier officiel de votre contrat de bail au format PDF est disponible et téléchargeable ci-dessous.
+              </p>
+              <a href="${contractUrl}" target="_blank" class="btn btn-primary btn-block mb-2" style="font-weight:600;">
+                👁 Consulter le contrat de bail (PDF)
+              </a>
+              <a href="${contractUrl}" download target="_blank" class="btn btn-outline btn-block">
+                ⬇️ Télécharger une copie
+              </a>
+            ` : `
+              <div style="font-size: 3.5rem; margin-bottom: 12px; color: var(--text-muted);">📄</div>
+              <h4 style="margin-bottom: 8px;">Document PDF en cours d'archivage</h4>
+              <p class="text-muted mb-4" style="font-size: 0.9rem;">
+                Le document scanné de votre contrat n'a pas encore été téléversé par l'administration. Vos informations de bail ci-contre font foi.
+              </p>
+            `}
+          </div>
+        </div>
+      </div>
+    `);
   },
 
   async renderTenantPayments() {
@@ -479,65 +1144,509 @@ const PageDashboard = {
         ${this.statCard('⚖️', l.solde > 0 ? 'red' : 'green', Helpers.formatMoney(Math.max(0, l.solde)), 'Solde restant dû')}
       </div>`;
     } catch (_) { /* pas de bail / solde indisponible */ }
-    const rows = (tenant.payments || []).slice().sort((a, b) => new Date(b.payment_date) - new Date(a.payment_date)).map((p) => `<tr>
-      <td>#${p.id}</td><td>${Helpers.formatDate(p.payment_date)}</td>
-      <td>${Helpers.formatMoney(p.amount)}</td><td>${Helpers.methodLabel(p.payment_method)}</td>
-      <td>${Helpers.statusBadge(p.status)}</td>
-      <td>${p.payment_proof ? `<a class="btn btn-sm btn-outline" href="${Helpers.fileUrl(p.payment_proof)}" target="_blank">Reçu</a>` : '—'}</td>
-    </tr>`).join('') || '<tr><td colspan="6" class="text-center text-muted">Aucun paiement</td></tr>';
-    Layout.content(`<div class="page-head"><h2>Mes paiements</h2>
-        <button class="btn btn-primary" onclick="PageDashboard.declarePayment()">+ Déclarer un paiement</button></div>
+    const rows = (tenant.payments || []).slice().sort((a, b) => new Date(b.payment_date) - new Date(a.payment_date)).map((p) => {
+      const isCompleted = p.status === 'completed';
+      const receiptBtn = isCompleted
+        ? `<div style="display:flex;gap:6px;align-items:center;">
+             <button class="btn btn-sm btn-primary" onclick="PageDashboard.downloadPaymentReceipt(${p.id})" title="Télécharger la quittance officielle signée (PDF)">📄 Quittance PDF</button>
+             <button class="btn btn-sm btn-outline" onclick="ReceiptManager.open(${p.id})" title="Visualiser le reçu interactif">👁</button>
+           </div>`
+        : `<span class="text-muted" style="font-size:12px;font-style:italic;">En attente de validation</span>`;
+
+      return `<tr>
+        <td><b>#${p.id}</b></td>
+        <td>${Helpers.formatDate(p.payment_date)}</td>
+        <td><b>${Helpers.formatMoney(p.amount)}</b></td>
+        <td>${Helpers.methodLabel(p.payment_method)}</td>
+        <td>${Helpers.statusBadge(p.status)}</td>
+        <td>${receiptBtn}</td>
+        <td>${p.payment_proof ? `<a class="btn btn-sm btn-outline" href="${Helpers.fileUrl(p.payment_proof)}" target="_blank">📎 Preuve</a>` : '—'}</td>
+      </tr>`;
+    }).join('') || '<tr><td colspan="7" class="text-center text-muted" style="padding:24px;">Aucun paiement enregistré</td></tr>';
+
+    Layout.content(`
+      <div class="page-head flex justify-between items-center flex-wrap gap-2">
+        <div>
+          <h2>Mes paiements</h2>
+          <div class="subtitle">Historique de vos versements et quittances libératoires officielles</div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-outline" onclick="Router.go('my-invoices')">🧾 Mes factures & quittances</button>
+          <button class="btn btn-primary" onclick="PageDashboard.declarePayment()">+ Déclarer un paiement</button>
+        </div>
+      </div>
       ${soldeHtml}
       <div class="card"><div class="table-wrap"><table>
-        <thead><tr><th>Réf</th><th>Date</th><th>Montant</th><th>Méthode</th><th>Statut</th><th>Justif.</th></tr></thead>
+        <thead><tr><th>Réf</th><th>Date</th><th>Montant</th><th>Méthode</th><th>Statut</th><th>Quittance officielle</th><th>Justif. versé</th></tr></thead>
         <tbody>${rows}</tbody></table></div></div>`);
   },
 
   declarePayment() {
-    Modal.open('Déclarer un paiement', `
-      <div class="form-group"><label>Montant (FCFA)</label><input type="number" class="form-control" id="payAmount" value="${this._tenantRent || ''}" required/></div>
-      <div class="form-group"><label>Méthode de paiement</label>
+    Modal.open('💳 Payer mon loyer en ligne (Mobile Money)', `
+      <div class="form-group"><label>Montant à verser (FCFA)</label><input type="number" class="form-control" id="payAmount" value="${this._tenantRent || ''}" required placeholder="Ex: 50000"/>
+      <div class="text-muted" style="font-size:12px;margin-top:4px">Vous pouvez régler le loyer complet ou verser une avance partielle.</div></div>
+      
+      <div class="form-group mb-3"><label>Méthode de règlement</label>
         <select class="form-control" id="payMethod" onchange="PageDashboard.togglePayMethod(this.value)">
-          <option value="kang">Mobile Money (Kang)</option>
-          <option value="cash">Espèces</option>
+          <option value="orange_money">📱 Mobile Money (MTN ou Orange Money)</option>
+          <option value="cash">💵 Espèces avec reçu scanné</option>
         </select>
       </div>
+
       <div id="payCampayFields">
-        <div class="form-group"><label>Numéro Mobile Money</label><input class="form-control" id="payPhone" placeholder="6XXXXXXXX"/></div>
+        <div class="form-group"><label>Numéro Mobile Money (6XXXXXXXX)</label>
+          <input class="form-control" id="payPhone" placeholder="Ex: 690000000 ou 670000000"/>
+          <div class="text-muted" style="font-size:12px;margin-top:4px">Une pop-up / message USSD apparaîtra sur ce téléphone pour saisir votre code PIN.</div>
+        </div>
       </div>
+
       <div id="payCashFields" style="display:none">
-        <div class="form-group"><label>Preuve de paiement (photo, reçu...)</label><input type="file" class="form-control" id="payProof" accept="image/*,application/pdf"/></div>
+        <div class="form-group"><label>Preuve du versement (Photo du reçu / Bordereau)</label><input type="file" class="form-control" id="payProof" accept="image/*,application/pdf"/></div>
       </div>`,
-      `<button class="btn btn-outline" onclick="Modal.close()">Annuler</button><button class="btn btn-primary" onclick="PageDashboard.submitPayment()">Envoyer</button>`);
+      `<button class="btn btn-outline" onclick="Modal.close()">Annuler</button><button class="btn btn-primary" onclick="PageDashboard.submitPayment()">Payer maintenant</button>`);
   },
 
   togglePayMethod(method) {
-    document.getElementById('payCampayFields').style.display = method === 'kang' ? '' : 'none';
-    document.getElementById('payCashFields').style.display = method === 'cash' ? '' : 'none';
+    const isMoMo = ['orange_money', 'mtn_mobile_money', 'campay'].includes(method);
+    document.getElementById('payCampayFields').style.display = isMoMo ? '' : 'none';
+    document.getElementById('payCashFields').style.display = isMoMo ? 'none' : '';
   },
 
   async submitPayment() {
     const amount = document.getElementById('payAmount').value;
     const method = document.getElementById('payMethod').value;
-    if (!amount || Number(amount) <= 0) { Toast.error('Montant invalide'); return; }
+    if (!amount || Number(amount) <= 0) { Toast.error('Veuillez indiquer un montant valide.'); return; }
+    
+    const isMoMo = ['orange_money', 'mtn_mobile_money', 'campay'].includes(method);
     const fd = new FormData();
     fd.append('amount', amount);
     fd.append('payment_method', method);
-    if (method === 'kang') {
+
+    if (isMoMo) {
       const phone = document.getElementById('payPhone').value;
-      if (!phone) { Toast.error('Numéro de téléphone requis'); return; }
+      if (!phone) { Toast.error('Le numéro de téléphone Mobile Money est requis.'); return; }
       fd.append('phone', phone);
     } else {
       const file = document.getElementById('payProof').files[0];
-      if (!file) { Toast.error('Une preuve de paiement est requise'); return; }
+      if (!file) { Toast.error('Une preuve de paiement est requise pour le règlement en espèces.'); return; }
       fd.append('proof', file);
     }
+
     try {
-      const res = await API.upload('/payments/declare', fd);
       Modal.close();
-      Toast.success(res.message || 'Paiement déclaré');
-      Router.go('my-payments');
-    } catch (e) { Toast.error(e.message); }
+      Toast.info('Initiation du paiement Mobile Money...');
+      const res = await API.upload('/payments/declare', fd);
+      const data = res.data;
+      
+      if (isMoMo && (data.ussd_code || data.operator)) {
+        this.startPaymentPoller(data.payment?.id || data.id, amount);
+        Modal.open('📲 Confirmation Mobile Money sur votre téléphone', `
+          <div style="text-align:center; padding:16px 8px;">
+            <div style="font-size:3rem; margin-bottom:12px">📱</div>
+            <h4>Demande de paiement envoyée !</h4>
+            <p style="font-size:14px; color:var(--text-muted); margin-bottom:16px;">
+              Un message de confirmation a été envoyé sur le téléphone.<br>
+              Veuillez taper votre <b>code secret Mobile Money</b> sur votre téléphone pour valider les <b>${Helpers.formatMoney(amount)}</b>.
+            </p>
+            <div class="badge badge-info mb-3" style="font-size:14px; padding:8px 14px">Code USSD : ${data.ussd_code || '*126# / *150#'}</div>
+            <div class="text-muted" style="font-size:12px; font-style:italic">⏳ Attente automatique de validation de votre code PIN...</div>
+          </div>
+        `, `<button class="btn btn-outline" onclick="Modal.close(); Router.go('my-payments');">Fermer</button>`);
+      } else {
+        Toast.success(res.message || 'Paiement déclaré avec succès.');
+        Router.go('my-payments');
+      }
+    } catch (e) {
+      Toast.error(e.message || 'Échec du paiement Mobile Money.');
+    }
+  },
+
+  _pollerTimer: null,
+  startPaymentPoller(paymentId, amount) {
+    let attempts = 0;
+    if (this._pollerTimer) clearInterval(this._pollerTimer);
+
+    this._pollerTimer = setInterval(async () => {
+      attempts++;
+      try {
+        const { data: p } = await API.get('/payments/' + paymentId);
+        if (p.status === 'completed') {
+          clearInterval(this._pollerTimer);
+          Modal.open('🎉 Paiement Validé Instantanément !', `
+            <div style="text-align:center; padding:16px 8px;">
+              <div style="font-size:3.5rem; color:var(--success); margin-bottom:12px">✅</div>
+              <h3 style="color:var(--success)">Paiement de ${Helpers.formatMoney(amount)} Reçu !</h3>
+              <p style="font-size:14px; color:var(--text-muted); margin-bottom:16px;">
+                Le versement a été vérifié et crédité sur votre compte locataire.<br>
+                Votre reçu d'encaissement est disponible ci-dessous.
+              </p>
+              <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+                <button class="btn btn-primary mb-2" onclick="PageDashboard.downloadPaymentReceipt(${p.id})">📄 Télécharger ma quittance PDF officielle</button>
+                <button class="btn btn-outline mb-2" onclick="ReceiptManager.open(${p.id})">👁 Voir le reçu interactif</button>
+              </div>
+            </div>
+          `, `<button class="btn btn-primary" onclick="Modal.close(); if (window.location.hash.includes('payments')) PagePayments.render(); else Router.go('my-payments');">Super, merci !</button>`);
+          
+          if (typeof PageDashboard !== 'undefined' && Auth.getRole() === 'locataire') {
+            PageDashboard.renderTenantHome();
+          }
+        } else if (p.status === 'failed') {
+          clearInterval(this._pollerTimer);
+          Modal.open('❌ Paiement non effectué', `
+            <div style="text-align:center; padding:16px 8px;">
+              <div style="font-size:3.5rem; color:var(--danger); margin-bottom:12px">⚠️</div>
+              <h4>Transaction annulée ou non validée</h4>
+              <p style="font-size:14px; color:var(--text-muted);">
+                Le paiement n'a pas été confirmé sur le téléphone. Veuillez réessayer.
+              </p>
+            </div>
+          `, `<button class="btn btn-outline" onclick="Modal.close()">Fermer</button>`);
+        }
+      } catch (_) {}
+
+      if (attempts >= 30) {
+        clearInterval(this._pollerTimer);
+      }
+    }, 2000);
+  },
+
+  // ===== Espace Locataire : Mes factures et quittances officielles =====
+  _tenantReceipts: [],
+  _tenantUtilityBills: [],
+  _tenantInvoiceFilter: 'all',
+  _tenantInvoiceQuery: '',
+
+  async renderTenantInvoices() {
+    Layout.setTitle('Mes factures & reçus');
+    Layout.setActive('my-invoices');
+
+    const appContent = document.getElementById('appContent');
+    appContent.innerHTML = '<div class="card" style="text-align:center;padding:40px"><div class="spinner"></div><p style="margin-top:12px;color:var(--text-muted)">Chargement de vos factures et quittances officielles...</p></div>';
+
+    let receipts = [];
+    let utilityBills = [];
+    try {
+      const [recRes, utilRes] = await Promise.all([
+        API.get('/receipts').catch(() => ({ data: [] })),
+        API.get('/utility-bills/mine').catch(() => ({ data: [] })),
+      ]);
+      receipts = recRes.data || [];
+      utilityBills = utilRes.data || [];
+    } catch (e) {
+      console.error('Erreur chargement factures locataire:', e);
+    }
+
+    this._tenantReceipts = receipts;
+    this._tenantUtilityBills = utilityBills;
+    this._tenantInvoiceFilter = 'all';
+    this._tenantInvoiceQuery = '';
+
+    const totalPaidReceipts = receipts.reduce((sum, r) => sum + Number(r.amount || 0), 0);
+    const rentCount = receipts.filter(r => r.receipt_type === 'rent').length;
+    const utilPaidCount = utilityBills.filter(u => u.status === 'paid').length;
+
+    Layout.content(`
+      <div class="page-head flex justify-between items-center flex-wrap gap-3">
+        <div>
+          <h2>🧾 Mes Factures & Quittances Officielles</h2>
+          <div class="subtitle">Consultez et téléchargez vos quittances de loyer signées et reçus de charges</div>
+        </div>
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <button class="btn btn-primary" onclick="PageDashboard.declarePayment()">💰 Payer mon loyer</button>
+          <button class="btn btn-outline" onclick="PageDashboard.renderTenantInvoices()">🔄 Actualiser</button>
+        </div>
+      </div>
+
+      <div class="stats-grid mb-4">
+        ${this.statCard('🧾', 'sky', receipts.length, 'Quittances & Reçus émis')}
+        ${this.statCard('🏠', 'green', rentCount, 'Quittances de loyer')}
+        ${this.statCard('⚡', 'orange', utilPaidCount, 'Factures de charges réglées')}
+        ${this.statCard('💰', 'green', Helpers.formatMoney(totalPaidReceipts), 'Total certifié réglé')}
+      </div>
+
+      <div class="card mb-4" style="background:#f8fafc; border-left:4px solid var(--primary); padding:16px 20px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+          <div style="display:flex; align-items:center; gap:14px;">
+            <div style="font-size:2.2rem;">🔒</div>
+            <div>
+              <h4 style="margin:0 0 4px; color:var(--primary); font-weight:700;">
+                Documents officiels certifiés avec cachet & signature de SMG IMMOBILIER
+              </h4>
+              <p style="margin:0; font-size:13px; color:var(--text-muted);">
+                Chaque facture et quittance dispose d'un numéro d'enregistrement unique officiel, opposable juridiquement et valant quittance libératoire de paiement.
+              </p>
+            </div>
+          </div>
+          <div class="badge badge-success" style="padding:6px 12px; font-size:12px; font-weight:700;">
+            ✓ Signature & Cachet Actifs
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header flex justify-between items-center flex-wrap gap-3" style="border-bottom: 1px solid var(--border-color); padding-bottom: 14px;">
+          <div style="display:flex; gap:8px; flex-wrap:wrap;" id="tenantInvoiceFilterTabs">
+            <button class="btn btn-sm btn-primary" id="btn_tab_all" onclick="PageDashboard.filterTenantInvoices('all')">Tous les documents</button>
+            <button class="btn btn-sm btn-outline" id="btn_tab_rent" onclick="PageDashboard.filterTenantInvoices('rent')">🏠 Loyers</button>
+            <button class="btn btn-sm btn-outline" id="btn_tab_utility" onclick="PageDashboard.filterTenantInvoices('utility')">⚡ Charges (Eau & Élec)</button>
+            <button class="btn btn-sm btn-outline" id="btn_tab_deposit" onclick="PageDashboard.filterTenantInvoices('deposit')">🔒 Cautions & Avances</button>
+          </div>
+          <div style="min-width: 240px;">
+            <input type="text" id="tenantInvoiceSearch" class="form-control" placeholder="🔍 Rechercher (N°, date, type...)" oninput="PageDashboard.searchTenantInvoices(this.value)" style="font-size: 13px;" />
+          </div>
+        </div>
+        <div class="card-body" style="padding:0;">
+          <div class="table-wrap">
+            <table class="table" style="margin:0;">
+              <thead>
+                <tr>
+                  <th>N° Pièce</th>
+                  <th>Type</th>
+                  <th>Désignation / Période</th>
+                  <th>Montant</th>
+                  <th>Mode de règlement</th>
+                  <th>Date</th>
+                  <th>Statut</th>
+                  <th style="text-align:right;">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="tenantInvoicesTableBody">
+                ${this._buildTenantInvoicesRows(receipts, utilityBills, 'all', '')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    `);
+  },
+
+  filterTenantInvoices(tab) {
+    this._tenantInvoiceFilter = tab;
+    ['all', 'rent', 'utility', 'deposit'].forEach((t) => {
+      const el = document.getElementById(`btn_tab_${t}`);
+      if (el) {
+        if (t === tab) {
+          el.className = 'btn btn-sm btn-primary';
+        } else {
+          el.className = 'btn btn-sm btn-outline';
+        }
+      }
+    });
+    const tb = document.getElementById('tenantInvoicesTableBody');
+    if (tb) {
+      tb.innerHTML = this._buildTenantInvoicesRows(this._tenantReceipts, this._tenantUtilityBills, tab, this._tenantInvoiceQuery);
+    }
+  },
+
+  searchTenantInvoices(query) {
+    this._tenantInvoiceQuery = query || '';
+    const tb = document.getElementById('tenantInvoicesTableBody');
+    if (tb) {
+      tb.innerHTML = this._buildTenantInvoicesRows(this._tenantReceipts, this._tenantUtilityBills, this._tenantInvoiceFilter, query);
+    }
+  },
+
+  _buildTenantInvoicesRows(receipts = [], utilityBills = [], tab = 'all', query = '') {
+    const q = (query || '').toLowerCase().trim();
+
+    // 1. Liste des reçus officiels (Receipts)
+    let items = (receipts || []).map((r) => {
+      const typeLabel = {
+        rent: 'Loyer',
+        deposit: 'Caution',
+        advance: 'Avance sur loyer',
+        other_income: 'Recette',
+        utility: 'Charges locatives',
+      }[r.receipt_type] || 'Quittance';
+
+      const typeIcon = {
+        rent: '🏠',
+        deposit: '🔒',
+        advance: '💰',
+        utility: '⚡',
+      }[r.receipt_type] || '🧾';
+
+      const period = (r.period_start && r.period_end)
+        ? `Du ${Helpers.formatDate(r.period_start)} au ${Helpers.formatDate(r.period_end)}`
+        : (r.observations || `Règlement du ${Helpers.formatDate(r.payment_date)}`);
+
+      return {
+        id: r.id,
+        receipt_number: r.receipt_number,
+        raw_type: r.receipt_type,
+        typeLabel,
+        typeIcon,
+        period,
+        amount: r.amount,
+        payment_method: r.payment_method || 'Espèces',
+        payment_date: r.payment_date || r.created_at,
+        is_receipt: true,
+        receipt: r,
+      };
+    });
+
+    // 2. Intégrer les factures de charges payées sans reçu direct en table Receipts
+    const existingRecNums = new Set(items.map(i => i.receipt_number));
+    (utilityBills || []).forEach((b) => {
+      if (b.status === 'paid' && b.receipt_number && existingRecNums.has(b.receipt_number)) {
+        return;
+      }
+      const typeName = b.type === 'water' ? 'Eau' : 'Électricité';
+      const typeIcon = b.type === 'water' ? '💧' : '⚡';
+      const monthStr = (typeof PageUtilities !== 'undefined' && PageUtilities.monthLabel) ? PageUtilities.monthLabel(b.period_month) : `Mois ${b.period_month}`;
+      const conso = Math.max(0, Number(b.current_index) - Number(b.previous_index));
+      const period = `Facture ${typeName} — ${monthStr} ${b.period_year} (Conso: ${conso} kWh/m³)`;
+
+      items.push({
+        id: b.id,
+        receipt_number: b.receipt_number || `FACT-CH-${b.id}`,
+        raw_type: 'utility',
+        typeLabel: `Charges ${typeName}`,
+        typeIcon,
+        period,
+        amount: b.total_amount,
+        payment_method: b.payment_method || 'Espèces',
+        payment_date: b.paid_date || b.created_at,
+        is_utility_bill: true,
+        bill: b,
+      });
+    });
+
+    // Filtrer par onglet
+    if (tab === 'rent') {
+      items = items.filter(i => i.raw_type === 'rent');
+    } else if (tab === 'utility') {
+      items = items.filter(i => i.raw_type === 'utility');
+    } else if (tab === 'deposit') {
+      items = items.filter(i => ['deposit', 'advance'].includes(i.raw_type));
+    }
+
+    // Filtrer par recherche
+    if (q) {
+      items = items.filter(i => 
+        (i.receipt_number || '').toLowerCase().includes(q) ||
+        (i.typeLabel || '').toLowerCase().includes(q) ||
+        (i.period || '').toLowerCase().includes(q) ||
+        String(i.amount || '').includes(q) ||
+        (i.payment_method || '').toLowerCase().includes(q)
+      );
+    }
+
+    // Trier du plus récent au plus ancien
+    items.sort((a, b) => new Date(b.payment_date) - new Date(a.payment_date));
+
+    if (!items.length) {
+      return `<tr><td colspan="8" class="text-center text-muted" style="padding:40px 20px;">
+        <div style="font-size:2.5rem; margin-bottom:8px;">📄</div>
+        <h4>Aucun document trouvé</h4>
+        <p style="font-size:13px;">Aucune facture ou quittance ne correspond à vos critères actuels.</p>
+      </td></tr>`;
+    }
+
+    return items.map((it) => {
+      let downloadAction = '';
+      let viewAction = '';
+
+      if (it.is_utility_bill) {
+        downloadAction = `PageDashboard.downloadUtilityReceiptPdf(${it.bill.id})`;
+        viewAction = `PageDashboard.downloadUtilityReceiptPdf(${it.bill.id})`;
+      } else {
+        downloadAction = `PageDashboard.downloadReceiptPdf(${it.id}, '${it.receipt_number}')`;
+        viewAction = `ReceiptManager.open(${JSON.stringify(it.receipt).replace(/"/g, '&quot;')})`;
+      }
+
+      return `
+        <tr>
+          <td>
+            <span class="badge badge-info" style="font-family:monospace; font-size:12px; padding:3px 8px; font-weight:700;">
+              ${Helpers.escapeHtml(it.receipt_number)}
+            </span>
+          </td>
+          <td>
+            <b>${it.typeIcon} ${Helpers.escapeHtml(it.typeLabel)}</b>
+          </td>
+          <td style="max-width:260px;">
+            <div style="font-size:13px; font-weight:600; color:var(--text);">${Helpers.escapeHtml(it.period)}</div>
+          </td>
+          <td>
+            <b style="color:var(--success); font-size:14px;">${Helpers.formatMoney(it.amount)}</b>
+          </td>
+          <td>
+            ${Helpers.methodLabel(it.payment_method)}
+          </td>
+          <td>
+            ${Helpers.formatDate(it.payment_date)}
+          </td>
+          <td>
+            <span class="badge badge-success" style="font-size:11px; padding:3px 8px;">
+              ✓ Signé & Validé
+            </span>
+          </td>
+          <td style="text-align:right; white-space:nowrap;">
+            <button class="btn btn-sm btn-outline" onclick="${viewAction}" title="Consulter et afficher le reçu officiel">
+              👁 Voir
+            </button>
+            <button class="btn btn-sm btn-primary" onclick="${downloadAction}" title="Télécharger le document PDF officiel signé" style="margin-left:4px;">
+              ⬇️ PDF
+            </button>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  },
+
+  async downloadReceiptPdf(id, receiptNumber) {
+    Toast.info('Téléchargement du document officiel PDF...');
+    try {
+      const blob = await API.downloadBlob(`/receipts/${id}/pdf`);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${receiptNumber || `Recu_${id}`}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => window.URL.revokeObjectURL(url), 2000);
+      Toast.success('Quittance PDF officielle téléchargée avec succès ✅');
+    } catch (e) {
+      Toast.error(e.message || 'Erreur lors du téléchargement du reçu');
+    }
+  },
+
+  async downloadPaymentReceipt(paymentId) {
+    Toast.info('Génération et téléchargement de votre quittance officielle...');
+    try {
+      const blob = await API.downloadBlob(`/payments/${paymentId}/receipt-pdf`);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Quittance_Paiement_${paymentId}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => window.URL.revokeObjectURL(url), 2000);
+      Toast.success('Quittance officielle signée téléchargée ✅');
+    } catch (e) {
+      Toast.error(e.message || 'Erreur lors de la récupération de la quittance');
+    }
+  },
+
+  async downloadUtilityReceiptPdf(billId) {
+    Toast.info('Téléchargement du reçu de charges...');
+    try {
+      const blob = await API.downloadBlob(`/utility-bills/${billId}/receipt-pdf`);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Recu_Charges_${billId}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => window.URL.revokeObjectURL(url), 2000);
+      Toast.success('Reçu de charges téléchargé ✅');
+    } catch (e) {
+      Toast.error(e.message || 'Erreur lors du téléchargement du reçu de charges');
+    }
   },
 
   async renderTenantMaintenance() {
@@ -562,30 +1671,42 @@ const PageDashboard = {
     if (!lease) { Toast.error('Aucun appartement associé'); return; }
     Modal.open('Demander une maintenance', `
       <form id="maintReqForm">
-        <div class="form-group"><label>Titre du problème</label><input class="form-control" id="mTitle" required placeholder="Ex: Fuite robinet"/></div>
-        <div class="form-group"><label>Catégorie</label><select class="form-control" id="mCat">
+        <div class="form-group mb-3"><label>Titre du problème <span style="color:var(--danger)">*</span></label><input class="form-control" id="mTitle" required placeholder="Ex: Fuite robinet"/></div>
+        <div class="form-group mb-3"><label>Catégorie</label><select class="form-control" id="mCat">
           <option value="plomberie">Plomberie</option><option value="electricite">Électricité</option>
           <option value="peinture">Peinture</option><option value="menuiserie">Menuiserie</option><option value="autre">Autre</option>
         </select></div>
-        <div class="form-group"><label>Priorité</label><select class="form-control" id="mPrio">
+        <div class="form-group mb-3"><label>Priorité</label><select class="form-control" id="mPrio">
           <option value="normale">Normale</option><option value="haute">Haute</option><option value="urgente">Urgente</option>
         </select></div>
-        <div class="form-group"><label>Description</label><textarea class="form-control" id="mDesc" rows="3"></textarea></div>
+        <div class="form-group mb-3"><label>Photo du problème <span style="color:var(--danger)">*</span></label><input type="file" class="form-control" id="mPhoto" accept="image/*" required/></div>
+        <div class="form-group mb-3"><label>Description</label><textarea class="form-control" id="mDesc" rows="3" placeholder="Précisez les détails de la panne..."></textarea></div>
       </form>`,
       `<button class="btn btn-outline" onclick="Modal.close()">Annuler</button>
-       <button class="btn btn-primary" onclick="PageDashboard.submitMaintenance(${lease.apartment_id})">Envoyer</button>`);
+       <button class="btn btn-primary" onclick="PageDashboard.submitMaintenance(${lease.apartment_id})">Envoyer la demande</button>`);
   },
 
   async submitMaintenance(apartmentId) {
+    const title = document.getElementById('mTitle').value.trim();
+    const category = document.getElementById('mCat').value;
+    const priority = document.getElementById('mPrio').value;
+    const description = document.getElementById('mDesc').value.trim();
+    const photoFile = document.getElementById('mPhoto').files[0];
+
+    if (!title) { Toast.error('Le titre du problème est requis'); return; }
+    if (!photoFile) { Toast.error('Une photo du problème est obligatoire'); return; }
+
+    const fd = new FormData();
+    fd.append('apartment_id', apartmentId);
+    fd.append('title', title);
+    fd.append('category', category);
+    fd.append('priority', priority);
+    fd.append('description', description);
+    fd.append('photo', photoFile);
+
     try {
-      await API.post('/maintenance', {
-        apartment_id: apartmentId,
-        title: document.getElementById('mTitle').value,
-        category: document.getElementById('mCat').value,
-        priority: document.getElementById('mPrio').value,
-        description: document.getElementById('mDesc').value,
-      });
-      Modal.close(); Toast.success('Demande envoyée');
+      await API.upload('/maintenance', fd);
+      Modal.close(); Toast.success('Demande de maintenance envoyée avec succès');
       Router.go('my-maintenance');
     } catch (e) { Toast.error(e.message); }
   },
@@ -749,6 +1870,177 @@ const PageDashboard = {
       if (typeof Icons !== 'undefined') Icons.enhance(el);
     } catch (e) {
       el.innerHTML = `<div class="card"><div class="card-body text-danger">Erreur tracker: ${e.message}</div></div>`;
+    }
+  },
+
+  payUtilityBill(billId, amount) {
+    Modal.open('💳 Payer ma charge de logement', `
+      <div class="form-group mb-3"><label>Montant de la charge (FCFA)</label>
+        <input type="number" class="form-control" id="uPayAmount" value="${amount || ''}" readonly style="background:var(--bg-surface-2); font-weight:bold;"/>
+      </div>
+      
+      <div class="form-group mb-3"><label>Méthode de règlement</label>
+        <select class="form-control" id="uPayMethod" onchange="PageDashboard.toggleUPayMethod(this.value)">
+          <option value="orange_money">📱 Mobile Money (MTN ou Orange Money)</option>
+          <option value="cash">💵 Espèces avec reçu scanné</option>
+        </select>
+      </div>
+
+      <div id="uPayMoMoFields">
+        <div class="form-group mb-3"><label>Numéro Mobile Money (6XXXXXXXX)</label>
+          <input class="form-control" id="uPayPhone" placeholder="Ex: 690000000 ou 670000000"/>
+          <div class="text-muted" style="font-size:12px;margin-top:4px">Un message USSD apparaîtra sur ce téléphone pour saisir votre code PIN.</div>
+        </div>
+      </div>
+
+      <div id="uPayCashFields" style="display:none">
+        <div class="form-group mb-3"><label>Preuve du versement (Photo du reçu / Bordereau)</label>
+          <input type="file" class="form-control" id="uPayProof" accept="image/*,application/pdf"/>
+        </div>
+      </div>
+    `, `
+      <button class="btn btn-outline" onclick="Modal.close()">Annuler</button>
+      <button class="btn btn-primary" onclick="PageDashboard.submitUtilityPayment(${billId})">Valider le paiement</button>
+    `);
+  },
+
+  toggleUPayMethod(method) {
+    const isMoMo = ['orange_money', 'mtn_mobile_money', 'campay'].includes(method);
+    const mEl = document.getElementById('uPayMoMoFields'); if (mEl) mEl.style.display = isMoMo ? '' : 'none';
+    const cEl = document.getElementById('uPayCashFields'); if (cEl) cEl.style.display = isMoMo ? 'none' : '';
+  },
+
+  async submitUtilityPayment(billId) {
+    const method = document.getElementById('uPayMethod').value;
+    const isMoMo = ['orange_money', 'mtn_mobile_money', 'campay'].includes(method);
+    const fd = new FormData();
+    fd.append('payment_method', method);
+
+    if (isMoMo) {
+      const phone = document.getElementById('uPayPhone').value;
+      if (!phone) { Toast.error('Numéro Mobile Money requis.'); return; }
+      fd.append('phone', phone);
+    } else {
+      const file = document.getElementById('uPayProof').files[0];
+      if (!file) { Toast.error('Fichier justificatif requis.'); return; }
+      fd.append('proof', file);
+    }
+
+    try {
+      Modal.close();
+      Toast.info('Enregistrement du paiement de la charge...');
+      await API.upload('/utility-bills/' + billId + '/pay', fd);
+      Toast.success('Paiement de la charge validé avec succès.');
+      if (window.location.hash.includes('my-utilities')) {
+        if (typeof PageUtilities !== 'undefined') PageUtilities.renderMine();
+      } else {
+        this.renderTenantHome();
+      }
+    } catch (e) {
+      Toast.error(e.message || 'Échec du paiement.');
+    }
+  },
+
+  async loadUpcomingRentDues() {
+    const container = document.getElementById('upcomingRentDuesContainer');
+    if (!container) return;
+
+    try {
+      const res = await API.get('/dashboard/upcoming-dues');
+      const dues = res.data || [];
+      if (!dues.length) {
+        container.innerHTML = '';
+        return;
+      }
+
+      const rows = dues.map((d) => {
+        let badge = '';
+        if (d.jours_restants < 0) {
+          badge = `<span class="badge badge-danger" style="font-weight:700">🔴 En retard de ${Math.abs(d.jours_restants)} jour(s)</span>`;
+        } else if (d.jours_restants === 0) {
+          badge = `<span class="badge badge-danger" style="font-weight:700">⚠️ Échéance aujourd'hui !</span>`;
+        } else if (d.jours_restants <= 4) {
+          badge = `<span class="badge badge-warning" style="font-weight:700; background:#fef3c7; color:#92400e; border:1px solid #f59e0b">⏳ Dans ${d.jours_restants} jour(s)</span>`;
+        } else if (d.jours_restants <= 7) {
+          badge = `<span class="badge badge-warning" style="font-weight:700">⏳ Dans ${d.jours_restants} jour(s)</span>`;
+        } else {
+          badge = `<span class="badge badge-info" style="font-weight:700">📅 Dans ${d.jours_restants} jour(s)</span>`;
+        }
+
+        const phoneClean = d.telephone ? d.telephone.replace(/\D/g, '') : '';
+        const waMsg = encodeURIComponent(`Bonjour M./Mme ${d.nom},\nNous vous rappelons que votre loyer de ${Helpers.formatMoney(d.loyer_mensuel)} pour le logement ${d.logement} (${d.immeuble}) arrive à échéance le ${Helpers.formatDate(d.prochaine_echeance)} (${d.echeance_message}).\nMerci de procéder à votre règlement.\nL'équipe SMG IMMOBILIER.`);
+        const waBtn = phoneClean
+          ? `<a class="btn btn-sm btn-whatsapp" href="https://wa.me/${phoneClean.startsWith('237') ? phoneClean : '237' + phoneClean}?text=${waMsg}" target="_blank" title="Envoyer rappel WhatsApp">🟢 WhatsApp</a>`
+          : '';
+
+        return `
+          <tr>
+            <td><b>${d.nom}</b>${d.telephone ? `<br><small class="text-muted">📞 <a href="tel:${d.telephone}">${d.telephone}</a></small>` : ''}</td>
+            <td><b>${d.logement}</b><br><small class="text-muted">🏢 ${d.immeuble}</small></td>
+            <td><b style="color:var(--primary)">${Helpers.formatMoney(d.loyer_mensuel)}</b></td>
+            <td><b>${Helpers.formatDate(d.prochaine_echeance)}</b></td>
+            <td>${badge}</td>
+            <td style="text-align:right; white-space:nowrap; gap:6px;">
+              ${waBtn}
+              <button class="btn btn-sm btn-outline" onclick="PageSituation.ledger(${d.tenant_id})" title="Consulter le relevé financier">📋 Relevé</button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+
+      const isHidden = localStorage.getItem('smg_hide_upcoming_dues') === 'true';
+
+      container.innerHTML = `
+        <div class="card" style="border:1px solid rgba(245,158,11,0.4); box-shadow:0 4px 14px rgba(245,158,11,0.08); margin-bottom:20px;">
+          <div class="card-header flex justify-between items-center" style="background:linear-gradient(90deg, rgba(245,158,11,0.1) 0%, rgba(245,158,11,0.02) 100%); padding:12px 18px;">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="font-size:1.4rem;">🔔</span>
+              <h3 style="margin:0; font-size:1.05rem; color:#b45309; font-weight:700;">
+                Échéances de Loyer Imminentes & Rappels (J-10 à J-1 & Retards)
+              </h3>
+              <span class="badge badge-warning" id="upcomingDuesCountBadge" style="font-weight:700; margin-left:6px;">${dues.length}</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <button class="btn btn-sm btn-outline" id="btnToggleUpcomingDues" onclick="PageDashboard.toggleUpcomingDues()" title="Masquer ou afficher cette section">
+                ${isHidden ? `👁️ Afficher (${dues.length})` : '👁️ Masquer'}
+              </button>
+              <button class="btn btn-sm btn-outline" onclick="Router.go('situation')">Voir toute la situation</button>
+            </div>
+          </div>
+          <div id="upcomingRentDuesBody" style="display:${isHidden ? 'none' : 'block'};">
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Locataire</th>
+                    <th>Logement & Immeuble</th>
+                    <th>Loyer Mensuel</th>
+                    <th>Date d'Échéance</th>
+                    <th>Délai Restant</th>
+                    <th style="text-align:right">Rappels & Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${rows}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+    } catch (_) {}
+  },
+
+  toggleUpcomingDues() {
+    const body = document.getElementById('upcomingRentDuesBody');
+    const btn = document.getElementById('btnToggleUpcomingDues');
+    if (!body) return;
+    const willHide = body.style.display !== 'none';
+    body.style.display = willHide ? 'none' : 'block';
+    localStorage.setItem('smg_hide_upcoming_dues', willHide ? 'true' : 'false');
+    if (btn) {
+      const cnt = document.getElementById('upcomingDuesCountBadge')?.textContent || '';
+      btn.innerHTML = willHide ? `👁️ Afficher (${cnt.trim() || 'échéances'})` : '👁️ Masquer';
     }
   },
 };

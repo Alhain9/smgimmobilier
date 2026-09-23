@@ -15,5 +15,9 @@ router.get('/day', ctrl.getDay);
 router.get('/worker-period', ctrl.getWorkerPeriod);
 router.get('/sector-summary', management, ctrl.getSectorSummary);
 router.get('/sectors/:sector', management, ctrl.getSectorDetail);
+router.get('/properties-breakdown', management, ctrl.getPropertiesBreakdown);
+router.get('/property-detail/:id', management, ctrl.getPropertyDetail);
+router.get('/bailleur', ctrl.getBailleurDashboard);
+router.get('/upcoming-dues', ctrl.getUpcomingRentDues);
 
 module.exports = router;

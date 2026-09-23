@@ -35,8 +35,31 @@ const WorkflowValidation = require('./WorkflowValidation');
 const WorkflowEtape = require('./WorkflowEtape');
 const MessageInterne = require('./MessageInterne');
 const GPSTracking = require('./GPSTracking');
+const Withdrawal = require('./Withdrawal');
+const Worksite = require('./Worksite');
+const Receipt = require('./Receipt');
+const Supplier = require('./Supplier');
+const StockItem = require('./StockItem');
+const StockPurchase = require('./StockPurchase');
+const StockPurchaseItem = require('./StockPurchaseItem');
+const StockMovement = require('./StockMovement');
+const MaintenanceMaterial = require('./MaintenanceMaterial');
+const WorksiteTask = require('./WorksiteTask');
+const WorksiteMaterial = require('./WorksiteMaterial');
+const WorksitePhoto = require('./WorksitePhoto');
+const EquipmentAllocation = require('./EquipmentAllocation');
+const RoleDelegation = require('./RoleDelegation');
+const Warehouse = require('./Warehouse');
+const WorksiteEquipmentLoan = require('./WorksiteEquipmentLoan');
+const ManagerProperty = require('./ManagerProperty');
 
 // ============ ASSOCIATIONS ============
+
+// Worksite <-> Property / User
+Property.hasMany(Worksite, { foreignKey: 'property_id', as: 'worksites' });
+Worksite.belongsTo(Property, { foreignKey: 'property_id', as: 'property' });
+User.hasMany(Worksite, { foreignKey: 'manager_id', as: 'managedWorksites' });
+Worksite.belongsTo(User, { foreignKey: 'manager_id', as: 'manager' });
 
 // Salary <-> User
 User.hasMany(Salary, { foreignKey: 'user_id', as: 'salaries' });
@@ -50,6 +73,21 @@ User.belongsTo(Role, { foreignKey: 'role_id', as: 'role' });
 // Property <-> Apartment
 Property.hasMany(Apartment, { foreignKey: 'property_id', as: 'apartments' });
 Apartment.belongsTo(Property, { foreignKey: 'property_id', as: 'property' });
+
+// Property ↔ Owner (Bailleur)
+User.hasMany(Property, { foreignKey: 'owner_id', as: 'ownedProperties' });
+Property.belongsTo(User, { foreignKey: 'owner_id', as: 'owner' });
+
+// ManagerProperty ↔ User / Property (Affectation immeubles aux gestionnaires/comptables)
+User.belongsToMany(Property, { through: ManagerProperty, as: 'assignedProperties', foreignKey: 'user_id', otherKey: 'property_id' });
+Property.belongsToMany(User, { through: ManagerProperty, as: 'assignedManagers', foreignKey: 'property_id', otherKey: 'user_id' });
+User.hasMany(ManagerProperty, { foreignKey: 'user_id', as: 'managerPropertyLinks' });
+ManagerProperty.belongsTo(User, { foreignKey: 'user_id', as: 'manager' });
+ManagerProperty.belongsTo(Property, { foreignKey: 'property_id', as: 'property' });
+
+// Expense ↔ Property (dépenses directes liées à un immeuble, hors maintenance)
+Property.hasMany(Expense, { foreignKey: 'property_id', as: 'directExpenses' });
+Expense.belongsTo(Property, { foreignKey: 'property_id', as: 'property' });
 
 // Tenant <-> User / Apartment
 User.hasOne(Tenant, { foreignKey: 'user_id', as: 'tenantProfile' });
@@ -186,9 +224,112 @@ MessageInterne.belongsTo(User, { foreignKey: 'recipient_id', as: 'recipient' });
 User.hasMany(GPSTracking, { foreignKey: 'user_id', as: 'gpsLogs' });
 GPSTracking.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
 
+// Withdrawal
+User.hasMany(Withdrawal, { foreignKey: 'created_by', as: 'withdrawals' });
+Withdrawal.belongsTo(User, { foreignKey: 'created_by', as: 'creator' });
+
+// Receipt (reçus de paiement)
+Payment.hasMany(Receipt, { foreignKey: 'payment_id', as: 'receipts' });
+Receipt.belongsTo(Payment, { foreignKey: 'payment_id', as: 'payment' });
+Tenant.hasMany(Receipt, { foreignKey: 'tenant_id', as: 'receipts' });
+Receipt.belongsTo(Tenant, { foreignKey: 'tenant_id', as: 'tenant' });
+Apartment.hasMany(Receipt, { foreignKey: 'apartment_id', as: 'receipts' });
+Receipt.belongsTo(Apartment, { foreignKey: 'apartment_id', as: 'apartment' });
+Property.hasMany(Receipt, { foreignKey: 'property_id', as: 'receipts' });
+Receipt.belongsTo(Property, { foreignKey: 'property_id', as: 'property' });
+User.hasMany(Receipt, { foreignKey: 'generated_by', as: 'generatedReceipts' });
+Receipt.belongsTo(User, { foreignKey: 'generated_by', as: 'generator' });
+
+// Stock & Fournisseurs
+Supplier.hasMany(StockPurchase, { foreignKey: 'supplier_id', as: 'purchases' });
+StockPurchase.belongsTo(Supplier, { foreignKey: 'supplier_id', as: 'supplier' });
+User.hasMany(StockPurchase, { foreignKey: 'created_by', as: 'stockPurchases' });
+StockPurchase.belongsTo(User, { foreignKey: 'created_by', as: 'creator' });
+
+StockPurchase.hasMany(StockPurchaseItem, { foreignKey: 'purchase_id', as: 'items' });
+StockPurchaseItem.belongsTo(StockPurchase, { foreignKey: 'purchase_id', as: 'purchase' });
+StockItem.hasMany(StockPurchaseItem, { foreignKey: 'stock_item_id', as: 'purchaseLines' });
+StockPurchaseItem.belongsTo(StockItem, { foreignKey: 'stock_item_id', as: 'stockItem' });
+
+StockItem.hasMany(StockMovement, { foreignKey: 'stock_item_id', as: 'movements' });
+StockMovement.belongsTo(StockItem, { foreignKey: 'stock_item_id', as: 'stockItem' });
+User.hasMany(StockMovement, { foreignKey: 'created_by', as: 'stockMovements' });
+StockMovement.belongsTo(User, { foreignKey: 'created_by', as: 'author' });
+
+// Maintenance ↔ Stock Materials
+Maintenance.hasMany(MaintenanceMaterial, { foreignKey: 'maintenance_id', as: 'materialsUsed' });
+MaintenanceMaterial.belongsTo(Maintenance, { foreignKey: 'maintenance_id', as: 'maintenance' });
+StockItem.hasMany(MaintenanceMaterial, { foreignKey: 'stock_item_id', as: 'maintenanceUses' });
+MaintenanceMaterial.belongsTo(StockItem, { foreignKey: 'stock_item_id', as: 'stockItem' });
+User.hasMany(MaintenanceMaterial, { foreignKey: 'declared_by', as: 'declaredMaterials' });
+MaintenanceMaterial.belongsTo(User, { foreignKey: 'declared_by', as: 'declarer' });
+
+// Worksite Enhancements
+Worksite.hasMany(WorksiteTask, { foreignKey: 'worksite_id', as: 'tasks' });
+WorksiteTask.belongsTo(Worksite, { foreignKey: 'worksite_id', as: 'worksite' });
+User.hasMany(WorksiteTask, { foreignKey: 'assigned_to', as: 'assignedWorksiteTasks' });
+WorksiteTask.belongsTo(User, { foreignKey: 'assigned_to', as: 'assignee' });
+
+Worksite.hasMany(WorksiteMaterial, { foreignKey: 'worksite_id', as: 'materialsUsed' });
+WorksiteMaterial.belongsTo(Worksite, { foreignKey: 'worksite_id', as: 'worksite' });
+StockItem.hasMany(WorksiteMaterial, { foreignKey: 'stock_item_id', as: 'worksiteUses' });
+WorksiteMaterial.belongsTo(StockItem, { foreignKey: 'stock_item_id', as: 'stockItem' });
+User.hasMany(WorksiteMaterial, { foreignKey: 'declared_by', as: 'worksiteDeclaredMaterials' });
+WorksiteMaterial.belongsTo(User, { foreignKey: 'declared_by', as: 'declarer' });
+
+Worksite.hasMany(WorksitePhoto, { foreignKey: 'worksite_id', as: 'photos' });
+WorksitePhoto.belongsTo(Worksite, { foreignKey: 'worksite_id', as: 'worksite' });
+User.hasMany(WorksitePhoto, { foreignKey: 'uploaded_by', as: 'worksitePhotos' });
+WorksitePhoto.belongsTo(User, { foreignKey: 'uploaded_by', as: 'uploader' });
+
+// Equipment Allocations (outillage affecté aux techniciens / chantiers)
+Equipment.hasMany(EquipmentAllocation, { foreignKey: 'equipment_id', as: 'allocations' });
+EquipmentAllocation.belongsTo(Equipment, { foreignKey: 'equipment_id', as: 'equipment' });
+User.hasMany(EquipmentAllocation, { foreignKey: 'assigned_to_user_id', as: 'assignedEquipments' });
+EquipmentAllocation.belongsTo(User, { foreignKey: 'assigned_to_user_id', as: 'technician' });
+Worksite.hasMany(EquipmentAllocation, { foreignKey: 'worksite_id', as: 'equipmentAllocations' });
+EquipmentAllocation.belongsTo(Worksite, { foreignKey: 'worksite_id', as: 'worksite' });
+Maintenance.hasMany(EquipmentAllocation, { foreignKey: 'maintenance_id', as: 'equipmentAllocations' });
+EquipmentAllocation.belongsTo(Maintenance, { foreignKey: 'maintenance_id', as: 'maintenance' });
+
+// Role Delegations (Suppléance de rôle temporaire)
+User.hasMany(RoleDelegation, { foreignKey: 'user_id', as: 'delegations' });
+RoleDelegation.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+User.hasMany(RoleDelegation, { foreignKey: 'granted_by', as: 'grantedDelegations' });
+RoleDelegation.belongsTo(User, { foreignKey: 'granted_by', as: 'granter' });
+
+// ===== Multi-Entrepôts & Prêt d'Équipements Chantiers =====
+Warehouse.hasMany(StockItem, { foreignKey: 'warehouse_id', as: 'items' });
+StockItem.belongsTo(Warehouse, { foreignKey: 'warehouse_id', as: 'warehouse' });
+User.hasMany(Warehouse, { foreignKey: 'manager_id', as: 'managedWarehouses' });
+Warehouse.belongsTo(User, { foreignKey: 'manager_id', as: 'manager' });
+Property.hasMany(Warehouse, { foreignKey: 'property_id', as: 'warehouses' });
+Warehouse.belongsTo(Property, { foreignKey: 'property_id', as: 'property' });
+
+Worksite.hasMany(WorksiteEquipmentLoan, { foreignKey: 'worksite_id', as: 'equipmentLoans' });
+WorksiteEquipmentLoan.belongsTo(Worksite, { foreignKey: 'worksite_id', as: 'worksite' });
+StockItem.hasMany(WorksiteEquipmentLoan, { foreignKey: 'stock_item_id', as: 'worksiteLoans' });
+WorksiteEquipmentLoan.belongsTo(StockItem, { foreignKey: 'stock_item_id', as: 'stockItem' });
+
+Warehouse.hasMany(WorksiteEquipmentLoan, { foreignKey: 'warehouse_id', as: 'loansFrom' });
+WorksiteEquipmentLoan.belongsTo(Warehouse, { foreignKey: 'warehouse_id', as: 'sourceWarehouse' });
+Warehouse.hasMany(WorksiteEquipmentLoan, { foreignKey: 'return_warehouse_id', as: 'returnsTo' });
+WorksiteEquipmentLoan.belongsTo(Warehouse, { foreignKey: 'return_warehouse_id', as: 'returnWarehouse' });
+
+User.hasMany(WorksiteEquipmentLoan, { foreignKey: 'created_by', as: 'createdLoans' });
+WorksiteEquipmentLoan.belongsTo(User, { foreignKey: 'created_by', as: 'creator' });
+
 module.exports = {
-  sequelize, Role, User, Property, Apartment, Tenant, Lease, Payment,
+  sequelize, Role, User, Property, Apartment, Tenant, Lease, Payment, ManagerProperty,
   Maintenance, MaintenanceImage, MaintenanceTechnician, Equipment, Expense, Task, Upload, CalendarEvent, CalendarEventParticipant, Notification, Salary, UtilityBill, PaymentHistory, TaskHistory,
   // Nouveaux modèles SMG IMMOBILIER
-  AuditLog, RefreshToken, Permission, RolePermission, Service, Equipe, Planning, Pointage, Conge, WorkflowValidation, WorkflowEtape, MessageInterne, GPSTracking,
+  AuditLog, RefreshToken, Permission, RolePermission, Service, Equipe, Planning, Pointage, Conge, WorkflowValidation, WorkflowEtape, MessageInterne, GPSTracking, Withdrawal, Worksite,
+  Receipt,
+  Supplier, StockItem, StockPurchase, StockPurchaseItem, StockMovement,
+  MaintenanceMaterial,
+  WorksiteTask, WorksiteMaterial, WorksitePhoto,
+  EquipmentAllocation,
+  RoleDelegation,
+  Warehouse,
+  WorksiteEquipmentLoan,
 };

@@ -5,6 +5,7 @@ const CalendarEvent = sequelize.define('CalendarEvent', {
   id: { type: DataTypes.BIGINT.UNSIGNED, primaryKey: true, autoIncrement: true },
   task_id: { type: DataTypes.BIGINT.UNSIGNED },
   title: { type: DataTypes.STRING(150), allowNull: false },
+  description: { type: DataTypes.TEXT, allowNull: true },
   start_datetime: { type: DataTypes.DATE, allowNull: false },
   end_datetime: { type: DataTypes.DATE },
   created_by: { type: DataTypes.BIGINT.UNSIGNED },

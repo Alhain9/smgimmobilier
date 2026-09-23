@@ -11,6 +11,53 @@ function monthsElapsed(startDate) {
   return (n.getFullYear() - s.getFullYear()) * 12 + (n.getMonth() - s.getMonth()) + 1;
 }
 
+// Calcul précis de la prochaine échéance et du décompte des jours (J-10, J-7, J-4, etc.)
+function computeDueInfo(startDate, monthlyRent, totalValide) {
+  if (!startDate || !monthlyRent || monthlyRent <= 0) {
+    return { prochaine_echeance: null, jours_restants: null, statut_echeance: 'ok', echeance_message: 'Aucun bail actif' };
+  }
+  const start = new Date(startDate);
+  if (isNaN(start.getTime())) {
+    return { prochaine_echeance: null, jours_restants: null, statut_echeance: 'ok', echeance_message: 'Date invalide' };
+  }
+
+  const monthsPaid = Math.floor((totalValide || 0) / monthlyRent);
+  const nextDue = new Date(start);
+  nextDue.setMonth(nextDue.getMonth() + monthsPaid);
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const due = new Date(nextDue);
+  due.setHours(0, 0, 0, 0);
+
+  const diffDays = Math.round((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+  let statut_echeance = 'ok';
+  let echeance_message = '';
+
+  if (diffDays < 0) {
+    statut_echeance = 'retard';
+    echeance_message = `En retard de ${Math.abs(diffDays)} jour(s)`;
+  } else if (diffDays === 0) {
+    statut_echeance = 'aujourdhui';
+    echeance_message = "Échéance aujourd'hui !";
+  } else if (diffDays <= 10) {
+    statut_echeance = 'imminent';
+    echeance_message = `Doit payer dans ${diffDays} jour(s)`;
+  } else {
+    statut_echeance = 'a_venir';
+    echeance_message = `Dans ${diffDays} jour(s)`;
+  }
+
+  return {
+    prochaine_echeance: nextDue.toISOString().slice(0, 10),
+    jours_restants: diffDays,
+    statut_echeance,
+    echeance_message,
+    mois_regles: monthsPaid,
+  };
+}
+
 class LedgerService {
   // Calcule le solde à partir d'un locataire chargé (avec leases + payments + apartment)
   computeFromTenant(tenant) {
@@ -30,6 +77,8 @@ class LedgerService {
     let statut = 'a_jour';
     if (solde > 0) statut = totalValide > 0 ? 'partiel' : 'retard';
 
+    const dueInfo = computeDueInfo(startDate, monthlyRent, totalValide);
+
     return {
       loyer_mensuel: monthlyRent,
       mois_dus: months,
@@ -40,6 +89,7 @@ class LedgerService {
       solde,
       statut, // a_jour | partiel | retard
       debut: startDate || null,
+      ...dueInfo,
     };
   }
 

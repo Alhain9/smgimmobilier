@@ -200,13 +200,16 @@ class DashboardService {
   // ===== Série temporelle revenus vs dépenses (granularité auto) =====
   async getRevenueSeries(start, end) {
     const range = this._range(start, end);
+    const paymentDateFn = fn('DATE_FORMAT', col('payment_date'), '%Y-%m-%d');
+    const createdDateFn = fn('DATE_FORMAT', col('created_at'), '%Y-%m-%d');
+
     const [revRows, expRows] = await Promise.all([
       Payment.findAll({
-        attributes: [[fn('DATE_FORMAT', col('payment_date'), '%Y-%m-%d'), 'd'], [fn('SUM', col('amount')), 'total']],
+        attributes: [[paymentDateFn, 'd'], [fn('SUM', col('amount')), 'total']],
         where: { status: 'completed', payment_date: { [Op.between]: range } }, group: ['d'], raw: true,
       }),
       Expense.findAll({
-        attributes: [[fn('DATE_FORMAT', col('created_at'), '%Y-%m-%d'), 'd'], [fn('SUM', col('total_price')), 'total']],
+        attributes: [[createdDateFn, 'd'], [fn('SUM', col('total_price')), 'total']],
         where: { created_at: { [Op.between]: range } }, group: ['d'], raw: true,
       }),
     ]);
@@ -257,9 +260,8 @@ class DashboardService {
 
   async getMonthlyRevenue() {
     const year = new Date().getFullYear();
-    const isPostgres = Payment.sequelize.options.dialect === 'postgres';
-    const monthFunc = isPostgres ? fn('date_part', 'month', col('payment_date')) : fn('MONTH', col('payment_date'));
-    const yearFunc = isPostgres ? fn('date_part', 'year', col('payment_date')) : fn('YEAR', col('payment_date'));
+    const monthFunc = fn('MONTH', col('payment_date'));
+    const yearFunc = fn('YEAR', col('payment_date'));
 
     const rows = await Payment.findAll({
       attributes: [[monthFunc, 'month'], [fn('SUM', col('amount')), 'total']],
@@ -435,6 +437,324 @@ class DashboardService {
       case 'taches': return this._taches();
       default: return {};
     }
+  }
+
+  // ===== Synthèse par immeuble sur une période (start -> end) =====
+  async getPropertiesBreakdown(start, end) {
+    const range = this._range(start, end);
+    const properties = await Property.findAll({
+      include: [
+        {
+          model: Apartment,
+          as: 'apartments',
+          include: [
+            { model: Tenant, as: 'tenants', where: { status: 'active' }, required: false },
+          ]
+        }
+      ],
+      order: [['property_name', 'ASC']]
+    });
+
+    const breakdown = [];
+
+    for (const prop of properties) {
+      const apts = prop.apartments || [];
+      const aptIds = apts.map(a => a.id);
+      const totalApartments = apts.length;
+      const occupiedApartments = apts.filter(a => a.status === 'occupied').length;
+      const occupancyRate = totalApartments > 0 ? Math.round((occupiedApartments / totalApartments) * 100) : 0;
+
+      let revenue = 0;
+      let unpaid = 0;
+      let expenses = 0;
+      let activeMaintenances = 0;
+
+      if (aptIds.length) {
+        const [revSum, unpSum, expSum, maintCount] = await Promise.all([
+          Payment.sum('amount', { where: { apartment_id: aptIds, status: 'completed', payment_date: { [Op.between]: range } } }),
+          Payment.sum('amount', { where: { apartment_id: aptIds, status: { [Op.in]: ['pending', 'failed'] } } }),
+          Expense.sum('total_price', {
+            where: { created_at: { [Op.between]: range } },
+            include: [{ model: Maintenance, as: 'maintenance', where: { apartment_id: aptIds }, required: true }]
+          }),
+          Maintenance.count({ where: { apartment_id: aptIds, status: { [Op.in]: ['reported', 'validated', 'in_progress'] } } }),
+        ]);
+        revenue = +revSum || 0;
+        unpaid = +unpSum || 0;
+        expenses = +expSum || 0;
+        activeMaintenances = +maintCount || 0;
+      }
+
+      breakdown.push({
+        id: prop.id,
+        property_name: prop.property_name,
+        property_type: prop.property_type,
+        city: prop.city,
+        district: prop.district,
+        totalApartments,
+        occupiedApartments,
+        occupancyRate,
+        revenue,
+        unpaid,
+        expenses,
+        balance: revenue - expenses,
+        activeMaintenances,
+      });
+    }
+
+    return { start, end, breakdown };
+  }
+
+  // ===== Détail d'un immeuble sur une période =====
+  async getPropertyDetail(propertyId, start, end) {
+    const range = this._range(start, end);
+    const property = await Property.findByPk(propertyId, {
+      include: [
+        {
+          model: Apartment,
+          as: 'apartments',
+          include: [
+            {
+              model: Tenant,
+              as: 'tenants',
+              where: { status: 'active' },
+              required: false,
+              include: [{ model: User, as: 'user', attributes: ['id', 'full_name', 'phone', 'email'] }]
+            },
+            {
+              model: Lease,
+              as: 'leases',
+              where: { status: 'active' },
+              required: false
+            }
+          ]
+        }
+      ]
+    });
+
+    if (!property) throw Object.assign(new Error('Immeuble introuvable'), { status: 404 });
+
+    const apts = property.apartments || [];
+    const aptIds = apts.map(a => a.id);
+
+    let payments = [];
+    let expenses = [];
+    let maintenances = [];
+
+    if (aptIds.length) {
+      [payments, expenses, maintenances] = await Promise.all([
+        Payment.findAll({
+          where: { apartment_id: aptIds, payment_date: { [Op.between]: range } },
+          include: [
+            { model: Apartment, as: 'apartment', attributes: ['id', 'apartment_number'] },
+            { model: Tenant, as: 'tenant', include: [{ model: User, as: 'user', attributes: ['id', 'full_name'] }] }
+          ],
+          order: [['payment_date', 'DESC']],
+          limit: 100
+        }),
+        Expense.findAll({
+          include: [
+            {
+              model: Maintenance,
+              as: 'maintenance',
+              where: { apartment_id: aptIds },
+              required: true,
+              include: [{ model: Apartment, as: 'apartment', attributes: ['id', 'apartment_number'] }]
+            }
+          ],
+          order: [['created_at', 'DESC']],
+          limit: 100
+        }),
+        Maintenance.findAll({
+          where: { apartment_id: aptIds },
+          include: [
+            { model: Apartment, as: 'apartment', attributes: ['id', 'apartment_number'] },
+            { model: User, as: 'technician', attributes: ['id', 'full_name'] }
+          ],
+          order: [['created_at', 'DESC']],
+          limit: 50
+        })
+      ]);
+    }
+
+    const totalRevenue = payments.filter(p => p.status === 'completed').reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
+    const totalUnpaid = payments.filter(p => ['pending', 'failed'].includes(p.status)).reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
+    const totalExpenses = expenses.reduce((sum, e) => sum + parseFloat(e.total_price || 0), 0);
+
+    return {
+      property,
+      start,
+      end,
+      stats: {
+        totalApartments: apts.length,
+        occupiedApartments: apts.filter(a => a.status === 'occupied').length,
+        revenue: totalRevenue,
+        unpaid: totalUnpaid,
+        expenses: totalExpenses,
+        balance: totalRevenue - totalExpenses,
+      },
+      apartments: apts,
+      payments,
+      expenses,
+      maintenances,
+    };
+  }
+
+  // ===== Dashboard spécifique bailleur : vision limitée à ses propres biens =====
+  async bailleurDashboard(userId) {
+    // Récupérer les propriétés du bailleur
+    const properties = await Property.findAll({
+      where: { owner_id: userId },
+      include: [{
+        model: Apartment, as: 'apartments',
+        attributes: ['id', 'apartment_number', 'rent_amount', 'status', 'apartment_type'],
+        include: [{
+          model: Tenant, as: 'tenants', required: false, where: { status: 'active' },
+          include: [{ model: User, as: 'user', attributes: ['id', 'full_name', 'phone'] }],
+        }],
+      }],
+    });
+
+    if (!properties.length) {
+      return {
+        patrimoine: { properties: 0, apartments: 0, occupied: 0, free: 0, occupancyRate: 0, tenants: 0 },
+        finances: { revenue: 0, unpaid: 0, expenses: 0, balance: 0 },
+        maintenances: { active: 0, completed: 0, total: 0 },
+        properties: [],
+      };
+    }
+
+    const propertyIds = properties.map((p) => p.id);
+    const allApts = properties.flatMap((p) => p.apartments || []);
+    const aptIds = allApts.map((a) => a.id);
+    const occupied = allApts.filter((a) => a.status === 'occupied').length;
+
+    // Finances : paiements liés aux appartements du bailleur
+    const [payments, maintenances, expenses, directExpenses] = await Promise.all([
+      Payment.findAll({ where: { apartment_id: { [Op.in]: aptIds } } }),
+      Maintenance.findAll({ where: { apartment_id: { [Op.in]: aptIds } } }),
+      Expense.findAll({
+        where: { maintenance_id: { [Op.not]: null } },
+        include: [{
+          model: Maintenance, as: 'maintenance', required: true,
+          where: { apartment_id: { [Op.in]: aptIds } },
+          attributes: ['id', 'apartment_id'],
+        }],
+      }),
+      // Dépenses directement rattachées à une propriété du bailleur
+      Expense.findAll({ where: { property_id: { [Op.in]: propertyIds } } }),
+    ]);
+
+    const revenue = payments.filter((p) => p.status === 'completed').reduce((s, p) => s + parseFloat(p.amount || 0), 0);
+    const unpaid = payments.filter((p) => ['pending', 'failed', 'awaiting_confirmation'].includes(p.status)).reduce((s, p) => s + parseFloat(p.amount || 0), 0);
+    const totalExpenses = [...expenses, ...directExpenses].reduce((s, e) => s + parseFloat(e.total_price || 0), 0);
+
+    const activeMaint = maintenances.filter((m) => ['reported', 'validated', 'in_progress'].includes(m.status)).length;
+    const completedMaint = maintenances.filter((m) => m.status === 'completed').length;
+
+    // Détail par immeuble
+    const byProperty = properties.map((prop) => {
+      const apts = prop.apartments || [];
+      const aIds = apts.map((a) => a.id);
+      const propPayments = payments.filter((p) => aIds.includes(p.apartment_id));
+      const propRev = propPayments.filter((p) => p.status === 'completed').reduce((s, p) => s + parseFloat(p.amount || 0), 0);
+      const propUnpaid = propPayments.filter((p) => ['pending', 'failed', 'awaiting_confirmation'].includes(p.status)).reduce((s, p) => s + parseFloat(p.amount || 0), 0);
+      const propMaint = maintenances.filter((m) => aIds.includes(m.apartment_id));
+      const loyerAttendu = apts.filter((a) => a.status === 'occupied').reduce((s, a) => s + parseFloat(a.rent_amount || 0), 0);
+
+      return {
+        id: prop.id,
+        property_name: prop.property_name,
+        address: prop.address,
+        city: prop.city,
+        apartments: apts.length,
+        occupied: apts.filter((a) => a.status === 'occupied').length,
+        free: apts.filter((a) => a.status === 'free').length,
+        loyer_attendu: loyerAttendu,
+        revenue: propRev,
+        unpaid: propUnpaid,
+        maintenances_active: propMaint.filter((m) => ['reported', 'validated', 'in_progress'].includes(m.status)).length,
+        maintenances_completed: propMaint.filter((m) => m.status === 'completed').length,
+      };
+    });
+
+    return {
+      patrimoine: {
+        properties: properties.length,
+        apartments: allApts.length,
+        occupied,
+        free: allApts.filter((a) => a.status === 'free').length,
+        occupancyRate: allApts.length > 0 ? Math.round((occupied / allApts.length) * 100) : 0,
+        tenants: allApts.reduce((s, a) => s + ((a.tenants || []).length), 0),
+      },
+      finances: {
+        revenue,
+        unpaid,
+        expenses: totalExpenses,
+        balance: revenue - totalExpenses,
+      },
+      maintenances: { active: activeMaint, completed: completedMaint, total: maintenances.length },
+      properties: byProperty,
+    };
+  }
+
+  // ===== Échéances de loyer imminentes (J-10 à J-1 et retards) =====
+  async getUpcomingRentDues(ownerPropertyIds = null) {
+    const ledgerService = require('./ledger.service');
+    const tenants = await Tenant.findAll({
+      where: { status: 'active' },
+      include: [
+        { model: User, as: 'user', attributes: ['id', 'full_name', 'phone', 'email'] },
+        {
+          model: Apartment, as: 'apartment',
+          include: [{ model: Property, as: 'property', attributes: ['id', 'property_name', 'city'] }],
+        },
+        {
+          model: Lease, as: 'leases',
+          where: { status: 'active' },
+          required: false,
+        },
+        {
+          model: Payment, as: 'payments',
+          attributes: ['id', 'amount', 'status', 'payment_date'],
+        },
+      ],
+    });
+
+    const dues = [];
+    for (const t of tenants) {
+      const o = t.toJSON();
+      const apt = o.apartment;
+      const prop = apt?.property;
+      if (Array.isArray(ownerPropertyIds) && prop && !ownerPropertyIds.includes(Number(prop.id))) {
+        continue;
+      }
+
+      const led = ledgerService.computeFromTenant(t);
+      if (!led.prochaine_echeance) continue;
+
+      // Filtrer : imminents (<= 10 jours) ou aujourd'hui (0) ou retards (< 0)
+      if (led.jours_restants !== null && led.jours_restants <= 10) {
+        dues.push({
+          tenant_id: o.id,
+          nom: o.user ? o.user.full_name : '—',
+          telephone: o.user ? o.user.phone : null,
+          logement: apt ? apt.apartment_number : '—',
+          immeuble: prop ? prop.property_name : '—',
+          property_id: prop ? prop.id : null,
+          loyer_mensuel: led.loyer_mensuel,
+          solde: led.solde,
+          prochaine_echeance: led.prochaine_echeance,
+          jours_restants: led.jours_restants,
+          statut_echeance: led.statut_echeance,
+          echeance_message: led.echeance_message,
+        });
+      }
+    }
+
+    // Trier par urgence : les retards d'abord, puis aujourd'hui, puis 1 jour, 4 jours, 7 jours, 10 jours
+    dues.sort((a, b) => a.jours_restants - b.jours_restants);
+    return dues;
   }
 }
 module.exports = new DashboardService();

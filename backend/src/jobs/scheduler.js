@@ -32,6 +32,14 @@ class JobScheduler {
       } catch (err) { logger.error('Cron nettoyage tokens échoué', { error: err.message }); }
     });
 
+    // ===== Échéances de loyer (J-10, J-7, J-4, J-0) tous les jours à 8h30 =====
+    cron.schedule('30 8 * * *', async () => {
+      try {
+        logger.info('⏰ Cron: vérification des échéances de loyer (J-10, J-7, J-4, J-0)');
+        await this.checkUpcomingRentDues();
+      } catch (err) { logger.error('Cron échéances échoué', { error: err.message }); }
+    });
+
     // ===== Rappels de paiement (1er et 15 du mois à 10h) =====
     cron.schedule('0 10 1,15 * *', async () => {
       try {
@@ -40,7 +48,15 @@ class JobScheduler {
       } catch (err) { logger.error('Cron rappels échoué', { error: err.message }); }
     });
 
-    logger.info('✅ Tâches planifiées (cron) démarrées');
+    // ===== Synchronisation automatique CamPay Mobile Money (toutes les 5 secondes) =====
+    setInterval(async () => {
+      try {
+        const paymentService = require('../services/payment.service');
+        await paymentService.syncPendingPayments();
+      } catch (_) {}
+    }, 5000);
+
+    logger.info('✅ Tâches planifiées (cron & CamPay Sync) démarrées');
   }
 
   // Détection des paiements en retard et création de notifications
@@ -177,6 +193,39 @@ class JobScheduler {
       }
     }
     logger.info(`Rappels de paiement envoyés : ${sentCount}`);
+  }
+
+  // Vérifie les échéances imminentes (J-10, J-7, J-4, J-0) et alerte locataires et gestionnaires
+  async checkUpcomingRentDues() {
+    const dashboardService = require('../services/dashboard.service');
+    const dues = await dashboardService.getUpcomingRentDues();
+    let notified = 0;
+
+    for (const d of dues) {
+      if (![10, 7, 4, 0].includes(d.jours_restants)) continue;
+
+      const title = d.jours_restants === 0
+        ? "⚠️ Échéance de loyer aujourd'hui !"
+        : `🔔 Échéance de loyer dans ${d.jours_restants} jour(s)`;
+
+      const msg = `Votre loyer de ${d.loyer_mensuel} FCFA arrive à échéance le ${d.prochaine_echeance} (${d.echeance_message}) pour le logement ${d.logement}.`;
+
+      // Trouver l'utilisateur lié au locataire
+      const tenant = await Tenant.findByPk(d.tenant_id);
+      if (tenant && tenant.user_id) {
+        try {
+          await Notification.create({
+            user_id: tenant.user_id,
+            title,
+            message: msg,
+            type: d.jours_restants <= 4 ? 'warning' : 'info',
+          });
+          emitNotification(tenant.user_id, { title, message: msg, type: 'warning' });
+          notified++;
+        } catch (_) {}
+      }
+    }
+    logger.info(`Échéances de loyer vérifiées : ${notified} alerte(s) envoyée(s)`);
   }
 }
 

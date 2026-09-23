@@ -16,17 +16,29 @@ const pagination = {
   search: Joi.string().max(200).allow('', null),
 };
 
+// Mot de passe fort : min 8 caractères, 1 majuscule, 1 minuscule, 1 chiffre, 1 caractère spécial
+const strongPassword = Joi.string()
+  .min(8)
+  .max(100)
+  .pattern(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]).*$/)
+  .messages({
+    'string.min': 'Le mot de passe doit comporter au moins 8 caractères.',
+    'string.max': 'Le mot de passe ne doit pas dépasser 100 caractères.',
+    'string.pattern.base': 'Le mot de passe doit contenir au moins une majuscule, une minuscule, un chiffre et un caractère spécial (!@#$%^&*...).',
+    'any.required': 'Le mot de passe est obligatoire.',
+  });
+
 // ===== AUTH =====
 const login = Joi.object({
   email: Joi.string().email().required(),
-  password: Joi.string().min(6).required(),
+  password: Joi.string().required(),
 });
 
 const register = Joi.object({
   full_name: requiredString(150),
   email: Joi.string().email().required(),
   phone: optionalString(30),
-  password: Joi.string().min(6).max(100).required(),
+  password: strongPassword.required(),
   role_id: id,
 });
 
@@ -34,18 +46,30 @@ const refreshToken = Joi.object({
   refreshToken: Joi.string().required(),
 });
 
-const changePassword = Joi.object({
-  currentPassword: Joi.string().required(),
-  newPassword: Joi.string().min(6).max(100).required(),
+const forgotPassword = Joi.object({
+  email: Joi.string().email().required(),
 });
+
+const resetPassword = Joi.object({
+  token: Joi.string().required(),
+  newPassword: strongPassword.required(),
+});
+
+const changePassword = Joi.object({
+  currentPassword: Joi.string(),
+  oldPassword: Joi.string(),
+  newPassword: strongPassword.required(),
+}).or('currentPassword', 'oldPassword');
 
 // ===== USERS =====
 const createUser = Joi.object({
   full_name: requiredString(150),
   email: Joi.string().email().required(),
   phone: optionalString(30),
-  password: Joi.string().min(6).max(100).required(),
+  password: strongPassword.required(),
   role_id: requiredId,
+  service_id: id.allow(null),
+  equipe_id: id.allow(null),
   status: Joi.string().valid('active', 'inactive').default('active'),
   can_manage_users: Joi.boolean().default(false),
   can_view_all_calendars: Joi.boolean().default(false),
@@ -56,7 +80,10 @@ const updateUser = Joi.object({
   full_name: optionalString(150),
   email: Joi.string().email(),
   phone: optionalString(30),
+  password: strongPassword.allow('', null),
   role_id: id,
+  service_id: id.allow(null),
+  equipe_id: id.allow(null),
   status: Joi.string().valid('active', 'inactive'),
   can_manage_users: Joi.boolean(),
   can_view_all_calendars: Joi.boolean(),
@@ -128,7 +155,7 @@ const createTenant = Joi.object({
   full_name: optionalString(150),
   email: Joi.string().email().allow('', null),
   phone: optionalString(30),
-  password: Joi.string().min(6).max(100).allow('', null),
+  password: strongPassword.allow('', null),
   national_id: optionalString(50),
   profession: optionalString(100),
   status: Joi.string().valid('active', 'inactive').default('active'),
@@ -142,7 +169,7 @@ const updateTenant = Joi.object({
   full_name: optionalString(150),
   email: Joi.string().email().allow('', null),
   phone: optionalString(30),
-  password: Joi.string().min(6).max(100).allow('', null),
+  password: strongPassword.allow('', null),
   national_id: optionalString(50),
   profession: optionalString(100),
   status: Joi.string().valid('active', 'inactive'),
@@ -179,7 +206,7 @@ const createPayment = Joi.object({
   apartment_id: requiredId,
   amount: money.required(),
   payment_date: dateStr.required(),
-  payment_method: Joi.string().valid('orange_money', 'mtn_mobile_money', 'bank_transfer', 'cash', 'campay', 'kang').required(),
+  payment_method: Joi.string().valid('orange_money', 'mtn_mobile_money', 'bank_transfer', 'cash', 'campay').required(),
   status: Joi.string().valid('pending', 'awaiting_confirmation', 'completed', 'failed', 'refunded').default('pending'),
   reference: optionalString(100),
   notes: optionalString(1000),
@@ -190,7 +217,7 @@ const createPayment = Joi.object({
 const updatePayment = Joi.object({
   amount: money,
   payment_date: dateStr,
-  payment_method: Joi.string().valid('orange_money', 'mtn_mobile_money', 'bank_transfer', 'cash', 'campay', 'kang'),
+  payment_method: Joi.string().valid('orange_money', 'mtn_mobile_money', 'bank_transfer', 'cash', 'campay'),
   status: Joi.string().valid('pending', 'awaiting_confirmation', 'completed', 'failed', 'refunded'),
   reference: optionalString(100),
   notes: optionalString(1000),
@@ -282,8 +309,12 @@ const createUtilityBill = Joi.object({
   unit_price: money.required(),
   garbage_fee: money.default(0),
   transport_fee: money.default(0),
+  impayer: money.default(0),
   other_fee: money.default(0),
   other_label: optionalString(80),
+  due_date: dateStr.allow(null, ''),
+  payment_method: optionalString(50),
+  receipt_number: optionalString(50),
   notes: optionalString(1000),
 });
 
@@ -293,8 +324,12 @@ const updateUtilityBill = Joi.object({
   unit_price: money,
   garbage_fee: money,
   transport_fee: money,
+  impayer: money,
   other_fee: money,
   other_label: optionalString(80),
+  due_date: dateStr.allow(null, ''),
+  payment_method: optionalString(50),
+  receipt_number: optionalString(50),
   status: Joi.string().valid('pending', 'paid'),
   paid_date: dateStr.allow(null),
   notes: optionalString(1000),
@@ -486,7 +521,7 @@ module.exports = {
   validate,
   schemas: {
     // Auth
-    login, register, refreshToken, changePassword,
+    login, register, refreshToken, forgotPassword, resetPassword, changePassword,
     // Users
     createUser, updateUser,
     // Properties

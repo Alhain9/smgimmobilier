@@ -10,8 +10,15 @@ module.exports = {
   ...base,
   create: async (req, res, next) => {
     try {
+      if (!req.file) {
+        return error(res, 'Une photo illustrant le problème est obligatoire pour créer une demande de maintenance.', 400);
+      }
       const result = await maintenanceService.create(req.body);
-      return success(res, result, 'Ticket maintenance créé', 201);
+      if (req.file) {
+        await maintenanceService.addImage(result.id, `/uploads/photos/${req.file.filename}`, 'before');
+      }
+      const full = await maintenanceService.getById(result.id);
+      return success(res, full, 'Ticket maintenance créé', 201);
     } catch (err) { next(err); }
   },
   assign: async (req, res, next) => {
@@ -36,6 +43,13 @@ module.exports = {
         created.push(await maintenanceService.addImage(req.params.id, `/uploads/photos/${file.filename}`, type));
       }
       return success(res, created, 'Photos enregistrées', 201);
+    } catch (err) { next(err); }
+  },
+  declareMaterials: async (req, res, next) => {
+    try {
+      const materials = req.body.materials || [];
+      const updated = await maintenanceService.declareMaterials(req.params.id, materials, req.user.id);
+      return success(res, updated, 'Matériel consommé enregistré avec succès (stock déduit & dépense imputée)');
     } catch (err) { next(err); }
   },
 };

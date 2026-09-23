@@ -1,6 +1,6 @@
 const { error } = require('../utils/response');
 
-// authorize('super_admin', 'manager') => seuls ces rôles passent
+// authorize('super_admin', 'manager') => seuls ces rôles passent (ou rôle délégué actif)
 const authorize = (...allowedRoles) => {
   return (req, res, next) => {
     if (!req.user || !req.user.role) {
@@ -9,7 +9,10 @@ const authorize = (...allowedRoles) => {
     // super_admin a tous les droits
     if (req.user.role === 'super_admin') return next();
 
-    if (!allowedRoles.includes(req.user.role)) {
+    const userRoles = [req.user.role, ...(req.user.delegated_roles || [])];
+    const hasAccess = allowedRoles.some((r) => userRoles.includes(r));
+
+    if (!hasAccess) {
       return error(res, 'Accès refusé : permissions insuffisantes', 403);
     }
     next();

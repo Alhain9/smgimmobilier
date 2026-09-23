@@ -18,7 +18,9 @@ const errorHandler = (err, req, res, next) => {
   // Erreurs Sequelize
   if (err.name === 'SequelizeValidationError' || err.name === 'SequelizeUniqueConstraintError') {
     const errors = err.errors.map((e) => ({ field: e.path, message: e.message }));
-    return error(res, 'Erreur de validation', 400, errors);
+    const firstDetail = errors.length ? `${errors[0].field ? errors[0].field + ': ' : ''}${errors[0].message}` : '';
+    const mainMsg = firstDetail ? `Erreur de validation (${firstDetail})` : 'Erreur de validation';
+    return error(res, mainMsg, 400, errors);
   }
   if (err.name === 'SequelizeForeignKeyConstraintError') {
     return error(res, 'Référence invalide (clé étrangère)', 400);
@@ -27,7 +29,9 @@ const errorHandler = (err, req, res, next) => {
   // Erreurs Joi (au cas où une erreur Joi non gérée remonte)
   if (err.isJoi) {
     const errors = err.details.map((d) => ({ field: d.path.join('.'), message: d.message }));
-    return error(res, 'Erreur de validation', 400, errors);
+    const firstDetail = errors.length ? `${errors[0].field ? errors[0].field + ': ' : ''}${errors[0].message}` : '';
+    const mainMsg = firstDetail ? `Erreur de validation (${firstDetail})` : 'Erreur de validation';
+    return error(res, mainMsg, 400, errors);
   }
 
   return error(res, err.message || 'Erreur serveur interne', err.status || 500);

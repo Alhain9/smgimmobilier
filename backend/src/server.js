@@ -4,8 +4,6 @@ const { connectDB } = require('./config/database');
 const { initSocket } = require('./config/socket');
 const { logger } = require('./config/logger');
 require('./models');
-require('dotenv').config();
-const assistantScheduler = require('./services/assistant/scheduler');
 const cronScheduler = require('./jobs/scheduler');
 
 const PORT = process.env.PORT || 5000;
@@ -20,7 +18,6 @@ const start = async () => {
   initSocket(server);
 
   // Pas de sync : le schéma MySQL est géré par les migrations SQL
-  assistantScheduler.start(); // recalcul périodique des compteurs d'alertes (assistant)
   cronScheduler.start(); // tâches planifiées quotidiennes et mensuelles (SMG IMMOBILIER)
 
   server.listen(PORT, '0.0.0.0', () => {

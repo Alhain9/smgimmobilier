@@ -4,6 +4,16 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Connexion — SMG IMMOBILIER</title>
+  <!-- Configuration PWA (Progressive Web App - Mobile & Desktop) -->
+  <link rel="manifest" href="../manifest.json" />
+  <meta name="theme-color" content="#1a3a5c" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="SMG Immo" />
+  <link rel="apple-touch-icon" sizes="180x180" href="../assets/icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/png" sizes="32x32" href="../assets/icons/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="64x64" href="../assets/icons/favicon-64.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="../assets/icons/icon-192.png" />
   <link rel="stylesheet" href="../css/theme.css" />
   <link rel="stylesheet" href="../css/style.css" />
   <script src="../js/utils/config.js"></script>
@@ -20,12 +30,19 @@
     .login-side ul { margin-top: 30px; }
     .login-side li { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; font-size: 16px; }
     .login-form-side { display: flex; align-items: center; justify-content: center; padding: 40px; position: relative; }
-    .login-card { width: 100%; max-width: 400px; }
-    .login-card h1 { font-size: 28px; margin-bottom: 6px; }
-    .login-card .sub { color: var(--text-muted); margin-bottom: 28px; }
+    .login-card { width: 100%; max-width: 460px; }
+    .login-card h1 { font-size: 26px; margin-bottom: 6px; }
+    .login-card .sub { color: var(--text-muted); margin-bottom: 22px; font-size: 14px; }
     .login-top { position: absolute; top: 24px; right: 24px; display: flex; gap: 10px; }
-    .demo-box { margin-top: 22px; padding: 14px; background: var(--bg-surface-2); border: 1px dashed var(--border); border-radius: var(--radius-sm); font-size: 12.5px; color: var(--text-secondary); }
-    .demo-box b { color: var(--text-primary); }
+    .auth-tabs { display: flex; background: var(--bg-surface-2); padding: 4px; border-radius: var(--radius-sm); margin-bottom: 22px; border: 1px solid var(--border); }
+    .auth-tab-btn { flex: 1; padding: 9px; border: none; background: transparent; border-radius: var(--radius-sm); font-weight: 600; font-size: 13.5px; color: var(--text-secondary); cursor: pointer; transition: all 0.2s; text-align: center; }
+    .auth-tab-btn.active { background: var(--bg-surface); color: var(--primary); box-shadow: 0 2px 6px rgba(0,0,0,0.06); }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .auth-view { display: none; }
+    .auth-view.active { display: block; animation: fadeIn 0.2s ease-in-out; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+    .success-card { background: var(--bg-surface-2); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 24px; text-align: center; }
+    .success-card .icon { font-size: 44px; margin-bottom: 12px; }
     @media (max-width: 880px) { .login-wrap { grid-template-columns: 1fr; } .login-side { display: none; } }
   </style>
 </head>
@@ -33,7 +50,7 @@
   <div class="login-wrap">
     <!-- Côté présentation -->
     <div class="login-side">
-      <div class="brand-logo" style="background:rgba(255,255,255,.2)">🏢</div>
+      <img src="../assets/images/logo.png" alt="SMG Logo" style="width:74px;height:74px;object-fit:contain;border-radius:12px;background:#fff;padding:6px;margin-bottom:20px;box-shadow:0 4px 12px rgba(0,0,0,0.15)" onerror="this.style.display='none'" />
       <h2>SMG IMMOBILIER</h2>
       <p>Plateforme centralisée de gestion immobilière, administrative, financière et technique.</p>
       <ul>
@@ -52,23 +69,126 @@
       </div>
 
       <div class="login-card">
-        <h1>Connexion</h1>
-        <p class="sub">Accédez à votre espace SMG IMMOBILIER</p>
+        <!-- Switcher Onglets -->
+        <div class="auth-tabs">
+          <button class="auth-tab-btn active" id="tabBtnLogin" onclick="switchAuthTab('login')">🔑 Connexion</button>
+          <button class="auth-tab-btn" id="tabBtnRegister" onclick="switchAuthTab('register')">📝 S'inscrire</button>
+        </div>
 
-        <form id="loginForm">
-          <div class="form-group">
-            <label>Adresse email</label>
-            <input type="email" id="email" class="form-control" placeholder="vous@smg.com" required />
+        <!-- VUE 1 : CONNEXION -->
+        <div class="auth-view active" id="viewLogin">
+          <h1>Connexion</h1>
+          <p class="sub">Accédez à votre espace sécurisé SMG IMMOBILIER</p>
+
+          <form id="loginForm">
+            <div class="form-group">
+              <label>Adresse email</label>
+              <input type="email" id="email" class="form-control" placeholder="vous@domaine.cm" required />
+            </div>
+            <div class="form-group">
+              <label>Mot de passe</label>
+              <input type="password" id="password" class="form-control" placeholder="••••••••" required />
+            </div>
+            <div style="text-align:right;margin-bottom:14px;margin-top:-6px">
+              <a href="forgot-password.html" style="font-size:13px;color:var(--primary)">Mot de passe oublié ?</a>
+            </div>
+            <button type="submit" class="btn btn-primary btn-block" id="loginBtn">Se connecter</button>
+          </form>
+
+          <div style="text-align:center;margin-top:20px;font-size:13.5px;color:var(--text-muted)">
+            Vous n'avez pas encore de compte ?
+            <a href="javascript:void(0)" onclick="switchAuthTab('register')" style="color:var(--primary);font-weight:600">Faire une demande d'inscription</a>
           </div>
-          <div class="form-group">
-            <label>Mot de passe</label>
-            <input type="password" id="password" class="form-control" placeholder="••••••••" required />
+        </div>
+
+        <!-- VUE 2 : INSCRIPTION (EN ATTENTE DE VALIDATION) -->
+        <div class="auth-view" id="viewRegister">
+          <h1>Demande d'inscription</h1>
+          <p class="sub">Soumettez votre demande. Un administrateur ou gestionnaire validera vos accès.</p>
+
+          <form id="registerForm">
+            <div class="form-group">
+              <label>Nom complet <span style="color:var(--danger)">*</span></label>
+              <input type="text" id="regFullName" class="form-control" placeholder="Ex: Jean Paul Ndongo" required />
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label>Adresse email <span style="color:var(--danger)">*</span></label>
+                <input type="email" id="regEmail" class="form-control" placeholder="jean@domaine.cm" required />
+              </div>
+              <div class="form-group">
+                <label>Téléphone <span style="color:var(--danger)">*</span></label>
+                <input type="tel" id="regPhone" class="form-control" placeholder="+237 6..." required />
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label>Profil souhaité <span style="color:var(--danger)">*</span></label>
+                <select id="regRole" class="form-control" required>
+                  <option value="locataire">Locataire (logement)</option>
+                  <option value="bailleur">Propriétaire / Bailleur</option>
+                  <option value="comptable">Comptable / Finance</option>
+                  <option value="gestionnaire">Gestionnaire de biens</option>
+                  <option value="technicien">Technicien maintenance</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Ville / Agence <span style="color:var(--danger)">*</span></label>
+                <select id="regCity" class="form-control" required>
+                  <option value="Douala">Douala</option>
+                  <option value="Yaoundé">Yaoundé</option>
+                  <option value="Autre">Autre région</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label>Précisions / Immeuble ou Appartement</label>
+              <input type="text" id="regNote" class="form-control" placeholder="Ex: Locataire Immeuble A, Apt 102 ou Candidature" />
+              <small style="font-size:11.5px;color:var(--text-muted)">Indiquez votre immeuble ou département pour accélérer la validation.</small>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label>Mot de passe <span style="color:var(--danger)">*</span></label>
+                <input type="password" id="regPassword" class="form-control" placeholder="Min. 6 caractères" required minlength="6" />
+              </div>
+              <div class="form-group">
+                <label>Confirmation <span style="color:var(--danger)">*</span></label>
+                <input type="password" id="regConfirmPassword" class="form-control" placeholder="Retapez mot de passe" required minlength="6" />
+              </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-block" id="regBtn" style="margin-top:6px">
+              Soumettre mon inscription
+            </button>
+          </form>
+
+          <div style="text-align:center;margin-top:16px;font-size:13.5px;color:var(--text-muted)">
+            Vous avez déjà un compte ?
+            <a href="javascript:void(0)" onclick="switchAuthTab('login')" style="color:var(--primary);font-weight:600">Se connecter</a>
           </div>
-          <div style="text-align:right;margin-bottom:14px;margin-top:-6px">
-            <a href="forgot-password.html" style="font-size:13px;color:var(--primary)">Mot de passe oublié ?</a>
+        </div>
+
+        <!-- VUE 3 : CONFIRMATION INSCRIPTION RÉUSSIE -->
+        <div class="auth-view" id="viewRegistered">
+          <div class="success-card">
+            <div class="icon">🎉</div>
+            <h2 style="font-size:20px;margin-bottom:8px">Demande envoyée !</h2>
+            <p style="font-size:14px;color:var(--text-secondary);line-height:1.5;margin-bottom:18px">
+              Votre demande d'inscription a été enregistrée avec succès.<br/>
+              <strong>L'administration et la direction SMG</strong> ont été notifiées et procèdent actuellement à la validation de vos informations et à l'attribution de vos accès.
+            </p>
+            <div style="background:var(--bg-surface);padding:12px;border-radius:var(--radius-sm);border:1px dashed var(--border);margin-bottom:20px;font-size:13px;text-align:left">
+              ℹ️ Dès l'activation de votre compte par votre gestionnaire ou l'administrateur, vous pourrez vous connecter immédiatement avec vos identifiants.
+            </div>
+            <button class="btn btn-primary btn-block" onclick="switchAuthTab('login')">
+              Retour à la page de connexion
+            </button>
           </div>
-          <button type="submit" class="btn btn-primary btn-block" id="loginBtn">Se connecter</button>
-        </form>
+        </div>
 
       </div>
     </div>
@@ -80,23 +200,91 @@
   <script>
     if (Auth.isLoggedIn()) window.location.href = 'dashboard.html';
 
+    function switchAuthTab(tab) {
+      document.getElementById('viewLogin').classList.remove('active');
+      document.getElementById('viewRegister').classList.remove('active');
+      document.getElementById('viewRegistered').classList.remove('active');
+
+      const btnLogin = document.getElementById('tabBtnLogin');
+      const btnReg = document.getElementById('tabBtnRegister');
+
+      if (tab === 'register') {
+        document.getElementById('viewRegister').classList.add('active');
+        btnLogin.classList.remove('active');
+        btnReg.classList.add('active');
+      } else if (tab === 'success') {
+        document.getElementById('viewRegistered').classList.add('active');
+        btnLogin.classList.remove('active');
+        btnReg.classList.remove('active');
+      } else {
+        document.getElementById('viewLogin').classList.add('active');
+        btnLogin.classList.add('active');
+        btnReg.classList.remove('active');
+      }
+    }
+
+    // Gestion du paramètre URL ?tab=register
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('tab') === 'register') {
+      switchAuthTab('register');
+    }
+
+    // Connexion
     document.getElementById('loginForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const btn = document.getElementById('loginBtn');
-      btn.disabled = true; btn.textContent = 'Connexion...';
+      btn.disabled = true; btn.textContent = 'Connexion en cours...';
       try {
         const res = await API.post('/auth/login', {
           email: document.getElementById('email').value.trim(),
           password: document.getElementById('password').value,
         });
         Auth.setSession(res.data.token, res.data.user, res.data.refreshToken);
-        Toast.success('Connexion réussie');
+        Toast.success('Connexion réussie ! Bienvenue.');
         setTimeout(() => window.location.href = 'dashboard.html', 500);
       } catch (err) {
         Toast.error(err.message);
         btn.disabled = false; btn.textContent = 'Se connecter';
       }
     });
+
+    // Inscription publique
+    document.getElementById('registerForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const pwd = document.getElementById('regPassword').value;
+      const confirmPwd = document.getElementById('regConfirmPassword').value;
+
+      if (pwd !== confirmPwd) {
+        Toast.error('Les mots de passe ne correspondent pas.');
+        return;
+      }
+
+      const btn = document.getElementById('regBtn');
+      btn.disabled = true; btn.textContent = 'Envoi de votre demande...';
+
+      try {
+        const payload = {
+          full_name: document.getElementById('regFullName').value.trim(),
+          email: document.getElementById('regEmail').value.trim(),
+          phone: document.getElementById('regPhone').value.trim(),
+          requested_role: document.getElementById('regRole').value,
+          city: document.getElementById('regCity').value,
+          registration_note: document.getElementById('regNote').value.trim(),
+          password: pwd,
+        };
+
+        await API.post('/auth/register', payload);
+        Toast.success('Demande d\'inscription enregistrée avec succès !');
+        document.getElementById('registerForm').reset();
+        switchAuthTab('success');
+      } catch (err) {
+        Toast.error(err.message || 'Une erreur est survenue lors de l\'inscription');
+      } finally {
+        btn.disabled = false; btn.textContent = 'Soumettre mon inscription';
+      }
+    });
   </script>
+  <!-- PWA Service Worker & Install Handler -->
+  <script src="../js/utils/pwa.js?v=1.0"></script>
 </body>
 </html>

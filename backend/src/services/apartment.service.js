@@ -1,10 +1,14 @@
-const { Apartment, Property, Tenant, User } = require('../models');
+const { Apartment, Property, Tenant, User, Lease, Payment, Maintenance, UtilityBill } = require('../models');
+const { Op } = require('sequelize');
 
 class ApartmentService {
-  getAll(filters = {}) {
+  getAll(filters = {}, ownerPropertyIds = null) {
     const where = {};
     if (filters.property_id) where.property_id = filters.property_id;
     if (filters.status) where.status = filters.status;
+    if (Array.isArray(ownerPropertyIds)) {
+      where.property_id = { [Op.in]: ownerPropertyIds };
+    }
     return Apartment.findAll({
       where,
       include: [
@@ -33,7 +37,26 @@ class ApartmentService {
   async remove(id) {
     const a = await Apartment.findByPk(id);
     if (!a) throw Object.assign(new Error('Appartement introuvable'), { status: 404 });
-    await a.destroy(); return true;
+
+    await Lease.destroy({ where: { apartment_id: id } });
+    await Payment.destroy({ where: { apartment_id: id } });
+    await Maintenance.destroy({ where: { apartment_id: id } });
+    await UtilityBill.destroy({ where: { apartment_id: id } });
+    await Tenant.destroy({ where: { apartment_id: id } });
+    await a.destroy();
+    return true;
+  }
+
+  async bulkRemove(ids) {
+    if (!Array.isArray(ids) || !ids.length) return 0;
+    let count = 0;
+    for (const id of ids) {
+      try {
+        await this.remove(id);
+        count++;
+      } catch (_) {}
+    }
+    return count;
   }
 }
 module.exports = new ApartmentService();

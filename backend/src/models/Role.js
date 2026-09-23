@@ -11,6 +11,7 @@ const ROLE_CODES = {
   'Comptable': 'comptable',
   'Technicien': 'technicien',
   'Locataire': 'locataire',
+  'Bailleur': 'bailleur',
 };
 
 const Role = sequelize.define('Role', {

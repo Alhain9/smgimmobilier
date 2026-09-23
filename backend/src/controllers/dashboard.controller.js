@@ -67,4 +67,34 @@ module.exports = {
       return success(res, data);
     } catch (err) { next(err); }
   },
+  getPropertiesBreakdown: async (req, res, next) => {
+    try {
+      const today = new Date();
+      const end = req.query.end || today.toISOString().slice(0, 10);
+      const start = req.query.start || new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
+      const data = await dashboardService.getPropertiesBreakdown(start, end);
+      return success(res, data);
+    } catch (err) { next(err); }
+  },
+  getPropertyDetail: async (req, res, next) => {
+    try {
+      const today = new Date();
+      const end = req.query.end || today.toISOString().slice(0, 10);
+      const start = req.query.start || new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
+      const data = await dashboardService.getPropertyDetail(req.params.id, start, end);
+      return success(res, data);
+    } catch (err) { next(err); }
+  },
+  getBailleurDashboard: async (req, res, next) => {
+    try {
+      const data = await dashboardService.bailleurDashboard(req.user.id);
+      return success(res, data, 'Tableau de bord bailleur');
+    } catch (err) { next(err); }
+  },
+  getUpcomingRentDues: async (req, res, next) => {
+    try {
+      const data = await dashboardService.getUpcomingRentDues(req.ownerPropertyIds);
+      return success(res, data);
+    } catch (err) { next(err); }
+  },
 };

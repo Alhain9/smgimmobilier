@@ -1,5 +1,27 @@
 const Helpers = {
-  formatMoney(amount) { return new Intl.NumberFormat('fr-FR').format(parseFloat(amount) || 0) + ' FCFA'; },
+  escapeHtml(str) {
+    if (str == null) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  },
+  formatMoney(amount) {
+    if (amount == null || isNaN(Number(amount))) return '0 FCFA';
+    const n = Math.round(Number(amount));
+    const sign = n < 0 ? '-' : '';
+    const absStr = String(Math.abs(n));
+    return sign + absStr.replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + ' FCFA';
+  },
+  formatNumber(val, decimals = 2) {
+    if (val == null || isNaN(Number(val))) return '0';
+    const num = Number(val);
+    const rounded = Math.round(num * Math.pow(10, decimals)) / Math.pow(10, decimals);
+    if (Number.isInteger(rounded)) return String(rounded);
+    return rounded.toFixed(decimals).replace(/\.?0+$/, '');
+  },
   formatDate(date) { if (!date) return '—'; return new Date(date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' }); },
   formatDateTime(date) { if (!date) return '—'; return new Date(date).toLocaleString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); },
   initials(name) { if (!name) return '?'; return name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase(); },
@@ -48,7 +70,7 @@ const Helpers = {
     return `<span class="badge ${cls}">${label}</span>`;
   },
   methodLabel(m) {
-    const map = { orange_money: 'Orange Money', mtn_mobile_money: 'MTN MoMo', bank_transfer: 'Virement', cash: 'Espèces', campay: 'Mobile Money', kang: 'Mobile Money (Kang)' };
+    const map = { orange_money: 'Orange Money', mtn_mobile_money: 'MTN MoMo', bank_transfer: 'Virement', cash: 'Espèces', campay: 'Mobile Money' };
     return map[m] || m;
   },
   fileUrl(path) { if (!path) return ''; return path.startsWith('http') ? path : CONFIG.SERVER_URL + path; },

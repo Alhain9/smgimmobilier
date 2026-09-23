@@ -13,15 +13,33 @@ const { logger } = require('./config/logger');
 
 const app = express();
 
-// Confiance dans le proxy inverse (Render) pour le rate limiter et req.ip
+// Sécurité : masquer la signature Express pour éviter les attaques ciblées
+app.disable('x-powered-by');
+
+// Confiance dans le proxy inverse (VPS Nginx/Apache, Render) pour le rate limiter et req.ip réel
 app.set('trust proxy', 1);
 
-// Sécurité & CORS
+// Sécurité des en-têtes HTTP & CORS
 app.use(cors({ origin: true, credentials: true }));
 app.use(helmet({
+  contentSecurityPolicy: false, // Permet le bon fonctionnement de la SPA servie en local ou VPS
   crossOriginResourcePolicy: false,
   crossOriginOpenerPolicy: false,
 }));
+
+// Limiteur général d'API contre les attaques DoS / Scraping agressif (VPS-friendly)
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 300, // 300 requêtes par 15 min par adresse IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: 'Trop de requêtes envoyées depuis cette adresse IP. Veuillez patienter quelques instants.',
+  },
+});
+app.use('/api', apiLimiter);
+app.use('/api/v1', apiLimiter);
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -37,6 +55,9 @@ if (process.env.NODE_ENV === 'development') {
 
 // Fichiers uploadés (statique)
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Servir l'application Frontend complète & PWA (manifest, sw, assets, pages)
+app.use(express.static(path.join(__dirname, '../../frontend')));
 
 // Middleware d'audit (capture les actions sur toutes les routes)
 app.use(auditMiddleware);

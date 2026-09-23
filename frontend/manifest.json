@@ -1,0 +1,65 @@
+{
+  "id": "cm.smg.immobilier.pwa",
+  "name": "SMG IMMOBILIER — Gestion Locative & Patrimoine",
+  "short_name": "SMG Immo",
+  "description": "Plateforme officielle de gestion immobilière SMG IMMOBILIER : locataires, baux, finances, loyers, stocks et chantiers.",
+  "start_url": "./pages/dashboard.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0f172a",
+  "theme_color": "#1a3a5c",
+  "lang": "fr",
+  "categories": ["business", "productivity", "finance"],
+  "icons": [
+    {
+      "src": "assets/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/icons/icon-192-maskable.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "assets/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/icons/icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "assets/icons/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Paiements & Loyers",
+      "short_name": "Paiements",
+      "url": "./pages/dashboard.html#payments",
+      "icons": [{ "src": "assets/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Locataires",
+      "short_name": "Locataires",
+      "url": "./pages/dashboard.html#tenants",
+      "icons": [{ "src": "assets/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Immeubles & Biens",
+      "short_name": "Immeubles",
+      "url": "./pages/dashboard.html#properties",
+      "icons": [{ "src": "assets/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    }
+  ]
+}

@@ -3,7 +3,9 @@ const { sequelize } = require('../config/database');
 
 const Expense = sequelize.define('Expense', {
   id: { type: DataTypes.BIGINT.UNSIGNED, primaryKey: true, autoIncrement: true },
-  maintenance_id: { type: DataTypes.BIGINT.UNSIGNED, allowNull: false },
+  maintenance_id: { type: DataTypes.BIGINT.UNSIGNED, allowNull: true },
+  property_id: { type: DataTypes.BIGINT.UNSIGNED, allowNull: true },
+  expense_type: { type: DataTypes.ENUM('maintenance', 'utility', 'administrative', 'renovation', 'other'), defaultValue: 'maintenance' },
   created_by: { type: DataTypes.BIGINT.UNSIGNED },
   item_name: { type: DataTypes.STRING(150), allowNull: false },
   category: { type: DataTypes.STRING(80) },

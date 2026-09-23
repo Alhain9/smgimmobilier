@@ -3,6 +3,7 @@ const { sequelize } = require('../config/database');
 
 const Property = sequelize.define('Property', {
   id: { type: DataTypes.BIGINT.UNSIGNED, primaryKey: true, autoIncrement: true },
+  owner_id: { type: DataTypes.BIGINT.UNSIGNED, allowNull: true },
   property_name: { type: DataTypes.STRING(150), allowNull: false },
   property_type: { type: DataTypes.ENUM('immeuble', 'maison', 'terrain'), defaultValue: 'immeuble' },
   address: { type: DataTypes.STRING(255), allowNull: false },
@@ -19,6 +20,7 @@ const Property = sequelize.define('Property', {
   description: { type: DataTypes.TEXT },
   status: { type: DataTypes.ENUM('active', 'inactive'), defaultValue: 'active' },
   image: { type: DataTypes.STRING(255) },
+  lease_template_file: { type: DataTypes.STRING(255) },
 }, { tableName: 'properties', timestamps: true, paranoid: true });
 
 module.exports = Property;

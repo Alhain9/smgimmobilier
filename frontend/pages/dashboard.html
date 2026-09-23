@@ -1,22 +1,39 @@
+
 <!DOCTYPE html>
 <html lang="fr" data-theme="light">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
   <title>Tableau de bord — SMG IMMOBILIER</title>
-  <link rel="stylesheet" href="../css/theme.css" />
-  <link rel="stylesheet" href="../css/style.css" />
-  <link rel="stylesheet" href="../css/dashboard.css" />
-  <script src="../js/utils/config.js"></script>
-  <script src="../js/utils/theme.js"></script>
+  <!-- Configuration PWA (Progressive Web App - Mobile & Desktop) -->
+  <link rel="manifest" href="../manifest.json" />
+  <meta name="theme-color" content="#1a3a5c" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="SMG Immo" />
+  <link rel="apple-touch-icon" sizes="180x180" href="../assets/icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/png" sizes="32x32" href="../assets/icons/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="64x64" href="../assets/icons/favicon-64.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="../assets/icons/icon-192.png" />
+  <link rel="stylesheet" href="../css/theme.css?v=3.0" />
+  <link rel="stylesheet" href="../css/style.css?v=3.0" />
+  <link rel="stylesheet" href="../css/dashboard.css?v=3.0" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <link rel="stylesheet" href="../css/receipt-generator.css?v=3.0" />
+  <script src="../js/utils/config.js?v=3.0"></script>
+  <script src="../js/utils/theme.js?v=3.0"></script>
 </head>
 <body>
   <div class="app-layout">
     <!-- SIDEBAR -->
     <aside class="sidebar" id="sidebar">
-      <div class="sidebar-brand">
-        <div class="brand-logo">🏢</div>
-        <div>SMG <span style="color:var(--primary)">IMMO</span></div>
+      <div class="sidebar-brand" style="cursor:pointer" onclick="Router.go('dashboard')">
+        <img id="sidebarLogoImg" src="../assets/images/logo.png" alt="SMG Logo" style="width:36px;height:36px;object-fit:contain;border-radius:8px;background:#fff;padding:2px;box-shadow:0 2px 6px rgba(0,0,0,0.12)" onerror="this.style.display='none';this.nextElementSibling.style.display='block'" />
+        <div class="brand-logo" style="display:none">🏢</div>
+        <div>SMG <span style="color:var(--primary)">IMMOBILIER</span></div>
       </div>
       <nav class="sidebar-nav" id="sidebarNav"><!-- menu injecté --></nav>
       <div class="sidebar-footer">
@@ -40,19 +57,32 @@
               🔔<span class="notif-badge" id="notifBadge" style="display:none">0</span>
             </button>
             <div class="notif-panel">
-              <div class="notif-header">
-                <b>Notifications</b>
-                <button class="btn btn-sm btn-outline" onclick="Notifications.markAllRead()">Tout lire</button>
+              <div class="notif-header" style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border)">
+                <b>🔔 Notifications</b>
+                <div style="display:flex;gap:6px">
+                  <button class="btn btn-sm btn-outline" onclick="Notifications.markAllRead()" title="Tout marquer comme lu" style="padding:3px 8px;font-size:11px">Tout lire</button>
+                  <button class="btn btn-sm btn-danger" onclick="Notifications.deleteAll()" title="Tout supprimer" style="padding:3px 8px;font-size:11px">Tout supprimer</button>
+                </div>
               </div>
               <div id="notifList"><div class="spinner"></div></div>
             </div>
           </div>
           <button class="theme-toggle" onclick="Theme.toggle()">🌙</button>
-          <div class="user-chip" onclick="Router.go('profile')" title="Mon profil">
-            <div class="user-avatar" id="userAvatar">?</div>
-            <div class="user-meta">
-              <div class="name" id="userName">—</div>
-              <div class="role" id="userRole">—</div>
+          <div class="user-chip-wrap" id="userMenu">
+            <div class="user-chip" onclick="document.getElementById('userMenu').classList.toggle('open')" title="Menu utilisateur">
+              <div class="user-avatar" id="userAvatar">?</div>
+              <div class="user-meta">
+                <div class="name" id="userName">—</div>
+                <div class="role" id="userRole">—</div>
+              </div>
+            </div>
+            <div class="user-dropdown">
+              <div class="user-dropdown-item" onclick="Router.go('profile'); document.getElementById('userMenu').classList.remove('open');">
+                <span>👤</span> Mon profil
+              </div>
+              <div class="user-dropdown-item logout" onclick="Auth.logout()">
+                <span>🚪</span> Déconnexion
+              </div>
             </div>
           </div>
         </div>
@@ -65,51 +95,62 @@
   </div>
 
   <!-- Utils -->
-  <script src="../js/utils/toast.js"></script>
-  <script src="../js/utils/api.js"></script>
-  <script src="../js/utils/auth.js"></script>
-  <script src="../js/utils/socket.js"></script>
-  <script src="../js/utils/helpers.js"></script>
-  <script src="../js/utils/icons.js"></script>
-  <script src="../js/utils/modal.js"></script>
+  <script src="../js/utils/toast.js?v=4.1"></script>
+  <script src="../js/utils/api.js?v=4.1"></script>
+  <script src="../js/utils/auth.js?v=4.1"></script>
+  <script src="../js/utils/socket.js?v=4.1"></script>
+  <script src="../js/utils/helpers.js?v=4.1"></script>
+  <script src="../js/utils/icons.js?v=4.1"></script>
+  <script src="../js/utils/modal.js?v=4.1"></script>
   <!-- Layout & router -->
   <!-- Librairies (locales) -->
   <script src="../assets/vendor/jspdf.umd.min.js"></script>
   <script src="../assets/vendor/jspdf.plugin.autotable.min.js"></script>
+  <script src="../assets/vendor/html2pdf.bundle.min.js"></script>
   <script src="../assets/vendor/xlsx.full.min.js"></script>
   <!-- Layout & modules -->
-  <script src="../js/modules/layout.js"></script>
-  <script src="../js/modules/crud-page.js"></script>
-  <script src="../js/modules/notifications.js"></script>
-  <script src="../js/modules/communication.js"></script>
-  <script src="../js/modules/pdf.js"></script>
-  <script src="../js/modules/assistant-bar.js"></script>
+  <script src="../js/modules/layout.js?v=4.1"></script>
+  <script src="../js/modules/crud-page.js?v=4.1"></script>
+  <script src="../js/modules/notifications.js?v=4.1"></script>
+  <script src="../js/modules/communication.js?v=4.1"></script>
+  <script src="../js/modules/pdf.js?v=4.1"></script>
+  <script src="../js/modules/receipt-manager.js?v=4.1"></script>
+  <script src="../js/modules/tenant-picker.js?v=4.1"></script>
   <!-- Pages -->
-  <script src="../js/pages/dashboard.page.js"></script>
-  <script src="../js/pages/activity.page.js"></script>
-  <script src="../js/pages/properties.page.js"></script>
-  <script src="../js/pages/apartments.page.js"></script>
-  <script src="../js/pages/tenants.page.js"></script>
-  <script src="../js/pages/leases.page.js"></script>
-  <script src="../js/pages/situation.page.js"></script>
-  <script src="../js/pages/payments.page.js"></script>
-  <script src="../js/pages/utilities.page.js"></script>
-  <script src="../js/pages/maintenance.page.js"></script>
-  <script src="../js/pages/expenses.page.js"></script>
-  <script src="../js/pages/equipment.page.js"></script>
-  <script src="../js/pages/tasks.page.js"></script>
-  <script src="../js/pages/calendar.page.js"></script>
-  <script src="../js/pages/users.page.js"></script>
-  <script src="../js/pages/documents.page.js"></script>
-  <script src="../js/pages/reports.page.js"></script>
-  <script src="../js/pages/salaries.page.js"></script>
-  <script src="../js/pages/profile.page.js"></script>
-  <script src="../js/pages/rh.page.js"></script>
-  <script src="../js/pages/kanban.page.js"></script>
-  <script src="../js/pages/messages.page.js"></script>
-  <script src="../js/pages/workflow.page.js"></script>
-  <script src="../js/pages/gps.page.js"></script>
+  <script src="../js/pages/dashboard.page.js?v=4.1"></script>
+  <script src="../js/pages/activity.page.js?v=4.1"></script>
+  <script src="../js/pages/properties.page.js?v=4.1"></script>
+  <script src="../js/pages/apartments.page.js?v=4.1"></script>
+  <script src="../js/pages/tenants.page.js?v=4.1"></script>
+  <script src="../js/pages/leases.page.js?v=4.1"></script>
+  <script src="../js/pages/situation.page.js?v=4.1"></script>
+  <script src="../js/pages/payments.page.js?v=4.1"></script>
+  <script src="../js/pages/utilities.page.js?v=4.1"></script>
+  <script src="../js/pages/maintenance.page.js?v=4.1"></script>
+  <script src="../js/pages/expenses.page.js?v=4.1"></script>
+  <script src="../js/pages/equipment.page.js?v=4.1"></script>
+  <script src="../js/pages/tasks.page.js?v=4.1"></script>
+  <script src="../js/pages/calendar.page.js?v=4.1"></script>
+  <script src="../js/pages/users.page.js?v=4.1"></script>
+  <script src="../js/pages/documents.page.js?v=4.1"></script>
+  <script src="../js/pages/reports.page.js?v=4.1"></script>
+  <script src="../js/pages/salaries.page.js?v=4.1"></script>
+  <script src="../js/pages/profile.page.js?v=4.1"></script>
+  <script src="../js/pages/rh.page.js?v=4.1"></script>
+  <script src="../js/pages/kanban.page.js?v=4.1"></script>
+  <script src="../js/pages/messages.page.js?v=4.1"></script>
+  <script src="../js/pages/whatsapp-groups.page.js?v=4.1"></script>
+  <script src="../js/pages/workflow.page.js?v=4.1"></script>
+  <script src="../js/pages/receipts.page.js?v=4.1"></script>
+  <script src="../js/pages/management-reports.page.js?v=4.1"></script>
+  <script src="../js/pages/stock.page.js?v=4.1"></script>
+  <script src="../js/pages/suppliers.page.js?v=4.1"></script>
+  <script src="../js/pages/worksites.page.js?v=4.1"></script>
+  <script src="../js/pages/gps.page.js?v=4.1"></script>
+  <script src="../js/pages/company-settings.page.js?v=4.1"></script>
+  <!-- PWA Service Worker & Install Handler -->
+  <script src="../js/utils/pwa.js?v=4.1"></script>
   <!-- App init -->
-  <script src="../js/app.js"></script>
+  <script src="../js/app.js?v=4.1"></script>
 </body>
 </html>

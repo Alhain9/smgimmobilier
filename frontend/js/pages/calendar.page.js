@@ -52,13 +52,19 @@ const PageCalendar = {
         const isMine = me && e.created_by === me.id;
         const meetingTag = e.is_meeting ? '👥 ' : '';
         const ownerTag = (!isMine && e.creator) ? ` · ${e.creator.full_name.split(' ')[0]}` : '';
-        return `<div class="cal-event" style="background:var(--primary)" onclick="event.stopPropagation();PageCalendar.viewEvent(${e.id})">${meetingTag}${e.title}${ownerTag}</div>`;
+        const descSnippet = e.description ? `\n📝 ${e.description.slice(0, 120)}` : '';
+        return `
+          <div class="cal-event" style="background:var(--primary)" title="${e.title}${descSnippet}" onclick="event.stopPropagation();PageCalendar.viewEvent(${e.id})">
+            <div style="font-weight:600;font-size:11.5px">${meetingTag}${e.title}${ownerTag}</div>
+            ${e.description ? `<div style="font-size:10px;opacity:0.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${e.description}</div>` : ''}
+          </div>
+        `;
       }).join('');
       const iso = date.toISOString().slice(0, 10);
       cells += `<div class="cal-cell ${isToday ? 'today' : ''}" onclick="PageCalendar.addEvent('${iso}')"><div class="cal-date">${d}</div>${evHtml}</div>`;
     }
     Layout.content(`
-      <div class="page-head"><div><h2>Calendrier</h2><div class="subtitle">Tâches, échéances et maintenances</div></div>
+      <div class="page-head"><div><h2>Calendrier & Agenda des Tâches</h2><div class="subtitle">Planification, tâches journalières, échéances et réunions d'équipe</div></div>
         <div class="flex gap-2">
           <button class="btn btn-outline btn-sm" onclick="PageCalendar.prev()">←</button>
           <button class="btn btn-outline btn-sm" onclick="PageCalendar.today()">Aujourd'hui</button>
@@ -71,8 +77,12 @@ const PageCalendar = {
   },
   addEvent(date = '') {
     this._participantOptions = null;
-    Modal.open('Nouvel événement', `
-      <div class="form-group"><label>Titre</label><input class="form-control" id="evTitle" required/></div>
+    Modal.open('Nouvel événement / Tâche', `
+      <div class="form-group"><label>Titre de l'événement ou de la tâche *</label><input class="form-control" id="evTitle" required placeholder="ex: Visite de chantier Douala, Point financier Bastos..."/></div>
+      <div class="form-group">
+        <label>Description / Détails de la tâche</label>
+        <textarea class="form-control" id="evDescription" rows="3" placeholder="Décrivez la tâche de la journée, les consignes, objectifs ou matériels nécessaires..."></textarea>
+      </div>
       <div class="form-row">
         <div class="form-group"><label>Début</label><input type="datetime-local" class="form-control" id="evStart" value="${date ? date + 'T09:00' : ''}"/></div>
         <div class="form-group"><label>Fin</label><input type="datetime-local" class="form-control" id="evEnd"/></div>
@@ -108,8 +118,10 @@ const PageCalendar = {
   },
   async submitEvent() {
     const isMeeting = document.getElementById('evMeeting').checked;
+    const desc = document.getElementById('evDescription')?.value?.trim() || null;
     const payload = {
       title: document.getElementById('evTitle').value,
+      description: desc,
       start_datetime: document.getElementById('evStart').value,
       end_datetime: document.getElementById('evEnd').value || null,
       is_meeting: isMeeting,
@@ -119,7 +131,7 @@ const PageCalendar = {
     }
     try {
       await API.post('/calendar', payload);
-      Modal.close(); Toast.success('Événement créé'); PageCalendar.render();
+      Modal.close(); Toast.success('Événement créé avec succès'); PageCalendar.render();
     } catch (e) { Toast.error(e.message); }
   },
   viewEvent(id) {
@@ -127,20 +139,47 @@ const PageCalendar = {
     if (!e) return;
     const me = Auth.getUser();
     const isMine = me && e.created_by === me.id;
-    const canManage = isMine || Auth.hasRole('manager');
-    const rows = [
+    // Seul le manager et super_admin ont le droit de supprimer
+    const canDelete = Auth.hasRole('manager', 'super_admin');
+    const rows = [];
+
+    if (e.description) {
+      rows.push(`
+        <div style="background:var(--bg-surface-2);border-left:4px solid var(--primary);padding:12px 14px;border-radius:4px;margin-bottom:14px">
+          <div style="font-size:11px;text-transform:uppercase;color:var(--text-muted);font-weight:700;margin-bottom:4px">📝 Description / Consignes de la tâche</div>
+          <div style="white-space:pre-wrap;font-size:13.5px;color:var(--text);line-height:1.45">${e.description}</div>
+        </div>
+      `);
+    }
+
+    rows.push(
       `<div class="list-item"><div style="flex:1">Début</div><b>${Helpers.formatDateTime(e.start_datetime)}</b></div>`,
-      `<div class="list-item"><div style="flex:1">Fin</div><b>${e.end_datetime ? Helpers.formatDateTime(e.end_datetime) : '—'}</b></div>`,
-    ];
+      `<div class="list-item"><div style="flex:1">Fin</div><b>${e.end_datetime ? Helpers.formatDateTime(e.end_datetime) : '—'}</b></div>`
+    );
+
     if (!isMine && e.creator) rows.push(`<div class="list-item"><div style="flex:1">Organisateur</div><b>${e.creator.full_name}</b></div>`);
     if (e.is_meeting) {
       const names = (e.participants || []).map((p) => p.full_name).join(', ') || '—';
       rows.push(`<div class="list-item"><div style="flex:1">👥 Participants</div><b>${names}</b></div>`);
     }
-    const footer = canManage
+    const footer = canDelete
       ? `<button class="btn btn-danger" onclick="PageCalendar.deleteEvent(${id})">Supprimer</button><button class="btn btn-outline" onclick="Modal.close()">Fermer</button>`
       : `<button class="btn btn-outline" onclick="Modal.close()">Fermer</button>`;
     Modal.open((e.is_meeting ? '👥 ' : '') + e.title, rows.join(''), footer);
   },
-  async deleteEvent(id) { try { await API.delete('/calendar/' + id); Modal.close(); Toast.success('Supprimé'); PageCalendar.render(); } catch (e) { Toast.error(e.message); } },
+  async deleteEvent(id) {
+    if (!Auth.hasRole('manager', 'super_admin')) {
+      Toast.error('Seul le Manager a le droit de supprimer un événement.');
+      return;
+    }
+    if (!confirm('Voulez-vous vraiment supprimer cet événement ?')) return;
+    try {
+      await API.delete('/calendar/' + id);
+      Modal.close();
+      Toast.success('Événement supprimé');
+      PageCalendar.render();
+    } catch (e) {
+      Toast.error(e.message);
+    }
+  },
 };

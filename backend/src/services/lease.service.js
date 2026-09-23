@@ -39,14 +39,26 @@ class LeaseService {
     if (!l) throw Object.assign(new Error('Contrat introuvable'), { status: 404 });
     l.contract_file = filePath; await l.save(); return l;
   }
-  async renew(id, endDate, monthlyRent) {
+  async renew(id, data = {}) {
     const l = await Lease.findByPk(id);
     if (!l) throw Object.assign(new Error('Contrat introuvable'), { status: 404 });
+    const renewalCount = (l.renewal_count || 0) + 1;
+    const endDate = data.end_date;
+    const monthlyRent = data.monthly_rent || l.monthly_rent;
+    const durationMonths = data.duration_months || l.duration_months;
+
     await l.update({
       end_date: endDate,
       monthly_rent: monthlyRent,
+      duration_months: durationMonths,
+      renewal_count: renewalCount,
       status: 'active',
     });
+
+    // Mettre à jour la date de fin sur la fiche locataire
+    if (l.tenant_id) {
+      await Tenant.update({ end_date: endDate }, { where: { id: l.tenant_id } });
+    }
     await Apartment.update({ status: 'occupied' }, { where: { id: l.apartment_id } });
     return this.getById(id);
   }

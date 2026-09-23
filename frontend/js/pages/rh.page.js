@@ -1,6 +1,6 @@
 // ============ Page Ressources Humaines (RH) ============
 const PageRh = {
-  activeTab: 'attendance', // attendance | leaves | shifts | teams
+  activeTab: 'leaves', // leaves | shifts | teams
 
   register() {
     Router.register('rh', () => this.render());
@@ -13,12 +13,11 @@ const PageRh = {
       <div class="page-head">
         <div>
           <h2>Ressources Humaines</h2>
-          <div class="subtitle">Gestion des plannings, pointages, congés et équipes</div>
+          <div class="subtitle">Gestion des plannings, congés et équipes</div>
         </div>
       </div>
 
       <div class="tab-container" style="margin-bottom:20px; display:flex; gap:10px; border-bottom:1px solid var(--border); padding-bottom:10px;">
-        <button class="btn ${this.activeTab === 'attendance' ? 'btn-primary' : 'btn-outline'}" onclick="PageRh.switchTab('attendance')">📋 Pointages</button>
         <button class="btn ${this.activeTab === 'leaves' ? 'btn-primary' : 'btn-outline'}" onclick="PageRh.switchTab('leaves')">✈️ Congés</button>
         <button class="btn ${this.activeTab === 'shifts' ? 'btn-primary' : 'btn-outline'}" onclick="PageRh.switchTab('shifts')">📅 Plannings</button>
         <button class="btn ${this.activeTab === 'teams' ? 'btn-primary' : 'btn-outline'}" onclick="PageRh.switchTab('teams')">👥 Équipes & Services</button>
@@ -40,9 +39,7 @@ const PageRh = {
     if (!container) return;
 
     try {
-      if (this.activeTab === 'attendance') {
-        await this.renderAttendance(container);
-      } else if (this.activeTab === 'leaves') {
+      if (this.activeTab === 'leaves') {
         await this.renderLeaves(container);
       } else if (this.activeTab === 'shifts') {
         await this.renderShifts(container);
@@ -52,93 +49,6 @@ const PageRh = {
     } catch (err) {
       container.innerHTML = `<div class="alert alert-danger">${err.message}</div>`;
     }
-  },
-
-  // --- POINTAGES ---
-  async renderAttendance(container) {
-    const res = await API.get('/rh/pointages');
-    const logs = res.data || [];
-
-    let checkInOutSection = '';
-    const user = Auth.getUser();
-    
-    // Vérifier si l'utilisateur est actuellement présent/pointé
-    const activeAttendance = logs.find(l => l.user_id === user.id && !l.exit_time);
-
-    if (activeAttendance) {
-      checkInOutSection = `
-        <div class="card" style="background:#FFF0F0; border-left:4px solid var(--danger); margin-bottom:20px; padding:20px;">
-          <div style="display:flex; justify-content:between; align-items:center;">
-            <div>
-              <h4 style="margin:0; color:var(--danger)">🔴 Session active</h4>
-              <p style="margin:5px 0 0; font-size:13px; color:var(--text-muted)">Entrée enregistrée le ${new Date(activeAttendance.entry_time).toLocaleString('fr-FR')}</p>
-            </div>
-            <button class="btn btn-danger" onclick="PageRh.checkOut()">Dépointer / Sortie</button>
-          </div>
-        </div>
-      `;
-    } else {
-      checkInOutSection = `
-        <div class="card" style="background:#EBFBEE; border-left:4px solid var(--success); margin-bottom:20px; padding:20px;">
-          <div style="display:flex; justify-content:between; align-items:center;">
-            <div>
-              <h4 style="margin:0; color:var(--success)">🟢 Prêt à travailler</h4>
-              <p style="margin:5px 0 0; font-size:13px; color:var(--text-muted)">Enregistrez votre heure d'arrivée ci-contre.</p>
-            </div>
-            <button class="btn btn-success" onclick="PageRh.checkIn()">Pointer / Entrée</button>
-          </div>
-        </div>
-      `;
-    }
-
-    const rows = logs.map(l => `
-      <tr>
-        <td><strong>${l.employee?.full_name || '—'}</strong></td>
-        <td>${new Date(l.entry_time).toLocaleString('fr-FR')}</td>
-        <td>${l.exit_time ? new Date(l.exit_time).toLocaleString('fr-FR') : '<span class="badge badge-warning">En cours</span>'}</td>
-        <td><span class="badge ${l.status === 'present' ? 'badge-success' : 'badge-danger'}">${l.status}</span></td>
-        <td>${l.notes || '—'}</td>
-      </tr>
-    `).join('');
-
-    container.innerHTML = `
-      ${checkInOutSection}
-      <div class="card">
-        <div class="card-header">📊 Historique des Pointages</div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Employé</th>
-                <th>Entrée</th>
-                <th>Sortie</th>
-                <th>Statut</th>
-                <th>Notes</th>
-              </tr>
-            </thead>
-            <tbody>${rows || '<tr><td colspan="5" class="text-center">Aucun pointage enregistré</td></tr>'}</tbody>
-          </table>
-        </div>
-      </div>
-    `;
-  },
-
-  async checkIn() {
-    const notes = prompt('Notes d\'entrée (optionnel) :') || '';
-    try {
-      await API.post('/rh/pointages/entree', { notes });
-      Toast.success('Pointage d\'entrée enregistré !');
-      this.render();
-    } catch (err) { Toast.error(err.message); }
-  },
-
-  async checkOut() {
-    const notes = prompt('Notes de sortie (optionnel) :') || '';
-    try {
-      await API.post('/rh/pointages/sortie', { notes });
-      Toast.success('Pointage de sortie enregistré !');
-      this.render();
-    } catch (err) { Toast.error(err.message); }
   },
 
   // --- CONGES ---

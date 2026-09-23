@@ -5,6 +5,12 @@ exports.login = async (req, res, next) => {
   try { return success(res, await authService.login(req.body.email, req.body.password, req), 'Connexion réussie'); }
   catch (err) { next(err); }
 };
+exports.register = async (req, res, next) => {
+  try {
+    const data = await authService.register(req.body);
+    return success(res, data, 'Demande d\'inscription enregistrée avec succès. Elle est en cours d\'examen par l\'administration.', 201);
+  } catch (err) { next(err); }
+};
 exports.refresh = async (req, res, next) => {
   try { return success(res, await authService.refresh(req.body.refreshToken, req), 'Token rafraîchi'); }
   catch (err) { next(err); }
@@ -33,6 +39,9 @@ exports.updateProfile = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 exports.changePassword = async (req, res, next) => {
-  try { await authService.changePassword(req.user.id, req.body.oldPassword, req.body.newPassword); return success(res, null, 'Mot de passe modifié'); }
-  catch (err) { next(err); }
+  try {
+    const oldPass = req.body.oldPassword || req.body.currentPassword;
+    await authService.changePassword(req.user.id, oldPass, req.body.newPassword);
+    return success(res, null, 'Mot de passe modifié avec succès');
+  } catch (err) { next(err); }
 };

@@ -18,11 +18,25 @@ module.exports = {
   },
   renew: async (req, res, next) => {
     try {
-      const { end_date, monthly_rent } = req.body;
+      const { end_date } = req.body;
       if (!end_date) return error(res, 'La nouvelle date d\'échéance est requise', 400);
-      if (!monthly_rent || Number(monthly_rent) <= 0) return error(res, 'Le loyer réajusté est requis et doit être positif', 400);
-      const lease = await leaseService.renew(req.params.id, end_date, monthly_rent);
+      const lease = await leaseService.renew(req.params.id, req.body);
       return success(res, lease, 'Contrat de bail renouvelé avec succès');
+    } catch (err) { next(err); }
+  },
+  downloadDocx: async (req, res, next) => {
+    try {
+      const docxService = require('../services/docx-contract.service');
+      const { filename, buffer } = await docxService.generateLeaseDocx(req.params.id);
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      return res.send(buffer);
+    } catch (err) { next(err); }
+  },
+  getTags: async (req, res, next) => {
+    try {
+      const docxService = require('../services/docx-contract.service');
+      return success(res, docxService.getAvailableTags(), 'Liste des balises disponibles');
     } catch (err) { next(err); }
   },
 };

@@ -11,15 +11,22 @@ const PageSituation = {
     this._start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
 
     Layout.content(`
-      <div class="page-head">
+      <div class="page-head flex justify-between items-center flex-wrap gap-3">
         <div><h2>Situation & rapports locataires</h2><div class="subtitle">Suivi des locataires et récapitulatifs par période</div></div>
-        <button class="btn btn-outline no-print" onclick="window.print()">🖨 Imprimer</button>
+        <div class="flex gap-2 items-center flex-wrap no-print">
+          <select class="form-control" id="sitHeaderBldSelect" style="max-width:260px" onchange="PageSituation.selectBuildingFilter(this.value)">
+            <option value="">🏢 Tous les immeubles</option>
+          </select>
+          <button class="btn btn-outline" onclick="window.print()">🖨 Imprimer</button>
+        </div>
       </div>
 
       <div class="card">
-        <div class="card-header">
+        <div class="card-header flex justify-between items-center flex-wrap gap-2">
           <h3>👤 Situation des locataires</h3>
-          <input class="form-control no-print" id="sitSearch" placeholder="🔎 Rechercher un locataire…" style="max-width:260px" oninput="PageSituation.filter(this.value)"/>
+          <div class="flex gap-2 no-print" style="max-width:320px; width:100%;">
+            <input class="form-control" id="sitSearch" placeholder="🔎 Rechercher un locataire…" oninput="PageSituation.filter()"/>
+          </div>
         </div>
         <div class="card-body"><div id="situationBox"><div class="spinner"></div></div></div>
       </div>
@@ -46,12 +53,13 @@ const PageSituation = {
 
       <div id="recapBox"><div class="spinner"></div></div>
 
-      <div class="card">
+      <div class="card" id="buildingCardSection">
         <div class="card-header">
-          <h3>🏢 Situation par immeuble</h3>
-          <div class="flex gap-2 no-print">
-            <select class="form-control" id="bldSelect" style="max-width:240px" onchange="PageSituation.loadBuilding(this.value)"></select>
+          <h3>🏢 Situation détaillée par immeuble</h3>
+          <div class="flex gap-2 no-print flex-wrap">
+            <select class="form-control" id="bldSelect" style="max-width:240px" onchange="PageSituation.selectBuildingFilter(this.value)"></select>
             <button class="btn btn-sm btn-outline" id="bldExport" style="display:none" onclick="PageSituation.exportBuildingExcel()">⬇ Exporter Excel</button>
+            <button class="btn btn-sm btn-primary" onclick="PageProperties.openImportModal()">📤 Importer Fichier Excel</button>
           </div>
         </div>
         <div class="card-body"><div id="buildingBox" class="text-muted">Choisissez un immeuble pour afficher sa situation détaillée.</div></div>
@@ -66,9 +74,14 @@ const PageSituation = {
   async loadBuildingsList() {
     try {
       const props = (await API.get('/properties')).data || [];
-      const sel = document.getElementById('bldSelect');
-      sel.innerHTML = '<option value="">— Choisir un immeuble —</option>'
+      const opts = '<option value="">🏢 Tous les immeubles</option>'
         + props.map((p) => `<option value="${p.id}">${p.property_name}</option>`).join('');
+      
+      const sel = document.getElementById('bldSelect');
+      if (sel) sel.innerHTML = '<option value="">— Choisir un immeuble —</option>' + props.map((p) => `<option value="${p.id}">${p.property_name}</option>`).join('');
+      
+      const headSel = document.getElementById('sitHeaderBldSelect');
+      if (headSel) headSel.innerHTML = opts;
     } catch (_) { /* ignore */ }
   },
   _building: null,
@@ -139,11 +152,45 @@ const PageSituation = {
       this.renderSituation(this._situation);
     } catch (e) { box.innerHTML = `<div class="text-muted">Erreur : ${e.message}</div>`; }
   },
-  filter(q) {
-    const s = (q || '').toLowerCase();
-    this.renderSituation(this._situation.filter((r) =>
-      (r.nom || '').toLowerCase().includes(s) || (r.immeuble || '').toLowerCase().includes(s)
-      || (r.logement || '').toLowerCase().includes(s) || (r.telephone || '').includes(s)));
+  selectBuildingFilter(id) {
+    const headSel = document.getElementById('sitHeaderBldSelect');
+    if (headSel && headSel.value !== id) headSel.value = id;
+
+    const bldSel = document.getElementById('bldSelect');
+    if (bldSel && bldSel.value !== id) bldSel.value = id;
+
+    this.filter();
+
+    if (id) {
+      this.loadBuilding(id);
+    } else {
+      const box = document.getElementById('buildingBox');
+      const exp = document.getElementById('bldExport');
+      if (box) box.innerHTML = 'Choisissez un immeuble pour afficher sa situation détaillée.';
+      if (exp) exp.style.display = 'none';
+      this._building = null;
+    }
+  },
+
+  filter() {
+    const qEl = document.getElementById('sitSearch');
+    const bldEl = document.getElementById('sitHeaderBldSelect');
+    const s = qEl ? (qEl.value || '').toLowerCase() : '';
+    const bldId = bldEl ? bldEl.value : '';
+
+    let list = this._situation;
+    if (bldId) {
+      list = list.filter((r) => String(r.property_id) === String(bldId));
+    }
+    if (s) {
+      list = list.filter((r) =>
+        (r.nom || '').toLowerCase().includes(s) ||
+        (r.immeuble || '').toLowerCase().includes(s) ||
+        (r.logement || '').toLowerCase().includes(s) ||
+        (r.telephone || '').includes(s)
+      );
+    }
+    this.renderSituation(list);
   },
   renderSituation(list) {
     const today = new Date();
@@ -152,7 +199,25 @@ const PageSituation = {
       const doit = r.doit > 0
         ? `<b style="color:var(--danger)">${Helpers.formatMoney(r.doit)}</b>`
         : '<span class="badge badge-success">À jour</span>';
-      const echeance = r.a_jour && r.prochaine_echeance ? Helpers.formatDate(r.prochaine_echeance) : '—';
+      let echeance = '—';
+      if (r.prochaine_echeance) {
+        const dateFmt = Helpers.formatDate(r.prochaine_echeance);
+        if (r.jours_restants !== undefined && r.jours_restants !== null) {
+          let badge = '';
+          if (r.jours_restants < 0) {
+            badge = `<br><span class="badge badge-danger" style="font-size:10.5px;font-weight:700">En retard de ${Math.abs(r.jours_restants)} j</span>`;
+          } else if (r.jours_restants === 0) {
+            badge = `<br><span class="badge badge-danger" style="font-size:10.5px;font-weight:700">Aujourd'hui !</span>`;
+          } else if (r.jours_restants <= 10) {
+            badge = `<br><span class="badge badge-warning" style="font-size:10.5px;font-weight:700">Dans ${r.jours_restants} j</span>`;
+          } else {
+            badge = `<br><span class="badge badge-muted" style="font-size:10.5px">Dans ${r.jours_restants} j</span>`;
+          }
+          echeance = `<b>${dateFmt}</b>${badge}`;
+        } else {
+          echeance = dateFmt;
+        }
+      }
       let fin = '—';
       if (r.fin_bail) {
         const d = new Date(r.fin_bail);

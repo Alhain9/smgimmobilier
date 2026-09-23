@@ -10,6 +10,9 @@ const Lease = sequelize.define('Lease', {
   end_date: { type: DataTypes.DATEONLY },
   monthly_rent: { type: DataTypes.DECIMAL(12, 2), allowNull: false, defaultValue: 0 },
   deposit_amount: { type: DataTypes.DECIMAL(12, 2), allowNull: false, defaultValue: 0 },
+  duration_months: { type: DataTypes.INTEGER, allowNull: true },
+  renewal_count: { type: DataTypes.INTEGER, defaultValue: 0 },
+  previous_lease_id: { type: DataTypes.BIGINT.UNSIGNED, allowNull: true },
   status: { type: DataTypes.ENUM('pending', 'active', 'expired', 'terminated'), defaultValue: 'active' },
 }, { tableName: 'leases', timestamps: true, paranoid: true });
 

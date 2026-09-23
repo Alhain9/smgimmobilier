@@ -30,16 +30,25 @@
   PageRh.register();
   PageKanban.register();
   PageMessages.register();
+  PageWhatsappGroups.register();
   PageWorkflows.register();
-  PageGps.register();
+  PageReceipts.register();
+  PageManagementReports.register();
+  PageStock.register();
+  if (typeof PageSuppliers !== 'undefined') PageSuppliers.register();
+  PageWorksites.register();
+  if (typeof PageGps !== 'undefined') PageGps.register();
+  if (typeof PageCompanySettings !== 'undefined') PageCompanySettings.register();
 
   // Notifications (cloche topbar) — pas pour le locataire (menu réduit, mais on l'active quand même)
   if (typeof Notifications !== 'undefined') Notifications.start();
 
-  // Ferme le panneau notifications au clic extérieur
+  // Ferme le panneau notifications et le menu utilisateur au clic extérieur
   document.addEventListener('click', (e) => {
     const dd = document.getElementById('notifDropdown');
     if (dd && !dd.contains(e.target)) dd.classList.remove('open');
+    const um = document.getElementById('userMenu');
+    if (um && !um.contains(e.target)) um.classList.remove('open');
   });
 
   // Route initiale (depuis le hash ou dashboard)

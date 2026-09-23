@@ -39,24 +39,99 @@ const PageProperties = {
   },
 
   async render() {
-    const canEdit = Auth.hasRole('manager', 'dir_admin', 'gestionnaire');
+    const canEdit = Auth.hasRole('manager', 'dir_admin', 'gestionnaire', 'comptable');
+    const toolbar = `
+      <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+        ${canEdit ? `<button class="btn btn-outline" onclick="PageProperties.openImportModal()">📤 Importer la situation (Excel)</button>` : ''}
+        <button class="btn btn-outline" onclick="PageProperties.downloadSampleTemplate()" style="color:var(--primary);font-weight:600">
+          <span class="btn-icon">📥</span> Télécharger Modèle Word Vierge (.docx)
+        </button>
+      </div>
+    `;
+
     const data = await CrudPage.list({
       endpoint: '/properties', title: 'Immeubles',
       canCreate: canEdit, onCreate: 'PageProperties.create',
+      toolbar,
       columns: [
-        { label: 'Nom', render: (r) => `<b>${r.property_name}</b>` },
+        {
+          label: 'Nom',
+          render: (r) => {
+            const assignedBadge = r.is_assigned
+              ? `<span style="display:inline-block;background:#d4edda;color:#155724;font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;margin-left:6px;vertical-align:middle">★ Mon immeuble</span>`
+              : '';
+            return `<b>${r.property_name}</b>${assignedBadge}`;
+          },
+        },
         { label: 'Type', render: (r) => Helpers.propertyType(r.property_type) },
         { label: 'Localisation', render: (r) => `${r.city || '—'}${r.district ? `<br><span class="text-muted" style="font-size:12px">${r.district}</span>` : ''}` },
         { label: 'Logements', render: (r) => (r.apartments ? r.apartments.length : 0) },
         { label: 'Occupation', render: (r) => { const a = r.apartments || []; return a.length ? `${a.filter(x => x.status === 'occupied').length}/${a.length}` : '0'; } },
+        {
+          label: 'Contrat Word',
+          render: (r) => {
+            if (r.lease_template_file) {
+              const isWord = /\.docx?$/i.test(r.lease_template_file);
+              const fileUrl = Helpers.fileUrl(r.lease_template_file);
+              return `<div style="display:flex;align-items:center;gap:6px">
+                <a href="${fileUrl}" target="_blank" class="badge badge-success" style="text-decoration:none;padding:5px 8px;font-size:11px" title="Télécharger le contrat Word de l'immeuble">
+                  📄 ${isWord ? 'Word (.docx)' : 'Contrat PDF'}
+                </a>
+                ${canEdit ? `<button class="btn btn-sm btn-outline" style="padding:2px 6px" onclick="PageProperties.openContractModal(${r.id})" title="Remplacer le contrat">🔄</button>` : ''}
+              </div>`;
+            }
+            return canEdit
+              ? `<button class="btn btn-sm btn-outline" style="font-size:11px;color:var(--primary)" onclick="PageProperties.openContractModal(${r.id})">+ Ajouter Word</button>`
+              : '<span class="text-muted" style="font-size:12px">Aucun</span>';
+          },
+        },
         { label: 'Statut', render: (r) => Helpers.statusBadge(r.status) },
       ],
       rowActions: (r) => `
-        <button class="btn btn-sm btn-outline" title="Voir" onclick="PageProperties.view(${r.id})">👁</button>
-        ${canEdit ? `<button class="btn btn-sm btn-outline" onclick="PageProperties.edit(${r.id})">✏️</button>` : ''}
-        ${Auth.hasRole('manager') ? `<button class="btn btn-sm btn-danger" onclick="PageProperties.remove(${r.id})">🗑</button>` : ''}`,
+        <button class="btn btn-sm btn-outline" title="Gérer le contrat Word de l'immeuble" onclick="PageProperties.openContractModal(${r.id})" style="color:var(--primary);font-weight:600">📄 Contrat Word</button>
+        <button class="btn btn-sm btn-outline" title="Voir la fiche immeuble" onclick="PageProperties.view(${r.id})">👁</button>
+        ${canEdit ? `<button class="btn btn-sm btn-outline" title="Modifier" onclick="PageProperties.edit(${r.id})">✏️</button>` : ''}
+        ${Auth.hasRole('manager') ? `<button class="btn btn-sm btn-danger" title="Supprimer" onclick="PageProperties.remove(${r.id})">🗑</button>` : ''}`,
     });
     this._rows = {}; (data || []).forEach((r) => { this._rows[r.id] = r; });
+  },
+
+  openImportModal() {
+    Modal.open('Importer un fichier Excel de situation', `
+      <p style="font-size:13px; color:var(--text-muted); margin-bottom:14px;">
+        Le fichier Excel créera ou mettra à jour automatiquement l'immeuble, ses logements, les locataires, leurs contrats de bail et l'historique financier des versements.
+      </p>
+      <div class="form-group">
+        <label>Fichier Excel (.xlsx / .xls)</label>
+        <input type="file" id="excelImportFile" class="form-control" accept=".xlsx,.xls"/>
+      </div>
+      <div class="form-row mt-2">
+        <div class="form-group half"><label>Ville par défaut</label><input class="form-control" id="excelCity" value="Douala"/></div>
+        <div class="form-group half"><label>Quartier par défaut</label><input class="form-control" id="excelDistrict" placeholder="Ex: Akwa"/></div>
+      </div>`,
+      `<button class="btn btn-outline" onclick="Modal.close()">Annuler</button>
+       <button class="btn btn-primary" onclick="PageProperties.submitImport()">Importer l'Excel</button>`);
+  },
+
+  async submitImport() {
+    const file = document.getElementById('excelImportFile')?.files[0];
+    if (!file) { Toast.error('Veuillez sélectionner un fichier Excel.'); return; }
+
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('city', document.getElementById('excelCity')?.value || 'Douala');
+    fd.append('district', document.getElementById('excelDistrict')?.value || '');
+
+    try {
+      Modal.close();
+      Toast.info('Importation et traitement de l\'Excel en cours...');
+      const res = await API.upload('/properties/import', fd);
+      const data = res.data;
+      Toast.success(`Importation réussie ! ${data.propertiesCount || 1} immeuble(s), ${data.apartments.total} logement(s), ${data.tenants.total} locataire(s) mis à jour.`);
+      this.render();
+    } catch (err) {
+      Toast.error(err.message || 'Erreur lors de l\'importation de l\'Excel.');
+    }
   },
 
   // ----- Création : champs standard + constructeur de composition -----
@@ -142,11 +217,36 @@ const PageProperties = {
         </div>`;
     }).join('') || '<p class="text-muted" style="grid-column: 1/-1;">Aucun logement déclaré</p>';
 
+    const hasContract = !!r.lease_template_file;
+    const isWord = hasContract && /\.docx?$/i.test(r.lease_template_file);
+    const contractUrl = hasContract ? Helpers.fileUrl(r.lease_template_file) : '';
+
     Modal.open('🏢 ' + r.property_name, `
       <h4 style="margin:4px 0 8px">📍 Localisation</h4>
       <div class="list-item"><div style="flex:1">Adresse</div><b>${r.address || '—'}</b></div>
       <div class="list-item"><div style="flex:1">Quartier / Ville</div><b>${r.district ? r.district + ' · ' : ''}${r.city || '—'}</b></div>
       
+      <h4 style="margin:20px 0 8px">📄 Modèle de Contrat de Bail de l'immeuble</h4>
+      <div class="card p-3 mb-3" style="background:var(--bg-surface-2)">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+          <div>
+            ${hasContract
+              ? `<span class="badge badge-success"><i class="fas fa-check"></i> Modèle enregistré (${isWord ? 'Word .docx' : 'PDF'})</span>
+                 <div class="text-muted" style="font-size:12px; margin-top:4px;">Fichier : <b>${r.lease_template_file.split('/').pop()}</b></div>`
+              : `<span class="badge badge-warning"><i class="fas fa-exclamation-circle"></i> Aucun modèle personnalisé</span>
+                 <div class="text-muted" style="font-size:12px; margin-top:4px;">Le modèle standard SMG est utilisé par défaut.</div>`}
+          </div>
+          <div style="display:flex; gap:6px;">
+            ${hasContract ? `<a href="${contractUrl}" target="_blank" class="btn btn-sm btn-primary">📥 Télécharger le contrat</a>` : ''}
+            ${Auth.hasRole('manager','dir_admin','gestionnaire') ? `
+              <button class="btn btn-sm btn-outline" onclick="Modal.close();PageProperties.openContractModal(${r.id})">
+                ${hasContract ? '🔄 Remplacer' : '📤 Téléverser un contrat'}
+              </button>
+            ` : ''}
+          </div>
+        </div>
+      </div>
+
       <h4 style="margin:20px 0 8px">🏠 Logements (${apts.length} logement(s) · ${occupied} occupé(s))</h4>
       <div class="text-muted" style="font-size:12px; margin-bottom:8px;">Cliquez sur un logement pour le modifier rapidement.</div>
       <div class="apartment-grid">
@@ -157,6 +257,103 @@ const PageProperties = {
          <button class="btn btn-outline" onclick="Modal.close();PageProperties.edit(${r.id})">✏️ Modifier</button>
          <button class="btn btn-primary" onclick="Modal.close();Router.go('apartments')">Gérer les logements</button>
        ` : ''}`);
+  },
+
+  // ===== GESTION DU MODÈLE DE CONTRAT WORD PAR IMMEUBLE =====
+  async openContractModal(propertyId) {
+    let prop = this._rows[propertyId];
+    if (!prop) {
+      try {
+        const res = await API.get('/properties/' + propertyId);
+        prop = res.data;
+      } catch (e) { Toast.error(e.message); return; }
+    }
+
+    const hasTemplate = !!prop.lease_template_file;
+    const isDocx = hasTemplate && /\.docx?$/i.test(prop.lease_template_file);
+    const templateUrl = hasTemplate ? Helpers.fileUrl(prop.lease_template_file) : '';
+
+    Modal.open(`📄 Modèle de Contrat de Bail — ${prop.property_name}`, `
+      <div style="padding:4px">
+        <p style="font-size:13.5px; color:var(--text); line-height:1.5; margin-bottom:16px;">
+          Chaque immeuble dispose de son propre <strong>modèle officiel de contrat de bail (fichier Word .docx ou .doc)</strong>. 
+          Les baux établis pour cet immeuble feront référence à ce modèle contractuel.
+        </p>
+
+        <div class="card p-3 mb-4" style="background:var(--bg-surface-2); border:1px solid var(--border)">
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+            <div>
+              <div style="font-size:12px; text-transform:uppercase; font-weight:700; color:var(--text-muted)">Statut actuel</div>
+              <div style="margin-top:4px">
+                ${hasTemplate 
+                  ? `<span class="badge badge-success"><i class="fas fa-check-circle"></i> Contrat Word enregistré (${isDocx ? '.docx' : 'document'})</span>`
+                  : `<span class="badge badge-warning"><i class="fas fa-exclamation-triangle"></i> Aucun contrat spécifique attribué</span>`}
+              </div>
+              ${hasTemplate ? `<div class="text-muted" style="font-size:12px; margin-top:4px">Fichier : ${prop.lease_template_file.split('/').pop()}</div>` : ''}
+            </div>
+            <div style="display:flex; gap:8px;">
+              ${hasTemplate ? `<a href="${templateUrl}" target="_blank" class="btn btn-sm btn-primary">📥 Télécharger</a>` : ''}
+              ${hasTemplate ? `<button class="btn btn-sm btn-danger" onclick="PageProperties.deleteContract(${prop.id})">🗑 Retirer</button>` : ''}
+            </div>
+          </div>
+        </div>
+
+        <form id="propContractForm">
+          <div class="form-group mb-3">
+            <label style="font-weight:600">
+              ${hasTemplate ? 'Remplacer le contrat Word de l\'immeuble :' : 'Téléverser le contrat Word pour cet immeuble :'}
+            </label>
+            <input type="file" class="form-control" id="propContractInput" accept=".docx,.doc,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword,application/pdf" required />
+            <div class="text-muted" style="font-size:12px; margin-top:4px">
+              Formats acceptés : Document Microsoft Word (.docx, .doc) ou PDF (.pdf).
+            </div>
+          </div>
+        </form>
+
+        <div style="margin-top:14px; text-align:right">
+          <a href="http://localhost:5000/api/properties/lease-template/sample" target="_blank" style="font-size:12.5px; color:var(--primary); text-decoration:underline">
+            📥 Télécharger le modèle officiel vierge (.docx)
+          </a>
+        </div>
+      </div>
+    `, `
+      <button class="btn btn-outline" onclick="Modal.close()">Fermer</button>
+      <button class="btn btn-primary" onclick="PageProperties.submitContract(${prop.id})">
+        📤 Enregistrer le contrat Word
+      </button>
+    `);
+  },
+
+  async submitContract(propertyId) {
+    const file = document.getElementById('propContractInput')?.files[0];
+    if (!file) { Toast.error('Veuillez sélectionner un fichier Word (.docx) ou PDF'); return; }
+
+    const fd = new FormData();
+    fd.append('template', file);
+
+    try {
+      Toast.info('Téléversement du contrat en cours...');
+      await API.upload('/properties/' + propertyId + '/lease-template', fd);
+      Modal.close();
+      Toast.success('Modèle de contrat Word enregistré avec succès pour cet immeuble ! 📄✅');
+      this.render();
+    } catch (e) {
+      Toast.error(e.message || 'Échec du téléversement du contrat');
+    }
+  },
+
+  async deleteContract(propertyId) {
+    if (!confirm('Êtes-vous sûr de vouloir retirer le modèle de contrat de cet immeuble ?')) return;
+    try {
+      await API.delete('/properties/' + propertyId + '/lease-template');
+      Modal.close();
+      Toast.success('Modèle de contrat retiré de l\'immeuble');
+      this.render();
+    } catch (e) { Toast.error(e.message); }
+  },
+
+  downloadSampleTemplate() {
+    window.open('http://localhost:5000/api/properties/lease-template/sample', '_blank');
   },
 
   remove(id) { CrudPage.confirmDelete('/properties/' + id, () => PageProperties.render()); },

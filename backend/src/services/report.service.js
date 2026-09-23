@@ -1,4 +1,4 @@
-const { Tenant, User, Apartment, Property, Lease, Payment, Maintenance, Expense } = require('../models');
+const { Tenant, User, Apartment, Property, Lease, Payment, Maintenance, Expense, Worksite, StockItem, StockPurchase, Salary, Warehouse } = require('../models');
 const { Op } = require('sequelize');
 const ledgerService = require('./ledger.service');
 
@@ -19,7 +19,7 @@ class ReportService {
   }
 
   // ===== Situation de chaque locataire =====
-  async tenantsSituation() {
+  async tenantsSituation(ownerPropertyIds = null) {
     const tenants = await Tenant.findAll({
       include: [
         { model: User, as: 'user', attributes: ['id', 'full_name', 'phone'] },
@@ -31,7 +31,7 @@ class ReportService {
     });
 
     const today = new Date();
-    return tenants.map((t) => {
+    const mapped = tenants.map((t) => {
       const o = t.toJSON();
       const apt = this._effectiveApartment(o);
       const payments = o.payments || [];
@@ -41,18 +41,6 @@ class ReportService {
         .sort((a, b) => new Date(b.payment_date) - new Date(a.payment_date));
       const activeLease = (o.leases || []).find((l) => l.status === 'active') || (o.leases || [])[0] || null;
 
-      // Prochaine échéance (seulement s'il est à jour)
-      let nextDue = null;
-      if (doit <= 0) {
-        if (completed.length) {
-          const last = new Date(completed[0].payment_date);
-          nextDue = new Date(last.getFullYear(), last.getMonth() + 1, 1);
-        } else if (activeLease && activeLease.start_date) {
-          nextDue = new Date(activeLease.start_date);
-        }
-        if (nextDue && nextDue < today) nextDue = new Date(today.getFullYear(), today.getMonth() + 1, 1);
-      }
-
       return {
         tenant_id: o.id,
         nom: o.user ? o.user.full_name : '—',
@@ -60,18 +48,30 @@ class ReportService {
         doit,
         a_jour: doit <= 0,
         statut_compte: led.statut, // a_jour | partiel | retard
-        prochaine_echeance: nextDue ? nextDue.toISOString().slice(0, 10) : null,
+        prochaine_echeance: led.prochaine_echeance || null,
+        jours_restants: led.jours_restants,
+        statut_echeance: led.statut_echeance || 'ok',
+        echeance_message: led.echeance_message || '',
         fin_bail: activeLease ? activeLease.end_date : null,
         logement: apt ? apt.apartment_number : null,
         immeuble: apt && apt.property ? apt.property.property_name : null,
+        property_id: apt && apt.property ? apt.property.id : null,
         statut: o.status,
       };
     });
+
+    if (Array.isArray(ownerPropertyIds)) {
+      return mapped.filter((r) => r.property_id && ownerPropertyIds.includes(Number(r.property_id)));
+    }
+    return mapped;
   }
 
   // ===== Situation d'un immeuble (modèle Excel « SITUATION IMMEUBLE ») =====
   // Une ligne par logement : locataire, loyer, arriéré, dette, anticipation, versement du mois…
-  async buildingSituation(propertyId) {
+  async buildingSituation(propertyId, ownerPropertyIds = null) {
+    if (Array.isArray(ownerPropertyIds) && !ownerPropertyIds.includes(Number(propertyId))) {
+      throw Object.assign(new Error('Accès non autorisé à cet immeuble'), { status: 403 });
+    }
     const property = await Property.findByPk(propertyId, {
       include: [{
         model: Apartment, as: 'apartments',
@@ -246,6 +246,170 @@ class ReportService {
         total: maintenances.length, ...maintStatus,
         cout: maintCostTotal,
         byProperty: Object.values(maintCountByProp).sort((a, b) => b.total - a.total),
+      },
+    };
+  }
+
+  // ===== Bilan Financier Global de l'Entreprise & Rentabilité Chantiers =====
+  async companyFinancialBalance(start, end) {
+    const range = this._range(start, end);
+
+    const [
+      worksites,
+      payments,
+      stockItems,
+      stockPurchases,
+      salaries,
+      expenses,
+      warehouses,
+    ] = await Promise.all([
+      Worksite.findAll({
+        order: [['createdAt', 'DESC']],
+      }),
+      Payment.findAll({
+        where: {
+          payment_date: { [Op.between]: [start, end] },
+          status: 'completed',
+        },
+      }),
+      StockItem.findAll(),
+      StockPurchase.findAll({
+        where: {
+          purchase_date: { [Op.between]: [start, end] },
+        },
+      }),
+      Salary.findAll({
+        where: {
+          status: 'paid',
+        },
+        include: [{ model: User, as: 'employee', attributes: ['id', 'full_name'] }],
+      }),
+      Expense.findAll({
+        where: {
+          created_at: { [Op.between]: range },
+        },
+      }),
+      Warehouse.findAll({ where: { is_active: true } }),
+    ]);
+
+    // 1. Analyse des Chantiers
+    const filteredWorksites = worksites.filter((ws) => {
+      const d = ws.start_date || (ws.createdAt ? ws.createdAt.toISOString().slice(0, 10) : null);
+      if (!d) return true;
+      return d <= end;
+    });
+
+    const worksitesDetail = filteredWorksites.map((ws) => {
+      const revenue = num(ws.contract_amount) || num(ws.budget);
+      const matCost = num(ws.material_cost);
+      const laborCost = num(ws.labor_cost);
+      const otherCost = num(ws.other_cost);
+      const spent = num(ws.spent_amount);
+      const totalCost = spent > 0 ? spent : (matCost + laborCost + otherCost);
+      const netProfit = revenue - totalCost;
+      const marginPct = revenue > 0 ? Math.round((netProfit / revenue) * 100) : 0;
+
+      return {
+        id: ws.id,
+        title: ws.title,
+        client_name: ws.client_name || 'Client direct',
+        location: ws.location || '—',
+        worksite_type: ws.worksite_type || 'interne',
+        status: ws.status,
+        contractor: ws.contractor || 'Équipe interne',
+        start_date: ws.start_date || (ws.createdAt ? ws.createdAt.toISOString().slice(0, 10) : '—'),
+        revenue,
+        contract_amount: revenue,
+        material_cost: matCost,
+        labor_cost: laborCost,
+        other_cost: otherCost,
+        total_cost: totalCost,
+        spent_amount: totalCost,
+        net_profit: netProfit,
+        profit: netProfit,
+        margin_pct: marginPct,
+      };
+    });
+
+    // Totaux Chantiers
+    const totalWorksitesRevenue = worksitesDetail.reduce((s, w) => s + w.revenue, 0);
+    const totalWorksitesMaterials = worksitesDetail.reduce((s, w) => s + w.material_cost, 0);
+    const totalWorksitesLabor = worksitesDetail.reduce((s, w) => s + w.labor_cost, 0);
+    const totalWorksitesCost = worksitesDetail.reduce((s, w) => s + w.total_cost, 0);
+
+    // 2. Activité Locative & Commissions Agence
+    const totalRentsCollected = payments.reduce((s, p) => s + num(p.amount), 0);
+    // Honoraires / Commission de gestion agence estimés à 10%
+    const agencyCommission = Math.round(totalRentsCollected * 0.10);
+
+    // 3. Stocks & Approvisionnements Magasins
+    const totalStockValuation = stockItems.reduce((s, it) => s + (num(it.quantity) * num(it.unit_price_avg)), 0);
+    const totalStockPurchasesPeriod = stockPurchases.reduce((s, sp) => s + num(sp.total_amount), 0);
+
+    // 4. Salaires & Charges de Personnel sur la période
+    const periodSalaries = salaries.filter((sal) => {
+      const d = sal.paid_date || (sal.updatedAt ? sal.updatedAt.toISOString().slice(0, 10) : null);
+      if (!d) return true;
+      return d >= start && d <= end;
+    });
+    const totalSalariesPaid = periodSalaries.reduce((s, sal) => s + num(sal.net_salary), 0);
+
+    // 5. Autres Dépenses Générales
+    const totalGeneralExpenses = expenses.reduce((s, exp) => s + num(exp.total_price), 0);
+
+    // 6. Synthèse Globale Entreprise
+    const grossIncome = totalWorksitesRevenue + agencyCommission;
+    const grandTotalCosts = totalWorksitesCost + totalSalariesPaid + totalGeneralExpenses;
+    const netCompanyProfit = grossIncome - grandTotalCosts;
+    const companyMarginPct = grossIncome > 0 ? Math.round((netCompanyProfit / grossIncome) * 100) : 0;
+
+    const summary = {
+      total_revenue: grossIncome,
+      worksites_billed_revenue: totalWorksitesRevenue,
+      agency_commission_revenue: agencyCommission,
+      materials_and_stock_cost: totalWorksitesMaterials + totalStockPurchasesPeriod,
+      worksites_materials_cost: totalWorksitesMaterials,
+      stock_purchases_period: totalStockPurchasesPeriod,
+      labor_and_payroll_cost: totalWorksitesLabor + totalSalariesPaid,
+      worksites_labor_cost: totalWorksitesLabor,
+      salaries_paid_cost: totalSalariesPaid,
+      worksites_total_spent: totalWorksitesCost,
+      worksites_net_profit: totalWorksitesRevenue - totalWorksitesCost,
+      net_operating_profit: netCompanyProfit,
+      profit_margin_pct: companyMarginPct,
+    };
+
+    return {
+      period: { start, end },
+      summary,
+      kpis: {
+        gross_income: grossIncome,
+        worksites_revenue: totalWorksitesRevenue,
+        agency_commission: agencyCommission,
+        rents_collected: totalRentsCollected,
+        total_costs: grandTotalCosts,
+        worksites_cost: totalWorksitesCost,
+        worksites_materials: totalWorksitesMaterials,
+        worksites_labor: totalWorksitesLabor,
+        salaries_paid: totalSalariesPaid,
+        general_expenses: totalGeneralExpenses,
+        net_profit: netCompanyProfit,
+        margin_pct: companyMarginPct,
+        stock_valuation: Math.round(totalStockValuation),
+        stock_purchases_period: totalStockPurchasesPeriod,
+        warehouses_count: warehouses.length,
+        worksites_count: worksitesDetail.length,
+      },
+      stock_valuation_total: Math.round(totalStockValuation),
+      rental_management: {
+        total_collected: totalRentsCollected,
+        agency_commission: agencyCommission,
+      },
+      worksites: worksitesDetail,
+      warehouses: warehouses.map((wh) => ({ id: wh.id, name: wh.name, city: wh.city, warehouse_type: wh.warehouse_type })),
+      salaries_summary: {
+        total_paid: totalSalariesPaid,
+        count: periodSalaries.length,
       },
     };
   }

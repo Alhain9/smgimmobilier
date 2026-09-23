@@ -14,6 +14,7 @@ const Auth = {
     if (!u || !u.role) return null;
     return u.role.name || u.role.role_name || null;
   },
+  getToken() { return localStorage.getItem(CONFIG.TOKEN_KEY); },
   isLoggedIn() { return !!localStorage.getItem(CONFIG.TOKEN_KEY); },
 
   logout() {

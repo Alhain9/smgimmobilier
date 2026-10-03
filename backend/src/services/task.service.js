@@ -42,22 +42,33 @@ class TaskService {
     if (filters.status && filters.status !== 'all') where.status = filters.status;
     if (filters.priority && filters.priority !== 'all') where.priority = filters.priority;
 
-    // Filtre par Immeuble(s)
-    if (filters.property_id && filters.property_id !== 'all') {
-      const pIds = Array.isArray(filters.property_id)
-        ? filters.property_id
-        : String(filters.property_id).split(',').map((s) => s.trim()).filter(Boolean);
-      if (pIds.length === 1) where.property_id = pIds[0];
-      else if (pIds.length > 1) where.property_id = { [Op.in]: pIds };
-    }
+    // Filtre par Immeuble(s) et/ou Chantier(s) sélectionnés
+    const rawProps = filters.property_ids || filters.property_id;
+    const rawWorks = filters.worksite_ids || filters.worksite_id;
+    const pIds = (rawProps && rawProps !== 'all')
+      ? (Array.isArray(rawProps) ? rawProps : String(rawProps).split(',').map((s) => Number(s.trim())).filter(Boolean))
+      : [];
+    const wIds = (rawWorks && rawWorks !== 'all')
+      ? (Array.isArray(rawWorks) ? rawWorks : String(rawWorks).split(',').map((s) => Number(s.trim())).filter(Boolean))
+      : [];
 
-    // Filtre par Chantier(s)
-    if (filters.worksite_id && filters.worksite_id !== 'all') {
-      const wIds = Array.isArray(filters.worksite_id)
-        ? filters.worksite_id
-        : String(filters.worksite_id).split(',').map((s) => s.trim()).filter(Boolean);
+    if (pIds.length > 0 && wIds.length > 0) {
+      // Les deux sont sélectionnés : Union des tâches des immeubles choisis OU des chantiers choisis
+      where[Op.and] = [
+        ...(where[Op.and] || []),
+        {
+          [Op.or]: [
+            { property_id: { [Op.in]: pIds } },
+            { worksite_id: { [Op.in]: wIds } },
+          ],
+        },
+      ];
+    } else if (pIds.length > 0) {
+      if (pIds.length === 1) where.property_id = pIds[0];
+      else where.property_id = { [Op.in]: pIds };
+    } else if (wIds.length > 0) {
       if (wIds.length === 1) where.worksite_id = wIds[0];
-      else if (wIds.length > 1) where.worksite_id = { [Op.in]: wIds };
+      else where.worksite_id = { [Op.in]: wIds };
     }
 
     // Filtre par Appartement(s)

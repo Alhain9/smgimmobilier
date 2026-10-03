@@ -26,7 +26,9 @@ module.exports = {
   downloadWorkPlanPdf: async (req, res, next) => {
     try {
       const buffer = await service.generateWorkPlanPdf(req.query);
-      const filename = `Plan_de_travail_${new Date().toISOString().slice(0, 10)}.pdf`;
+      const targetName = req.query.city || req.query.property_name || req.query.worksite_name || 'SMG';
+      const cleanTarget = String(targetName).replace(/[^a-zA-Z0-9_-]/g, '_');
+      const filename = `Plan_de_travail_${cleanTarget}_${new Date().toISOString().slice(0, 10)}.pdf`;
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
       return res.send(buffer);

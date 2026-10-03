@@ -24,6 +24,38 @@ const COLORS = {
   inProgText: '#0369a1',
 };
 
+function detectTrade(t) {
+  const text = `${t.title || ''} ${t.nature_probleme || ''} ${t.description || ''} ${t.location_zone || ''}`.toLowerCase();
+  if (text.includes('plomb') || text.includes('siphon') || text.includes('douche') || text.includes('fuite') || text.includes('lavabo') || text.includes('bidet') || text.includes('eau') || text.includes('robinet') || text.includes('chasse') || text.includes('tuyau') || text.includes('canalisation')) {
+    return 'Plomberie & Sanitaire';
+  }
+  if (text.includes('electr') || text.includes('électr') || text.includes('prise') || text.includes('compteur') || text.includes('eclair') || text.includes('éclair') || text.includes('reglette') || text.includes('réglette') || text.includes('câble') || text.includes('disjoncteur')) {
+    return 'Électricité & Éclairage';
+  }
+  if (text.includes('clim') || text.includes('froid') || text.includes('ventilat')) {
+    return 'Climatisation & Froid';
+  }
+  if (text.includes('peint') || text.includes('ponçage') || text.includes('enduit')) {
+    return 'Peinture & Finitions';
+  }
+  if (text.includes('revet') || text.includes('revêt') || text.includes('plafond') || text.includes('sol') || text.includes('carrelage') || text.includes('pave') || text.includes('pavé')) {
+    return 'Revêtements, Sols & Plafonds';
+  }
+  if (text.includes('toit') || text.includes('etanch') || text.includes('étanch') || text.includes('humid') || text.includes('moisiss') || text.includes('infiltration')) {
+    return 'Étanchéité, Toiture & Humidité';
+  }
+  if (text.includes('porte') || text.includes('serrur') || text.includes('fenetr') || text.includes('fenêtr') || text.includes('vitre') || text.includes('cadenas') || text.includes('menuis') || text.includes('rideau')) {
+    return 'Menuiserie & Serrurerie';
+  }
+  if (text.includes('macon') || text.includes('maçon') || text.includes('mur') || text.includes('fissur') || text.includes('béton') || text.includes('dalle') || text.includes('ferraill')) {
+    return 'Maçonnerie & Gros Œuvre';
+  }
+  if (text.includes('nettoy') || text.includes('debarras') || text.includes('débarras') || text.includes('entretien')) {
+    return 'Entretien & Nettoyage';
+  }
+  return 'Interventions Diverses';
+}
+
 class WorkPlanPdfService {
   async generate(tasks = [], options = {}) {
     const settings = companyService.getSettings();
@@ -32,13 +64,19 @@ class WorkPlanPdfService {
     const periodTitle = options.period_label
       || (options.period_start && options.period_end
         ? `DU ${fmtDate(options.period_start)} AU ${fmtDate(options.period_end)}`
-        : 'PLAN DE TRAVAIL DU MOIS & SUIVI HEBDOMADAIRE');
+        : 'PLAN DE TRAVAIL & FICHE DE SUIVI');
 
     let scopeLabel = '';
-    if (options.city || options.group) {
-      scopeLabel = `SECTEUR / VILLE : ${(options.city || options.group).toUpperCase()}`;
-    } else if (options.property_name) {
-      scopeLabel = `IMMEUBLE : ${options.property_name.toUpperCase()}`;
+    if (options.scope_label) {
+      scopeLabel = options.scope_label.toUpperCase();
+    } else {
+      const parts = [];
+      if (options.city || options.group) parts.push(`VILLE : ${(options.city || options.group).toUpperCase()}`);
+      if (options.property_names) parts.push(`IMMEUBLE(S) : ${options.property_names.toUpperCase()}`);
+      else if (options.property_name) parts.push(`IMMEUBLE : ${options.property_name.toUpperCase()}`);
+      if (options.worksite_names) parts.push(`CHANTIER(S) : ${options.worksite_names.toUpperCase()}`);
+      else if (options.worksite_name) parts.push(`CHANTIER : ${options.worksite_name.toUpperCase()}`);
+      scopeLabel = parts.join('  |  ');
     }
     const fullSubtitle = [periodTitle, scopeLabel].filter(Boolean).join('  —  ');
 
@@ -48,7 +86,7 @@ class WorkPlanPdfService {
       margins: { top: 20, bottom: 25, left: 30, right: 30 },
       bufferPages: true,
       info: {
-        Title: `Plan de Travail Urgent — SMG IMMOBILIER`,
+        Title: `Plan de Travail — SMG IMMOBILIER`,
         Author: cleanText(settings.name || 'SMG IMMOBILIER'),
         Creator: 'SMG IMMOBILIER Work Plan Module',
       },
@@ -61,20 +99,19 @@ class WorkPlanPdfService {
     const contentW = pageW - 60;
     const bottomLimit = doc.page.height - 35;
 
-    // Dessin en-tête
+    // Dessin en-tête d'entreprise
     drawCompanyHeader(doc, {
-      title: 'PLAN DE TRAVAIL URGENT & FICHE DE SUIVI',
+      title: 'PLAN DE TRAVAIL OFFICIEL & FICHE DE SUIVI',
       subtitle: cleanText(fullSubtitle),
     });
 
-    // Titre principal
+    // Titre principal bandeau
     doc.moveDown(0.3);
     const startY = doc.y;
 
-    // Titre bandeau
     doc.rect(30, startY, contentW, 28).fill(primaryColor);
-    doc.fontSize(12).font('Helvetica-Bold').fillColor('#ffffff')
-      .text(cleanText(`PLAN DE TRAVAIL URGENT – ${fullSubtitle}`), 35, startY + 8, {
+    doc.fontSize(11).font('Helvetica-Bold').fillColor('#ffffff')
+      .text(cleanText(`PLAN DE TRAVAIL – ${fullSubtitle}`), 35, startY + 8, {
         width: contentW - 10,
         align: 'center',
       });
@@ -98,14 +135,15 @@ class WorkPlanPdfService {
 
     doc.y = kpiBoxY + 28;
 
-    // Tableau des Tâches
-    // Colonnes : N° (25) | Priorité (95) | Appartement / Zone (120) | Nature du problème (260) | Observation / État d'avancement (180) | Statut (70)
+    // Tableau des Tâches : 7 colonnes adaptées au format paysage
+    // Total = 25 + 90 + 120 + 220 + 90 + 177 + 60 = 782 pt
     const cols = [
       { key: 'num', label: 'N°', w: 25, align: 'center' },
-      { key: 'priority', label: 'Priorité', w: 100, align: 'left' },
-      { key: 'zone', label: 'Appartement / Zone', w: 120, align: 'left' },
-      { key: 'problem', label: 'Nature du problème', w: 260, align: 'left' },
-      { key: 'observation', label: 'Observation / État d\'avancement', w: 185, align: 'left' },
+      { key: 'priority', label: 'Priorité / Métier', w: 90, align: 'center' },
+      { key: 'zone', label: 'Immeuble / Chantier / Zone', w: 120, align: 'left' },
+      { key: 'problem', label: 'Nature du problème / Travaux à faire', w: 220, align: 'left' },
+      { key: 'assignee', label: 'Intervenant assigné', w: 90, align: 'left' },
+      { key: 'observation', label: 'Observation / État d\'avancement', w: 177, align: 'left' },
       { key: 'status', label: 'Statut', w: 60, align: 'center' },
     ];
 
@@ -127,7 +165,7 @@ class WorkPlanPdfService {
       if (doc.y + needed > bottomLimit) {
         doc.addPage();
         drawCompanyHeader(doc, {
-          title: 'PLAN DE TRAVAIL URGENT & FICHE DE SUIVI (SUITE)',
+          title: 'PLAN DE TRAVAIL OFFICIEL & FICHE DE SUIVI (SUITE)',
           subtitle: cleanText(periodTitle),
         });
         doc.y += 6;
@@ -137,90 +175,129 @@ class WorkPlanPdfService {
       return false;
     };
 
-    // Définition des Groupes d'interventions
-    const groupDefinitions = [
-      {
-        id: 'urgent',
-        title: 'GROUPE : TÂCHES URGENTES & CRITIQUES',
-        icon: 'URGENT',
-        bg: '#fee2e2',
-        border: '#f87171',
-        text: '#991b1b',
-        matcher: (t) => (t.priority || '').toLowerCase() === 'urgent',
-      },
-      {
-        id: 'renovation',
-        title: 'GROUPE : RÉNOVATIONS COMPLÈTES',
-        icon: 'RÉNOVATION',
-        bg: '#f3e8ff',
-        border: '#c084fc',
-        text: '#6b21a8',
-        matcher: (t) => {
-          const p = (t.priority || '').toLowerCase();
-          return p.includes('rénovation') || p.includes('renovation');
-        },
-      },
-      {
-        id: 'maintenance',
-        title: 'GROUPE : OPÉRATIONS DE MAINTENANCE COURANTE',
-        icon: 'MAINTENANCE',
-        bg: '#fef3c7',
-        border: '#fbbf24',
-        text: '#92400e',
-        matcher: (t) => (t.priority || '').toLowerCase().includes('maintenance'),
-      },
-      {
-        id: 'normal',
-        title: 'GROUPE : AUTRES INTERVENTIONS & TÂCHES DIVERSES',
-        icon: 'NORMAL',
-        bg: '#f1f5f9',
-        border: '#cbd5e1',
-        text: '#334155',
-        matcher: (t) => {
-          const p = (t.priority || '').toLowerCase();
-          return p !== 'urgent' && !p.includes('maintenance') && !p.includes('rénovation') && !p.includes('renovation');
-        },
-      },
-    ];
+    // Mode de regroupement sélectionné (site, assignee, category, priority)
+    const groupBy = options.group_by || 'site';
+
+    // Construction des groupes dynamiques
+    let groupMap = new Map();
+
+    if (groupBy === 'site') {
+      // Regroupement par Immeuble ou Chantier
+      tasks.forEach((t) => {
+        let key = 'general';
+        let title = '🏢 Interventions Générales / Hors site';
+        let bg = '#f1f5f9';
+        let border = '#94a3b8';
+        let text = '#334155';
+
+        if (t.worksite) {
+          key = `ws_${t.worksite.id}`;
+          title = `🚧 CHANTIER : ${(t.worksite.title || 'Chantier').toUpperCase()} (${t.worksite.location || 'Douala/Yaoundé'})`;
+          bg = '#f3e8ff';
+          border = '#a855f7';
+          text = '#6b21a8';
+        } else if (t.property) {
+          key = `prop_${t.property.id}`;
+          title = `🏢 IMMEUBLE : ${t.property.property_name.toUpperCase()} (${t.property.city || 'Douala'})`;
+          bg = '#e0f2fe';
+          border = '#0284c7';
+          text = '#0369a1';
+        }
+
+        if (!groupMap.has(key)) {
+          groupMap.set(key, { id: key, title, bg, border, text, tasks: [] });
+        }
+        groupMap.get(key).tasks.push(t);
+      });
+    } else if (groupBy === 'assignee') {
+      // Regroupement par Technicien / Intervenant assigné
+      tasks.forEach((t) => {
+        let key = t.assignee ? `u_${t.assignee.id}` : 'unassigned';
+        let title = t.assignee
+          ? `👷 INTERVENANT : ${t.assignee.full_name.toUpperCase()}${t.assignee.phone ? ` (Tél: ${t.assignee.phone})` : ''}`
+          : '👥 NON ASSIGNÉ / ÉQUIPE TECHNIQUE GÉNÉRALE';
+        let bg = t.assignee ? '#ecfdf5' : '#f8fafc';
+        let border = t.assignee ? '#10b981' : '#cbd5e1';
+        let text = t.assignee ? '#065f46' : '#475569';
+
+        if (!groupMap.has(key)) {
+          groupMap.set(key, { id: key, title, bg, border, text, tasks: [] });
+        }
+        groupMap.get(key).tasks.push(t);
+      });
+    } else if (groupBy === 'category') {
+      // Regroupement par Corps d'état / Métier
+      tasks.forEach((t) => {
+        const trade = detectTrade(t);
+        let key = trade;
+        let title = `🔧 MÉTIER : ${trade.toUpperCase()}`;
+        let bg = '#fef3c7';
+        let border = '#f59e0b';
+        let text = '#92400e';
+
+        if (!groupMap.has(key)) {
+          groupMap.set(key, { id: key, title, bg, border, text, tasks: [] });
+        }
+        groupMap.get(key).tasks.push(t);
+      });
+    } else {
+      // Regroupement par Niveau de Priorité (par défaut)
+      const defs = [
+        { id: 'urgent', title: '🚨 GROUPE : TÂCHES URGENTES & CRITIQUES', bg: '#fee2e2', border: '#ef4444', text: '#991b1b', m: (t) => (t.priority || '').toLowerCase() === 'urgent' },
+        { id: 'renov', title: '🏗️ GROUPE : RÉNOVATIONS COMPLÈTES', bg: '#f3e8ff', border: '#a855f7', text: '#6b21a8', m: (t) => (t.priority || '').toLowerCase().includes('rénovation') },
+        { id: 'maint', title: '🔧 GROUPE : OPÉRATIONS DE MAINTENANCE COURANTE', bg: '#fef3c7', border: '#f59e0b', text: '#92400e', m: (t) => (t.priority || '').toLowerCase().includes('maintenance') },
+        { id: 'normal', title: 'ℹ️ GROUPE : AUTRES INTERVENTIONS & TÂCHES DIVERSES', bg: '#f1f5f9', border: '#94a3b8', text: '#334155', m: (t) => (t.priority || '').toLowerCase() !== 'urgent' && !(t.priority || '').toLowerCase().includes('maintenance') && !(t.priority || '').toLowerCase().includes('rénovation') },
+      ];
+      defs.forEach((d) => {
+        const matching = tasks.filter(d.m);
+        if (matching.length) {
+          groupMap.set(d.id, { id: d.id, title: d.title, bg: d.bg, border: d.border, text: d.text, tasks: matching });
+        }
+      });
+    }
 
     let globalIdx = 0;
 
-    // Rendu par groupe
-    groupDefinitions.forEach((grp) => {
-      const grpTasks = tasks.filter(grp.matcher);
+    // Rendu séquentiel par groupe
+    groupMap.forEach((grp) => {
+      const grpTasks = grp.tasks;
       if (!grpTasks.length) return;
 
       const grpDone = grpTasks.filter((t) => t.status === 'completed' || (t.observation || '').toUpperCase().includes('FAIT')).length;
+      const grpDoing = grpTasks.filter((t) => t.status === 'in_progress').length;
+      const grpTodo = grpTasks.filter((t) => t.status === 'pending' || !t.status).length;
 
       // Vérification saut de page pour l'en-tête de groupe
       checkPage(42);
 
       // Bandeau d'en-tête du groupe
       const gY = doc.y;
-      doc.rect(30, gY, contentW, 19).fill(grp.bg);
-      doc.rect(30, gY, contentW, 19).strokeColor(grp.border).lineWidth(0.8).stroke();
+      doc.rect(30, gY, contentW, 20).fill(grp.bg);
+      doc.rect(30, gY, contentW, 20).strokeColor(grp.border).lineWidth(0.8).stroke();
 
-      const grpHeaderTitle = `>> ${grp.title}  —  (${grpTasks.length} tâche${grpTasks.length > 1 ? 's' : ''}  |  ${grpDone} FAIT / Terminée${grpDone > 1 ? 's' : ''})`;
+      const grpHeaderTitle = `${grp.title}  —  (${grpTasks.length} tâche${grpTasks.length > 1 ? 's' : ''}  |  ${grpDone} FAIT  |  ${grpDoing} En cours  |  ${grpTodo} À faire)`;
       doc.fontSize(8.5).font('Helvetica-Bold').fillColor(grp.text)
-        .text(cleanText(grpHeaderTitle), 36, gY + 5, { width: contentW - 12, align: 'left' });
+        .text(cleanText(grpHeaderTitle), 36, gY + 5.5, { width: contentW - 12, align: 'left' });
 
-      doc.y = gY + 19;
+      doc.y = gY + 20;
 
       // Parcourir les tâches de ce groupe
       grpTasks.forEach((t, i) => {
         globalIdx++;
         const priority = t.priority || 'Normal';
-        const isUrgent = grp.id === 'urgent';
-        const isMaint = grp.id === 'maintenance';
-        const isRenov = grp.id === 'renovation';
+        const trade = detectTrade(t);
+        const isUrgent = (t.priority || '').toLowerCase() === 'urgent';
+        const isMaint = (t.priority || '').toLowerCase().includes('maintenance');
+        const isRenov = (t.priority || '').toLowerCase().includes('rénovation');
 
         const zone = t.location_zone
+          || (t.apartment ? `Log. ${t.apartment.apartment_number} (${t.property?.property_name || ''})` : '')
           || (t.worksite ? `Chantier: ${t.worksite.title}` : '')
-          || (t.apartment ? `Logement ${t.apartment.apartment_number}` : '')
           || (t.property ? t.property.property_name : '')
           || '—';
 
         const problem = t.nature_probleme || t.title || t.description || '—';
+        const assignee = t.assignee ? t.assignee.full_name : 'Non assigné';
         const observation = t.observation || t.completion_note || (t.status === 'completed' ? 'FAIT' : '—');
 
         let statusLabel = 'À faire';
@@ -230,8 +307,8 @@ class WorkPlanPdfService {
         else if (t.status === 'cancelled') statusLabel = 'Annulé';
 
         // Hauteur dynamique selon contenu texte
-        const probHeight = doc.heightOfString(cleanText(problem), { width: 252, font: 'Helvetica', size: 8 });
-        const obsHeight = doc.heightOfString(cleanText(observation), { width: 177, font: 'Helvetica', size: 8 });
+        const probHeight = doc.heightOfString(cleanText(problem), { width: 212, font: 'Helvetica', size: 8 });
+        const obsHeight = doc.heightOfString(cleanText(observation), { width: 169, font: 'Helvetica', size: 8 });
         const rowH = Math.max(18, Math.max(probHeight, obsHeight) + 8);
 
         checkPage(rowH);
@@ -249,50 +326,56 @@ class WorkPlanPdfService {
 
         let currX = 30;
 
-        // 1. N°
+        // 1. N° (25)
         doc.fontSize(8).font('Helvetica').fillColor(COLORS.text)
           .text(String(globalIdx), currX, rY + 4, { width: 25, align: 'center' });
         currX += 25;
 
-        // 2. Priorité (Badge visuel)
+        // 2. Priorité / Métier (90)
         let pBg = COLORS.normalBg;
         let pColor = COLORS.normalText;
         if (isUrgent) { pBg = COLORS.urgentBg; pColor = COLORS.urgentText; }
         else if (isMaint) { pBg = COLORS.maintBg; pColor = COLORS.maintText; }
         else if (isRenov) { pBg = COLORS.renovBg; pColor = COLORS.renovText; }
 
-        doc.rect(currX + 4, rY + 3, 90, rowH - 6).fill(pBg);
-        doc.fontSize(8).font('Helvetica-Bold').fillColor(pColor)
-          .text(cleanText(priority), currX + 6, rY + 5, { width: 86, align: 'center' });
-        currX += 100;
+        doc.rect(currX + 3, rY + 3, 84, rowH - 6).fill(pBg);
+        doc.fontSize(7.5).font('Helvetica-Bold').fillColor(pColor)
+          .text(cleanText(priority), currX + 4, rY + 5, { width: 82, align: 'center' });
+        currX += 90;
 
-        // 3. Appartement / Zone
-        doc.fontSize(8).font('Helvetica-Bold').fillColor(COLORS.text)
+        // 3. Immeuble / Chantier / Zone (120)
+        doc.fontSize(7.5).font('Helvetica-Bold').fillColor(COLORS.text)
           .text(cleanText(zone), currX + 4, rY + 4, { width: 112, align: 'left' });
         currX += 120;
 
-        // 4. Nature du problème
-        doc.fontSize(8).font('Helvetica').fillColor(COLORS.text)
-          .text(cleanText(problem), currX + 4, rY + 4, { width: 252, align: 'left' });
-        currX += 260;
+        // 4. Nature du problème / Travaux (220)
+        doc.fontSize(7.5).font('Helvetica').fillColor(COLORS.text)
+          .text(cleanText(problem), currX + 4, rY + 4, { width: 212, align: 'left' });
+        currX += 220;
 
-        // 5. Observation / État d'avancement
+        // 5. Intervenant assigné (90)
+        doc.fontSize(7.5).font(t.assignee ? 'Helvetica-Bold' : 'Helvetica')
+          .fillColor(t.assignee ? '#1e293b' : COLORS.muted)
+          .text(cleanText(assignee), currX + 4, rY + 4, { width: 82, align: 'left' });
+        currX += 90;
+
+        // 6. Observation / État d'avancement (177)
         const isDone = observation.toUpperCase().includes('FAIT') || t.status === 'completed';
-        doc.fontSize(8).font(isDone ? 'Helvetica-Bold' : 'Helvetica')
+        doc.fontSize(7.5).font(isDone ? 'Helvetica-Bold' : 'Helvetica')
           .fillColor(isDone ? COLORS.doneText : (isUrgent ? COLORS.urgentText : COLORS.text))
-          .text(cleanText(observation), currX + 4, rY + 4, { width: 177, align: 'left' });
-        currX += 185;
+          .text(cleanText(observation), currX + 4, rY + 4, { width: 169, align: 'left' });
+        currX += 177;
 
-        // 6. Statut
+        // 7. Statut (60)
         let sBg = '#e2e8f0';
         let sColor = '#334155';
         if (t.status === 'completed') { sBg = COLORS.doneBg; sColor = COLORS.doneText; }
         else if (t.status === 'in_progress') { sBg = COLORS.inProgBg; sColor = COLORS.inProgText; }
         else if (t.status === 'not_done') { sBg = COLORS.urgentBg; sColor = COLORS.urgentText; }
 
-        doc.rect(currX + 4, rY + 3, 52, rowH - 6).fill(sBg);
+        doc.rect(currX + 3, rY + 3, 54, rowH - 6).fill(sBg);
         doc.fontSize(7.5).font('Helvetica-Bold').fillColor(sColor)
-          .text(cleanText(statusLabel), currX + 5, rY + 5, { width: 50, align: 'center' });
+          .text(cleanText(statusLabel), currX + 4, rY + 5, { width: 52, align: 'center' });
 
         doc.y = rY + rowH;
       });

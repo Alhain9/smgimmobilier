@@ -6,15 +6,22 @@ const PageKanban = {
   _users: [],
   _viewMode: 'table', // 'table' (Plan de travail officiel imprimable) | 'kanban' (Tableau visuel de cartes)
 
-  // Filtres
+  // Filtres standards
   _filterCity: 'all',     // Ville / Groupe (ex: Yaoundé, Douala, ou global)
-  _filterProperty: '',   // Immeuble spécifique
-  _filterWorksite: '',   // Chantier spécifique
+  _filterProperty: '',   // Immeuble spécifique unique
+  _filterWorksite: '',   // Chantier spécifique unique
   _filterPriority: 'all',
   _filterStatus: 'all',
   _searchQuery: '',
   _periodStart: '2026-09-26',
   _periodEnd: '2026-10-30',
+
+  // Multi-sélection ciblée & Organisation structurée
+  _selectedPropertyIds: [], // IDs des immeubles ciblés (ex: 5 immeubles de Douala)
+  _selectedWorksiteIds: [], // IDs des chantiers ciblés
+  _groupBy: 'site',         // 'site' (Immeuble/Chantier) | 'assignee' (Technicien) | 'category' (Corps d'état) | 'priority' (Urgence)
+  _targetSelectorOpen: true, // Affichage du volet de sélection ciblée
+  _targetCityTab: 'all',    // Filtre ville interne au sélecteur : 'all', 'Douala', 'Yaoundé'
 
   register() {
     Router.register('kanban', () => this.render());
@@ -93,26 +100,194 @@ const PageKanban = {
     return Array.from(set).sort();
   },
 
+  // Méthodes de gestion de la sélection multi-immeubles et chantiers
+  toggleTargetSelector() {
+    this._targetSelectorOpen = !this._targetSelectorOpen;
+    this.renderContent();
+  },
+
+  setGroupBy(mode) {
+    this._groupBy = mode;
+    this.renderContent();
+  },
+
+  setTargetCityTab(city) {
+    this._targetCityTab = city;
+    this.renderContent();
+  },
+
+  togglePropertySelect(id) {
+    const numId = Number(id);
+    const idx = this._selectedPropertyIds.indexOf(numId);
+    if (idx >= 0) {
+      this._selectedPropertyIds.splice(idx, 1);
+    } else {
+      this._selectedPropertyIds.push(numId);
+    }
+    this.renderContent();
+  },
+
+  toggleWorksiteSelect(id) {
+    const numId = Number(id);
+    const idx = this._selectedWorksiteIds.indexOf(numId);
+    if (idx >= 0) {
+      this._selectedWorksiteIds.splice(idx, 1);
+    } else {
+      this._selectedWorksiteIds.push(numId);
+    }
+    this.renderContent();
+  },
+
+  selectCityTargets(cityName) {
+    const cLow = cityName.toLowerCase();
+    const propsInCity = (this._properties || []).filter((p) => (p.city || '').toLowerCase().includes(cLow));
+    const worksInCity = (this._worksites || []).filter((w) =>
+      (w.location || '').toLowerCase().includes(cLow) || (w.title || '').toLowerCase().includes(cLow)
+    );
+
+    this._selectedPropertyIds = propsInCity.map((p) => p.id);
+    this._selectedWorksiteIds = worksInCity.map((w) => w.id);
+    this._targetCityTab = cityName;
+    Toast.info(`${propsInCity.length} immeuble(s) et ${worksInCity.length} chantier(s) de ${cityName} sélectionnés`);
+    this.renderContent();
+  },
+
+  selectAllProperties() {
+    this._selectedPropertyIds = (this._properties || []).map((p) => p.id);
+    Toast.info(`Tous les ${this._properties.length} immeubles ont été sélectionnés`);
+    this.renderContent();
+  },
+
+  selectAllWorksites() {
+    this._selectedWorksiteIds = (this._worksites || []).map((w) => w.id);
+    Toast.info(`Tous les ${this._worksites.length} chantiers ont été sélectionnés`);
+    this.renderContent();
+  },
+
+  clearTargetSelection() {
+    this._selectedPropertyIds = [];
+    this._selectedWorksiteIds = [];
+    Toast.info('Sélection réinitialisée — Mode global rétabli');
+    this.renderContent();
+  },
+
+  // Détection intelligente du corps d'état / métier
+  detectTrade(t) {
+    const text = `${t.title || ''} ${t.nature_probleme || ''} ${t.description || ''} ${t.location_zone || ''}`.toLowerCase();
+    if (text.includes('plomb') || text.includes('siphon') || text.includes('douche') || text.includes('fuite') || text.includes('lavabo') || text.includes('bidet') || text.includes('eau') || text.includes('robinet') || text.includes('chasse') || text.includes('tuyau') || text.includes('canalisation')) {
+      return { id: 'plomberie', name: 'Plomberie & Sanitaire', icon: '🚰', bg: '#eff6ff', border: '#3b82f6', text: '#1d4ed8' };
+    }
+    if (text.includes('electr') || text.includes('électr') || text.includes('prise') || text.includes('compteur') || text.includes('eclair') || text.includes('éclair') || text.includes('reglette') || text.includes('réglette') || text.includes('câble') || text.includes('disjoncteur')) {
+      return { id: 'electricite', name: 'Électricité & Éclairage', icon: '⚡', bg: '#fefce8', border: '#eab308', text: '#854d0e' };
+    }
+    if (text.includes('clim') || text.includes('froid') || text.includes('ventilat')) {
+      return { id: 'climatisation', name: 'Climatisation & Froid', icon: '❄️', bg: '#e0f2fe', border: '#0284c7', text: '#0369a1' };
+    }
+    if (text.includes('peint') || text.includes('ponçage') || text.includes('enduit')) {
+      return { id: 'peinture', name: 'Peinture & Finitions', icon: '🎨', bg: '#fdf4ff', border: '#d946ef', text: '#86198f' };
+    }
+    if (text.includes('revet') || text.includes('revêt') || text.includes('plafond') || text.includes('sol') || text.includes('carrelage') || text.includes('pave') || text.includes('pavé')) {
+      return { id: 'revetements', name: 'Revêtements, Sols & Plafonds', icon: '🧱', bg: '#fef3c7', border: '#f59e0b', text: '#92400e' };
+    }
+    if (text.includes('toit') || text.includes('etanch') || text.includes('étanch') || text.includes('humid') || text.includes('moisiss') || text.includes('infiltration')) {
+      return { id: 'etancheite', name: 'Étanchéité, Toitures & Humidité', icon: '🏠', bg: '#f1f5f9', border: '#64748b', text: '#334155' };
+    }
+    if (text.includes('porte') || text.includes('serrur') || text.includes('fenetr') || text.includes('fenêtr') || text.includes('vitre') || text.includes('cadenas') || text.includes('menuis') || text.includes('rideau')) {
+      return { id: 'menuiserie', name: 'Menuiserie, Portes & Serrures', icon: '🚪', bg: '#fef2f2', border: '#f87171', text: '#991b1b' };
+    }
+    if (text.includes('macon') || text.includes('maçon') || text.includes('mur') || text.includes('fissur') || text.includes('béton') || text.includes('dalle') || text.includes('ferraill')) {
+      return { id: 'maconnerie', name: 'Maçonnerie, Carrelage & Gros Œuvre', icon: '🏗️', bg: '#fff7ed', border: '#f97316', text: '#9a3412' };
+    }
+    if (text.includes('nettoy') || text.includes('debarras') || text.includes('débarras') || text.includes('entretien')) {
+      return { id: 'entretien', name: 'Entretien & Nettoyage', icon: '🧹', bg: '#f0fdf4', border: '#22c55e', text: '#15803d' };
+    }
+    return { id: 'divers', name: 'Interventions Générales & Diverses', icon: '🔧', bg: '#f8fafc', border: '#94a3b8', text: '#475569' };
+  },
+
   // Calcul du libellé de période et de périmètre
   getPeriodTitle() {
     const s = this._periodStart ? Helpers.formatDate(this._periodStart) : '';
     const e = this._periodEnd ? Helpers.formatDate(this._periodEnd) : '';
-    let pTxt = 'PÉRIODE GLOBALE (TOUTES DATES)';
+    let pTxt = 'PÉRIODE GLOBALE';
     if (s && e) pTxt = `DU ${s.toUpperCase()} AU ${e.toUpperCase()}`;
     else if (s) pTxt = `À PARTIR DU ${s.toUpperCase()}`;
 
-    if (this._filterCity && this._filterCity !== 'all') {
+    const hasMulti = this._selectedPropertyIds.length > 0 || this._selectedWorksiteIds.length > 0;
+    if (hasMulti) {
+      const parts = [];
+      if (this._selectedPropertyIds.length > 0) {
+        const names = this._properties.filter((p) => this._selectedPropertyIds.includes(p.id)).map((p) => p.property_name);
+        parts.push(`${names.length} IMMEUBLE(S) [${names.join(', ')}]`);
+      }
+      if (this._selectedWorksiteIds.length > 0) {
+        const names = this._worksites.filter((w) => this._selectedWorksiteIds.includes(w.id)).map((w) => w.title);
+        parts.push(`${names.length} CHANTIER(S) [${names.join(', ')}]`);
+      }
+      pTxt += ` — CIBLE : ${parts.join(' + ')}`;
+    } else if (this._filterCity && this._filterCity !== 'all') {
       pTxt += ` — GROUPE / VILLE : ${this._filterCity.toUpperCase()}`;
     }
     return pTxt;
   },
 
-  // Filtrage des tâches (multi-critères : ville, immeuble, chantier, statut, priorité, date, recherche)
+  // Description textuelle du périmètre ciblé actif
+  getActiveScopeDescription() {
+    const propNames = this._properties.filter((p) => this._selectedPropertyIds.includes(p.id)).map((p) => p.property_name);
+    const worksiteNames = this._worksites.filter((w) => this._selectedWorksiteIds.includes(w.id)).map((w) => w.title);
+
+    const parts = [];
+    if (propNames.length > 0) {
+      parts.push(`<b>${propNames.length} Immeuble${propNames.length > 1 ? 's' : ''}</b> (${propNames.join(', ')})`);
+    }
+    if (worksiteNames.length > 0) {
+      parts.push(`<b>${worksiteNames.length} Chantier${worksiteNames.length > 1 ? 's' : ''}</b> (${worksiteNames.join(', ')})`);
+    }
+    return parts.join(' et ');
+  },
+
+  // Filtrage des tâches (multi-critères : sélection ciblée immeubles/chantiers, ville, statut, priorité, recherche)
   getFilteredTasks() {
     const q = (this._searchQuery || '').toLowerCase().trim();
     const city = (this._filterCity || 'all').toLowerCase();
+    const hasMulti = (this._selectedPropertyIds.length > 0 || this._selectedWorksiteIds.length > 0);
 
     return this.tasks.filter((t) => {
+      // 1. Filtrage multi-sélection si actif
+      if (hasMulti) {
+        const matchProp = this._selectedPropertyIds.length > 0 && t.property_id && this._selectedPropertyIds.map(String).includes(String(t.property_id));
+        const matchWork = this._selectedWorksiteIds.length > 0 && t.worksite_id && this._selectedWorksiteIds.map(String).includes(String(t.worksite_id));
+        if (!matchProp && !matchWork) return false;
+      } else {
+        // Chantier spécifique simple
+        if (this._filterWorksite) {
+          if (String(t.worksite_id) !== String(this._filterWorksite)) return false;
+        }
+        // Immeuble spécifique simple
+        if (this._filterProperty) {
+          if (String(t.property_id) !== String(this._filterProperty)) return false;
+        }
+        // Ville / Groupe simple
+        if (city !== 'all' && city !== 'global' && city !== 'tous') {
+          const propCity = (t.property?.city || '').toLowerCase();
+          const propName = (t.property?.property_name || '').toLowerCase();
+          const propAddr = (t.property?.address || '').toLowerCase();
+          const wsLoc = (t.worksite?.location || '').toLowerCase();
+          const wsTitle = (t.worksite?.title || '').toLowerCase();
+          const zone = (t.location_zone || '').toLowerCase();
+          const nature = (t.nature_probleme || t.title || '').toLowerCase();
+
+          const match = propCity.includes(city) ||
+            propName.includes(city) ||
+            propAddr.includes(city) ||
+            wsLoc.includes(city) ||
+            wsTitle.includes(city) ||
+            zone.includes(city) ||
+            nature.includes(city);
+
+          if (!match) return false;
+        }
+      }
+
       // Priorité
       if (this._filterPriority !== 'all') {
         const p = (t.priority || 'Normal').toLowerCase();
@@ -121,34 +296,6 @@ const PageKanban = {
       // Statut
       if (this._filterStatus !== 'all') {
         if (t.status !== this._filterStatus) return false;
-      }
-      // Chantier spécifique
-      if (this._filterWorksite) {
-        if (String(t.worksite_id) !== String(this._filterWorksite)) return false;
-      }
-      // Immeuble spécifique
-      if (this._filterProperty) {
-        if (String(t.property_id) !== String(this._filterProperty)) return false;
-      }
-      // Ville / Groupe (ex: Yaoundé regroupe tous les chantiers et immeubles de Yaoundé)
-      if (city !== 'all' && city !== 'global' && city !== 'tous') {
-        const propCity = (t.property?.city || '').toLowerCase();
-        const propName = (t.property?.property_name || '').toLowerCase();
-        const propAddr = (t.property?.address || '').toLowerCase();
-        const wsLoc = (t.worksite?.location || '').toLowerCase();
-        const wsTitle = (t.worksite?.title || '').toLowerCase();
-        const zone = (t.location_zone || '').toLowerCase();
-        const nature = (t.nature_probleme || t.title || '').toLowerCase();
-
-        const match = propCity.includes(city) ||
-          propName.includes(city) ||
-          propAddr.includes(city) ||
-          wsLoc.includes(city) ||
-          wsTitle.includes(city) ||
-          zone.includes(city) ||
-          nature.includes(city);
-
-        if (!match) return false;
       }
       // Recherche libre
       if (q) {
@@ -193,6 +340,19 @@ const PageKanban = {
     ).join('');
 
     const periodLabel = this.getPeriodTitle();
+    const hasActiveTargets = this._selectedPropertyIds.length > 0 || this._selectedWorksiteIds.length > 0;
+    const activeScopeText = this.getActiveScopeDescription();
+
+    // Filtre des propriétés affichées dans le sélecteur selon l'onglet ville
+    const targetTab = (this._targetCityTab || 'all').toLowerCase();
+    const visibleProps = (this._properties || []).filter((p) => {
+      if (targetTab === 'all') return true;
+      return (p.city || '').toLowerCase().includes(targetTab);
+    });
+    const visibleWorksites = (this._worksites || []).filter((w) => {
+      if (targetTab === 'all') return true;
+      return (w.location || '').toLowerCase().includes(targetTab) || (w.title || '').toLowerCase().includes(targetTab);
+    });
 
     Layout.content(`
       <style>
@@ -219,6 +379,25 @@ const PageKanban = {
           .badge { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
           .print-header, .print-signatures { display: block !important; }
         }
+        .target-item-card {
+          border: 1px solid #e2e8f0;
+          border-radius: 6px;
+          padding: 7px 10px;
+          transition: all 0.15s ease-in-out;
+          background: #fff;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .target-item-card:hover {
+          border-color: #3b82f6;
+          background: #f8fafc;
+        }
+        .target-item-card.selected {
+          border-color: #2563eb;
+          background: #eff6ff;
+        }
       </style>
 
       <div class="no-print">
@@ -230,7 +409,7 @@ const PageKanban = {
               <h2 style="margin:0;font-size:22px">Plan de Travail & Suivi des Tâches</h2>
             </div>
             <div class="subtitle" style="margin-top:4px">
-              Suivi en temps réel des interventions, urgences et chantiers par groupe/ville, immeuble et logement
+              Génération ciblée de fiches de travail par immeuble(s), chantier(s), intervenant et corps d'état
             </div>
           </div>
           <div class="actions-bar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
@@ -244,9 +423,9 @@ const PageKanban = {
               <button class="btn btn-outline-success" style="font-weight:700" onclick="PageKanban.togglePdfMenu(event)">
                 📥 Télécharger PDF ▾
               </button>
-              <div id="pdfDropdownMenu" style="display:none;position:absolute;right:0;top:100%;margin-top:4px;background:#fff;box-shadow:0 6px 18px rgba(0,0,0,0.18);border-radius:6px;border:1px solid #cbd5e1;z-index:999;min-width:230px;overflow:hidden">
-                <a href="javascript:void(0)" style="display:block;padding:9px 14px;font-size:12.5px;color:#1e293b;text-decoration:none;border-bottom:1px solid #f1f5f9;font-weight:600" onclick="PageKanban.downloadPdf('active')">
-                  📄 PDF selon les filtres actifs
+              <div id="pdfDropdownMenu" style="display:none;position:absolute;right:0;top:100%;margin-top:4px;background:#fff;box-shadow:0 6px 18px rgba(0,0,0,0.18);border-radius:6px;border:1px solid #cbd5e1;z-index:999;min-width:260px;overflow:hidden">
+                <a href="javascript:void(0)" style="display:block;padding:9px 14px;font-size:12.5px;color:#1e293b;text-decoration:none;border-bottom:1px solid #f1f5f9;font-weight:700" onclick="PageKanban.downloadPdf('active')">
+                  📄 PDF selon le périmètre sélectionné (${this._groupBy === 'site' ? 'par Immeuble/Chantier' : (this._groupBy === 'assignee' ? 'par Intervenant' : (this._groupBy === 'category' ? 'par Corps de métier' : 'par Urgence'))})
                 </a>
                 <a href="javascript:void(0)" style="display:block;padding:9px 14px;font-size:12.5px;color:#1e293b;text-decoration:none;border-bottom:1px solid #f1f5f9;font-weight:600" onclick="PageKanban.downloadPdf('week')">
                   📅 PDF Semaine en cours
@@ -273,7 +452,7 @@ const PageKanban = {
             <div style="font-size:28px">📋</div>
             <div>
               <div style="font-size:20px;font-weight:800;color:var(--text)">${filteredCount} <span style="font-size:12px;color:var(--text-muted);font-weight:normal">/ ${total}</span></div>
-              <div style="font-size:12px;color:var(--text-muted)">Interventions affichées</div>
+              <div style="font-size:12px;color:var(--text-muted)">Interventions ciblées</div>
             </div>
           </div>
           <div class="card p-3" style="border-left:4px solid #dc2626;display:flex;align-items:center;gap:12px">
@@ -306,8 +485,179 @@ const PageKanban = {
           </div>
         </div>
 
-        <!-- Onglets de Vue & Barre de Filtres Avancée (Ville/Groupe, Immeuble, Chantier, Période) -->
+        <!-- ============================================================== -->
+        <!-- VOLET 1 : SÉLECTEUR MULTI-IMMEUBLES & CHANTIERS CIBLÉS         -->
+        <!-- Permet de cocher N immeubles (ex: 5 à Douala) + chantiers      -->
+        <!-- ============================================================== -->
+        <div class="card" style="margin-bottom:16px;border:1.5px solid ${hasActiveTargets ? '#3b82f6' : '#cbd5e1'};box-shadow:0 2px 10px rgba(0,0,0,0.04)">
+          <div style="padding:12px 16px;background:${hasActiveTargets ? '#eff6ff' : '#f8fafc'};display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;border-bottom:${this._targetSelectorOpen ? '1px solid #e2e8f0' : 'none'};cursor:pointer" onclick="PageKanban.toggleTargetSelector()">
+            <div style="display:flex;align-items:center;gap:10px">
+              <span style="font-size:22px">🎯</span>
+              <div>
+                <strong style="font-size:14px;color:var(--primary)">Sélection Ciblée du Plan de Travail (Immeubles & Chantiers)</strong>
+                <div style="font-size:12px;color:var(--text-muted)">
+                  Sélectionnez un ou plusieurs immeubles (ex: 5 immeubles de Douala) et/ou des chantiers pour générer un plan exclusivement dédié
+                </div>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px" onclick="event.stopPropagation()">
+              ${hasActiveTargets ? `
+                <span class="badge" style="background:#2563eb;color:#fff;font-size:12px;padding:5px 10px;font-weight:700">
+                  🎯 ${this._selectedPropertyIds.length} Immeuble(s) + ${this._selectedWorksiteIds.length} Chantier(s) ciblés
+                </span>
+                <button class="btn btn-xs btn-outline-danger" onclick="PageKanban.clearTargetSelection()">Tout effacer</button>
+              ` : `
+                <span class="badge" style="background:#64748b;color:#fff;font-size:12px;padding:4px 8px">
+                  🌐 Mode Global (Tous les sites)
+                </span>
+              `}
+              <button class="btn btn-xs btn-outline" onclick="PageKanban.toggleTargetSelector()">
+                ${this._targetSelectorOpen ? '▲ Masquer' : '▼ Déplier & Choisir'}
+              </button>
+            </div>
+          </div>
+
+          ${this._targetSelectorOpen ? `
+            <div style="padding:14px 16px">
+              <!-- Raccourcis de sélection rapide (Tout Douala, Tout Yaoundé, etc.) -->
+              <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid #f1f5f9">
+                <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                  <span style="font-size:12px;font-weight:700;color:var(--text-muted)">⚡ Raccourcis rapides :</span>
+                  <button class="btn btn-xs btn-outline-primary" style="font-weight:700" onclick="PageKanban.selectCityTargets('Douala')">
+                    🏙️ Sélectionner tout Douala
+                  </button>
+                  <button class="btn btn-xs btn-outline-primary" style="font-weight:700" onclick="PageKanban.selectCityTargets('Yaoundé')">
+                    🏛️ Sélectionner tout Yaoundé
+                  </button>
+                  <button class="btn btn-xs btn-outline" onclick="PageKanban.selectAllProperties()">
+                    🏢 Tous les immeubles
+                  </button>
+                  <button class="btn btn-xs btn-outline" onclick="PageKanban.selectAllWorksites()">
+                    🚧 Tous les chantiers
+                  </button>
+                </div>
+                <div style="display:flex;gap:4px;align-items:center">
+                  <span style="font-size:11.5px;color:var(--text-muted)">Filtrer liste :</span>
+                  <button class="btn btn-xs ${this._targetCityTab === 'all' ? 'btn-primary' : 'btn-outline'}" onclick="PageKanban.setTargetCityTab('all')">Tous</button>
+                  <button class="btn btn-xs ${this._targetCityTab === 'Douala' ? 'btn-primary' : 'btn-outline'}" onclick="PageKanban.setTargetCityTab('Douala')">Douala</button>
+                  <button class="btn btn-xs ${this._targetCityTab === 'Yaoundé' ? 'btn-primary' : 'btn-outline'}" onclick="PageKanban.setTargetCityTab('Yaoundé')">Yaoundé</button>
+                </div>
+              </div>
+
+              <!-- Grille à deux colonnes : Immeubles vs Chantiers -->
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px">
+                <!-- Colonne 1 : Immeubles -->
+                <div>
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                    <strong style="font-size:13px;color:var(--primary)">🏢 Immeubles (${visibleProps.length})</strong>
+                    <span style="font-size:11.5px;color:var(--text-muted)">Cochez les immeubles à inclure</span>
+                  </div>
+                  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px;max-height:220px;overflow-y:auto;padding-right:4px">
+                    ${visibleProps.map((p) => {
+                      const isChecked = this._selectedPropertyIds.includes(p.id);
+                      const propTaskCount = this.tasks.filter((t) => String(t.property_id) === String(p.id)).length;
+                      return `
+                        <div class="target-item-card ${isChecked ? 'selected' : ''}" onclick="PageKanban.togglePropertySelect(${p.id})">
+                          <input type="checkbox" ${isChecked ? 'checked' : ''} onclick="event.stopPropagation(); PageKanban.togglePropertySelect(${p.id})" />
+                          <div style="flex:1;min-width:0">
+                            <div style="font-weight:700;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.property_name}</div>
+                            <div style="font-size:11px;color:var(--text-muted)">${p.city || 'Ville non renseignée'} ${p.address ? '• ' + p.address : ''}</div>
+                          </div>
+                          <span class="badge ${propTaskCount > 0 ? 'badge-primary' : 'badge-secondary'}" style="font-size:10px" title="${propTaskCount} tâche(s)">
+                            ${propTaskCount} tâche${propTaskCount > 1 ? 's' : ''}
+                          </span>
+                        </div>
+                      `;
+                    }).join('') || '<div class="text-muted" style="font-size:12px;padding:12px">Aucun immeuble pour ce filtre.</div>'}
+                  </div>
+                </div>
+
+                <!-- Colonne 2 : Chantiers & Gros Œuvre -->
+                <div>
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                    <strong style="font-size:13px;color:#6b21a8">🚧 Chantiers & Travaux extérieurs (${visibleWorksites.length})</strong>
+                    <span style="font-size:11.5px;color:var(--text-muted)">Cochez les chantiers à inclure</span>
+                  </div>
+                  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px;max-height:220px;overflow-y:auto;padding-right:4px">
+                    ${visibleWorksites.map((w) => {
+                      const isChecked = this._selectedWorksiteIds.includes(w.id);
+                      const wsTaskCount = this.tasks.filter((t) => String(t.worksite_id) === String(w.id)).length;
+                      return `
+                        <div class="target-item-card ${isChecked ? 'selected' : ''}" onclick="PageKanban.toggleWorksiteSelect(${w.id})">
+                          <input type="checkbox" ${isChecked ? 'checked' : ''} onclick="event.stopPropagation(); PageKanban.toggleWorksiteSelect(${w.id})" />
+                          <div style="flex:1;min-width:0">
+                            <div style="font-weight:700;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${w.title}</div>
+                            <div style="font-size:11px;color:var(--text-muted)">${w.location || 'Localisation générale'}</div>
+                          </div>
+                          <span class="badge ${wsTaskCount > 0 ? 'badge-warning' : 'badge-secondary'}" style="font-size:10px" title="${wsTaskCount} tâche(s)">
+                            ${wsTaskCount} tâche${wsTaskCount > 1 ? 's' : ''}
+                          </span>
+                        </div>
+                      `;
+                    }).join('') || '<div class="text-muted" style="font-size:12px;padding:12px">Aucun chantier pour ce filtre.</div>'}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ` : ''}
+        </div>
+
+        <!-- Alerte bandeau lorsque le ciblage est actif -->
+        ${hasActiveTargets ? `
+          <div style="background:#eff6ff;border:1.5px solid #60a5fa;border-radius:8px;padding:10px 16px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+            <div style="display:flex;align-items:center;gap:10px">
+              <span style="font-size:22px">🎯</span>
+              <div>
+                <div style="font-weight:800;font-size:13px;color:#1e40af">
+                  PÉRIMÈTRE CIBLÉ ACTIF : ${activeScopeText}
+                </div>
+                <div style="font-size:11.5px;color:#3b82f6">
+                  Le plan de travail, les indicateurs et les exports PDF afficheront <b>exclusivement</b> les travaux de ces sites sélectionnés.
+                </div>
+              </div>
+            </div>
+            <div style="display:flex;gap:6px">
+              <button class="btn btn-sm btn-outline-primary" style="font-size:12px;font-weight:700" onclick="PageKanban.downloadPdf('active')">
+                📥 Télécharger ce Plan Ciblé (PDF)
+              </button>
+              <button class="btn btn-sm btn-outline-danger" style="font-size:12px" onclick="PageKanban.clearTargetSelection()">
+                ✖ Réinitialiser (Tout afficher)
+              </button>
+            </div>
+          </div>
+        ` : ''}
+
+        <!-- ============================================================== -->
+        <!-- VOLET 2 : BARRE D'ORGANISATION EN GROUPES & FILTRES COMPLÉMENTAIRES -->
+        <!-- ============================================================== -->
         <div class="card" style="margin-bottom:16px;padding:14px">
+          <!-- Sélecteur de regroupement intelligent pour éviter tout mélange -->
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:12px">
+            <span style="font-weight:800;font-size:13px;color:var(--primary);display:flex;align-items:center;gap:6px">
+              <span>🗂️</span> Regrouper les tâches par :
+            </span>
+            <div style="display:inline-flex;gap:4px;flex-wrap:wrap">
+              <button class="btn btn-sm ${this._groupBy === 'site' ? 'btn-primary' : 'btn-outline'}" onclick="PageKanban.setGroupBy('site')">
+                🏢 Immeuble / Chantier
+              </button>
+              <button class="btn btn-sm ${this._groupBy === 'assignee' ? 'btn-primary' : 'btn-outline'}" onclick="PageKanban.setGroupBy('assignee')">
+                👷 Technicien / Intervenant
+              </button>
+              <button class="btn btn-sm ${this._groupBy === 'category' ? 'btn-primary' : 'btn-outline'}" onclick="PageKanban.setGroupBy('category')">
+                🔨 Corps d'État / Métier
+              </button>
+              <button class="btn btn-sm ${this._groupBy === 'priority' ? 'btn-primary' : 'btn-outline'}" onclick="PageKanban.setGroupBy('priority')">
+                🚨 Niveau d'Urgence
+              </button>
+            </div>
+            <div style="margin-left:auto;font-size:11.5px;color:var(--text-muted)">
+              ${this._groupBy === 'site' ? '✓ Blocs distincts par immeuble et chantier' : ''}
+              ${this._groupBy === 'assignee' ? '✓ Chaque ouvrier/technicien a son bloc dédié' : ''}
+              ${this._groupBy === 'category' ? '✓ Séparé par métier (plomberie, électricité, clim...)' : ''}
+              ${this._groupBy === 'priority' ? '✓ Trié par gravité (urgent, maintenance, normal)' : ''}
+            </div>
+          </div>
+
           <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:12px">
             <div style="display:flex;gap:8px">
               <button class="btn btn-sm ${this._viewMode === 'table' ? 'btn-primary' : 'btn-outline'}" onclick="PageKanban.switchView('table')">
@@ -319,42 +669,26 @@ const PageKanban = {
             </div>
             <div style="display:flex;gap:8px;align-items:center">
               <input type="text" id="taskSearchInput" class="form-control" style="width:260px;font-size:13px" placeholder="🔎 Rechercher appartement, problème, intervenant..." value="${this._searchQuery}" oninput="PageKanban.onSearch(this.value)">
-              ${(total > 0 || this._filterCity !== 'all' || this._filterProperty || this._filterWorksite) ? `
+              ${(total > 0 || hasActiveTargets || this._filterCity !== 'all' || this._filterProperty || this._filterWorksite) ? `
                 <button class="btn btn-sm btn-outline" style="font-size:12px" title="Réinitialiser tous les filtres" onclick="PageKanban.resetFilters()">🔄 Réinitialiser</button>
               ` : ''}
             </div>
           </div>
 
-          <!-- Filtres de Périmètre & Métier -->
+          <!-- Filtres secondaires de Statut, Priorité et Dates -->
           <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;padding-top:10px;border-top:1px solid var(--border);font-size:12.5px">
-            <!-- 1. Filtre Groupe / Secteur / Ville -->
-            <div style="display:flex;align-items:center;gap:6px">
-              <span style="font-weight:700;color:var(--primary)">🌍 Ville / Groupe :</span>
-              <select class="form-control" style="width:160px;font-size:12px;font-weight:600" onchange="PageKanban.filterCity(this.value)">
-                <option value="all" ${this._filterCity === 'all' ? 'selected' : ''}>🌍 Tous (Global)</option>
-                ${cityOptions}
-              </select>
-            </div>
+            ${!hasActiveTargets ? `
+              <!-- Ville / Groupe si pas de multi-sélection -->
+              <div style="display:flex;align-items:center;gap:6px">
+                <span style="font-weight:700;color:var(--primary)">🌍 Ville :</span>
+                <select class="form-control" style="width:140px;font-size:12px;font-weight:600" onchange="PageKanban.filterCity(this.value)">
+                  <option value="all" ${this._filterCity === 'all' ? 'selected' : ''}>🌍 Tous (Global)</option>
+                  ${cityOptions}
+                </select>
+              </div>
+            ` : ''}
 
-            <!-- 2. Filtre Immeuble -->
-            <div style="display:flex;align-items:center;gap:6px">
-              <span style="font-weight:600;color:var(--text-muted)">🏢 Immeuble :</span>
-              <select class="form-control" style="width:160px;font-size:12px" onchange="PageKanban.filterProperty(this.value)">
-                <option value="">Tous les immeubles</option>
-                ${propOptions}
-              </select>
-            </div>
-
-            <!-- 3. Filtre Chantier -->
-            <div style="display:flex;align-items:center;gap:6px">
-              <span style="font-weight:600;color:var(--text-muted)">🚧 Chantier :</span>
-              <select class="form-control" style="width:160px;font-size:12px" onchange="PageKanban.filterWorksite(this.value)">
-                <option value="">Tous les chantiers</option>
-                ${worksiteOptions}
-              </select>
-            </div>
-
-            <!-- 4. Filtre Priorité -->
+            <!-- Filtre Priorité -->
             <div style="display:flex;align-items:center;gap:6px">
               <span style="font-weight:600;color:var(--text-muted)">Priorité :</span>
               <select class="form-control" style="width:130px;font-size:12px" onchange="PageKanban.filterPriority(this.value)">
@@ -366,7 +700,7 @@ const PageKanban = {
               </select>
             </div>
 
-            <!-- 5. Filtre Statut -->
+            <!-- Filtre Statut -->
             <div style="display:flex;align-items:center;gap:6px">
               <span style="font-weight:600;color:var(--text-muted)">Statut :</span>
               <select class="form-control" style="width:130px;font-size:12px" onchange="PageKanban.filterStatus(this.value)">
@@ -378,7 +712,7 @@ const PageKanban = {
               </select>
             </div>
 
-            <!-- 6. Filtre Période Dates -->
+            <!-- Filtre Période Dates -->
             <div style="display:flex;align-items:center;gap:6px;margin-left:auto;flex-wrap:wrap">
               <div style="display:flex;gap:4px">
                 <button class="btn btn-xs btn-outline" title="Aujourd'hui" onclick="PageKanban.quickPeriod('today')">Auj.</button>
@@ -431,63 +765,126 @@ const PageKanban = {
     this._filterPriority = 'all';
     this._filterStatus = 'all';
     this._searchQuery = '';
+    this._selectedPropertyIds = [];
+    this._selectedWorksiteIds = [];
     this.renderContent();
   },
 
   // ============================================================
-  // VUE 1 : PLAN DE TRAVAIL OFFICIEL (FORMAT DEMANDÉ PAR L'UTILISATEUR)
+  // VUE 1 : PLAN DE TRAVAIL OFFICIEL (ORGANISÉ PAR GROUPES DEMANDÉS)
   // ============================================================
   renderTableView(tasks, periodLabel) {
-    const groups = [
-      {
-        id: 'urgent',
-        title: 'GROUPE : TÂCHES URGENTES & CRITIQUES',
-        icon: '🚨',
-        bg: '#fee2e2',
-        border: '#ef4444',
-        text: '#991b1b',
-        matcher: (t) => (t.priority || '').toLowerCase() === 'urgent',
-      },
-      {
-        id: 'renovation',
-        title: 'GROUPE : RÉNOVATIONS COMPLÈTES',
-        icon: '🏗️',
-        bg: '#f3e8ff',
-        border: '#a855f7',
-        text: '#6b21a8',
-        matcher: (t) => {
-          const p = (t.priority || '').toLowerCase();
-          return p.includes('rénovation') || p.includes('renovation');
-        },
-      },
-      {
-        id: 'maintenance',
-        title: 'GROUPE : OPÉRATIONS DE MAINTENANCE COURANTE',
-        icon: '🔧',
-        bg: '#fef3c7',
-        border: '#f59e0b',
-        text: '#92400e',
-        matcher: (t) => (t.priority || '').toLowerCase().includes('maintenance'),
-      },
-      {
-        id: 'normal',
-        title: 'GROUPE : AUTRES INTERVENTIONS & TÂCHES DIVERSES',
-        icon: 'ℹ️',
-        bg: '#f1f5f9',
-        border: '#94a3b8',
-        text: '#334155',
-        matcher: (t) => {
+    const groupBy = this._groupBy || 'site';
+    let groups = [];
+
+    if (groupBy === 'site') {
+      // 1. Regroupement par Immeuble & Chantier
+      const groupMap = new Map();
+      tasks.forEach((t) => {
+        let key = 'general';
+        let title = '🏢 Interventions Générales / Hors site spécifique';
+        let icon = '🏢';
+        let bg = '#f8fafc';
+        let border = '#94a3b8';
+        let text = '#334155';
+
+        if (t.worksite) {
+          key = `ws_${t.worksite.id}`;
+          title = `CHANTIER : ${(t.worksite.title || 'Chantier').toUpperCase()} (${t.worksite.location || 'Douala/Yaoundé'})`;
+          icon = '🚧';
+          bg = '#f3e8ff';
+          border = '#a855f7';
+          text = '#6b21a8';
+        } else if (t.property) {
+          key = `prop_${t.property.id}`;
+          title = `IMMEUBLE : ${t.property.property_name.toUpperCase()} (${t.property.city || ''}${t.property.address ? ' - ' + t.property.address : ''})`;
+          icon = '🏢';
+          bg = '#eff6ff';
+          border = '#3b82f6';
+          text = '#1d4ed8';
+        }
+
+        if (!groupMap.has(key)) {
+          groupMap.set(key, { id: key, title, icon, bg, border, text, tasks: [] });
+        }
+        groupMap.get(key).tasks.push(t);
+      });
+      groups = Array.from(groupMap.values());
+
+    } else if (groupBy === 'assignee') {
+      // 2. Regroupement par Technicien / Intervenant
+      const groupMap = new Map();
+      tasks.forEach((t) => {
+        let key = 'unassigned';
+        let title = 'TÂCHES NON ASSIGNÉES (À ATTRIBUER)';
+        let icon = '👤';
+        let bg = '#fee2e2';
+        let border = '#ef4444';
+        let text = '#991b1b';
+
+        if (t.assignee) {
+          key = `user_${t.assignee.id}`;
+          title = `TECHNICIEN / INTERVENANT : ${(t.assignee.full_name || 'Agent').toUpperCase()} ${t.assignee.phone ? '(' + t.assignee.phone + ')' : ''}`;
+          icon = '👷';
+          bg = '#eff6ff';
+          border = '#2563eb';
+          text = '#1e40af';
+        }
+
+        if (!groupMap.has(key)) {
+          groupMap.set(key, { id: key, title, icon, bg, border, text, tasks: [] });
+        }
+        groupMap.get(key).tasks.push(t);
+      });
+      groups = Array.from(groupMap.values());
+
+    } else if (groupBy === 'category') {
+      // 3. Regroupement par Corps d'État / Métier
+      const groupMap = new Map();
+      tasks.forEach((t) => {
+        const tr = this.detectTrade(t);
+        if (!groupMap.has(tr.id)) {
+          groupMap.set(tr.id, {
+            id: tr.id,
+            title: `CORPS DE MÉTIER : ${tr.name.toUpperCase()}`,
+            icon: tr.icon,
+            bg: tr.bg,
+            border: tr.border,
+            text: tr.text,
+            tasks: [],
+          });
+        }
+        groupMap.get(tr.id).tasks.push(t);
+      });
+      groups = Array.from(groupMap.values());
+
+    } else {
+      // 4. Regroupement par Niveau d'Urgence / Priorité
+      const pDefs = [
+        { id: 'urgent', title: 'TÂCHES URGENTES & CRITIQUES', icon: '🚨', bg: '#fee2e2', border: '#ef4444', text: '#991b1b', matcher: (t) => (t.priority || '').toLowerCase() === 'urgent' },
+        { id: 'renov', title: 'RÉNOVATIONS COMPLÈTES', icon: '🏗️', bg: '#f3e8ff', border: '#a855f7', text: '#6b21a8', matcher: (t) => (t.priority || '').toLowerCase().includes('rénovation') || (t.priority || '').toLowerCase().includes('renovation') },
+        { id: 'maint', title: 'OPÉRATIONS DE MAINTENANCE COURANTE', icon: '🔧', bg: '#fef3c7', border: '#f59e0b', text: '#92400e', matcher: (t) => (t.priority || '').toLowerCase().includes('maintenance') },
+        { id: 'normal', title: 'AUTRES INTERVENTIONS & TÂCHES DIVERSES', icon: 'ℹ️', bg: '#f1f5f9', border: '#94a3b8', text: '#334155', matcher: (t) => {
           const p = (t.priority || '').toLowerCase();
           return p !== 'urgent' && !p.includes('maintenance') && !p.includes('rénovation') && !p.includes('renovation');
-        },
-      },
-    ];
+        }},
+      ];
+      groups = pDefs.map((d) => ({
+        id: d.id,
+        title: d.title,
+        icon: d.icon,
+        bg: d.bg,
+        border: d.border,
+        text: d.text,
+        tasks: tasks.filter(d.matcher),
+      }));
+    }
 
     let globalIdx = 0;
     let tableBodyHtml = '';
 
     groups.forEach((grp) => {
-      const grpTasks = tasks.filter(grp.matcher);
+      const grpTasks = grp.tasks || [];
       if (!grpTasks.length) return;
 
       const grpDone = grpTasks.filter((t) => t.status === 'completed' || (t.observation || '').toUpperCase().includes('FAIT')).length;
@@ -514,19 +911,24 @@ const PageKanban = {
       grpTasks.forEach((t) => {
         globalIdx++;
         const priority = t.priority || 'Normal';
-        const isUrgent = grp.id === 'urgent';
-        const isMaint = grp.id === 'maintenance';
-        const isRenov = grp.id === 'renovation';
+        const isUrgent = priority.toLowerCase() === 'urgent';
+        const isMaint = priority.toLowerCase().includes('maintenance');
+        const isRenov = priority.toLowerCase().includes('rénovation') || priority.toLowerCase().includes('renovation');
 
         let pBadge = `<span class="badge" style="background:#f1f5f9;color:#334155;font-weight:700;font-size:11px">Normal</span>`;
         if (isUrgent) pBadge = `<span class="badge badge-danger" style="background:#fee2e2;color:#991b1b;border:1px solid #f87171;font-weight:800;font-size:11px">🚨 Urgent</span>`;
         else if (isMaint) pBadge = `<span class="badge badge-warning" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;font-weight:700;font-size:11px">🔧 Maintenance</span>`;
         else if (isRenov) pBadge = `<span class="badge" style="background:#f3e8ff;color:#6b21a8;border:1px solid #d8b4fe;font-weight:700;font-size:11px">🏗️ Rénovation</span>`;
 
-        const zone = t.location_zone
-          || (t.apartment ? `Logement ${t.apartment.apartment_number}` : '')
-          || (t.property ? t.property.property_name : '')
-          || '—';
+        let zone = t.location_zone || '';
+        if (t.worksite) {
+          zone = `🚧 ${t.worksite.title}${zone && !zone.includes(t.worksite.title) ? ' • ' + zone : ''}`;
+        } else if (t.property) {
+          const aptNum = t.apartment?.apartment_number ? `Logt ${t.apartment.apartment_number}` : '';
+          zone = `🏢 ${t.property.property_name}${aptNum ? ' — ' + aptNum : (zone && !zone.includes(t.property.property_name) ? ' — ' + zone : '')}`;
+        } else if (!zone) {
+          zone = '—';
+        }
 
         const nature = t.nature_probleme || t.title || '—';
         const observation = t.observation || t.completion_note || (t.status === 'completed' ? 'FAIT' : '—');
@@ -537,6 +939,10 @@ const PageKanban = {
         else if (t.status === 'completed') statusBadge = `<span class="badge badge-success" style="background:#dcfce7;color:#166534;border:1px solid #86efac;font-size:11px">✅ FAIT</span>`;
         else if (t.status === 'not_done') statusBadge = `<span class="badge badge-danger" style="font-size:11px">❌ Non fait</span>`;
 
+        const assigneeHtml = t.assignee
+          ? `<span style="font-weight:700;color:#1e293b;font-size:12px">👷 ${t.assignee.full_name}</span>`
+          : `<span class="badge" style="background:#fee2e2;color:#991b1b;font-size:10.5px">⚠️ Non assigné</span>`;
+
         tableBodyHtml += `
           <tr style="${isUrgent ? 'background:#fffafa;' : ''}">
             <td class="no-print" style="text-align:center">
@@ -544,8 +950,9 @@ const PageKanban = {
             </td>
             <td style="font-size:12px;color:var(--text-muted);text-align:center;font-weight:600">${globalIdx}</td>
             <td><b>${pBadge}</b></td>
-            <td style="font-weight:700;font-size:13px;color:var(--primary)">${zone}</td>
-            <td style="font-size:13px;color:var(--text);max-width:320px">${nature}</td>
+            <td style="font-weight:700;font-size:12.5px;color:var(--primary)">${zone}</td>
+            <td style="font-size:13px;color:var(--text);max-width:300px">${nature}</td>
+            <td style="font-size:12px">${assigneeHtml}</td>
             <td>
               <div style="display:flex;align-items:center;gap:6px">
                 <span style="font-weight:${isDone ? '800' : '600'};color:${isDone ? '#166534' : (isUrgent && observation !== '—' ? '#991b1b' : 'var(--text)')};font-size:12.5px">
@@ -560,7 +967,6 @@ const PageKanban = {
                 ${!isDone ? `<button class="btn btn-sm btn-success no-print" style="padding:1px 6px;font-size:10px" title="Marquer FAIT" onclick="PageKanban.quickMarkDone(${t.id})">✅</button>` : ''}
               </div>
             </td>
-            <td style="font-size:12px">${t.assignee?.full_name || '<span class="text-muted">—</span>'}</td>
             <td class="no-print" style="text-align:center">
               <div style="display:inline-flex;gap:4px">
                 <button class="btn btn-sm btn-outline" title="Modifier" onclick="PageKanban.openEditModal(${t.id})">✏️</button>
@@ -587,24 +993,25 @@ const PageKanban = {
                 SMG IMMOBILIER — DIRECTION TECHNIQUE & SUIVI
               </h2>
               <div style="font-size:12px;color:var(--text-muted);margin-top:2px">
-                Gestion immobilière, maintenances régulières et suivi des chantiers
+                Plan de travail officiel, maintenances régulières et suivi des chantiers
               </div>
             </div>
             <div style="text-align:right;font-size:12px;color:var(--text-muted)">
               <div>Édité le : <b>${Helpers.formatDate(new Date())}</b></div>
-              <div>Interventions : <b>${tasks.length} tâche(s) au total</b></div>
+              <div>Interventions : <b>${tasks.length} tâche(s) ciblée(s)</b></div>
+              <div>Organisation : <b>${groupBy === 'site' ? 'Par Immeuble / Chantier' : (groupBy === 'assignee' ? 'Par Intervenant' : (groupBy === 'category' ? 'Par Corps d\'état' : 'Par Urgence'))}</b></div>
             </div>
           </div>
 
           <!-- Titre Bandeau -->
           <div style="background:#1a3a5c;color:#fff;text-align:center;padding:8px 12px;border-radius:6px;margin-top:10px">
             <h3 style="margin:0;font-size:14.5px;font-weight:800;letter-spacing:1px;color:#fff">
-              PLAN DE TRAVAIL URGENT – ${periodLabel}
+              PLAN DE TRAVAIL OFFICIEL – ${periodLabel}
             </h3>
           </div>
         </div>
 
-        <!-- Tableau principal -->
+        <!-- Tableau principal avec colonne Intervenant -->
         <div class="table-wrap">
           <table class="table" style="font-size:13px;margin:0">
             <thead>
@@ -613,12 +1020,12 @@ const PageKanban = {
                   <input type="checkbox" id="taskSelectAll" title="Tout sélectionner" onchange="PageKanban.toggleSelectAll(this.checked)" />
                 </th>
                 <th style="width:36px;text-align:center">N°</th>
-                <th style="width:130px">Priorité</th>
-                <th style="width:150px">Appartement / Zone</th>
-                <th>Nature du problème</th>
-                <th style="width:230px">Observation / État d’avancement</th>
+                <th style="width:125px">Priorité</th>
+                <th style="width:160px">Immeuble / Chantier / Zone</th>
+                <th>Nature du problème / Travaux à faire</th>
+                <th style="width:140px">👷 Intervenant</th>
+                <th style="width:220px">Observation / État d’avancement</th>
                 <th style="width:110px;text-align:center">Statut</th>
-                <th style="width:120px">Intervenant</th>
                 <th class="no-print" style="width:90px;text-align:center">Actions</th>
               </tr>
             </thead>
@@ -674,10 +1081,14 @@ const PageKanban = {
         else if (isMaint) pBadge = `<span class="badge badge-warning" style="background:#fef3c7;color:#92400e;font-size:10.5px">🔧 Maintenance</span>`;
         else if (isRenov) pBadge = `<span class="badge" style="background:#f3e8ff;color:#6b21a8;font-size:10.5px">🏗️ Rénovation</span>`;
 
-        const zone = t.location_zone
-          || (t.apartment ? `Logement ${t.apartment.apartment_number}` : '')
-          || (t.property ? t.property.property_name : '')
-          || '—';
+        let zone = t.location_zone || '';
+        if (t.worksite) {
+          zone = `🚧 ${t.worksite.title}`;
+        } else if (t.property) {
+          zone = `🏢 ${t.property.property_name}${t.apartment?.apartment_number ? ' #' + t.apartment.apartment_number : ''}`;
+        } else if (!zone) {
+          zone = '—';
+        }
 
         const nature = t.nature_probleme || t.title || '—';
         const obs = t.observation || t.completion_note;
@@ -697,7 +1108,7 @@ const PageKanban = {
         return `
           <div class="card" style="padding:12px;margin-bottom:10px;border-left:4px solid ${col.color};cursor:pointer;background:#fff;transition:transform 0.15s,box-shadow 0.15s" onclick="PageKanban.openEditModal(${t.id})" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='none'">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px;margin-bottom:4px">
-              <span style="font-weight:800;font-size:12.5px;color:var(--primary)">🏢 ${zone}</span>
+              <span style="font-weight:800;font-size:12.5px;color:var(--primary)">${zone}</span>
               ${pBadge}
             </div>
 
@@ -712,7 +1123,7 @@ const PageKanban = {
             ` : ''}
 
             <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#64748b">
-              <span>👤 ${t.assignee?.full_name || 'Non assigné'}</span>
+              <span>👤 ${t.assignee?.full_name ? '<b>' + t.assignee.full_name + '</b>' : 'Non assigné'}</span>
               <span>📅 ${t.end_date ? Helpers.formatDate(t.end_date) : '—'}</span>
             </div>
 
@@ -855,6 +1266,7 @@ const PageKanban = {
     }
   },
 
+  // Téléchargement du Plan de Travail en PDF avec prise en compte intégrale de la multi-sélection et du regroupement
   async downloadPdf(periodType = 'active') {
     const menu = document.getElementById('pdfDropdownMenu');
     if (menu) menu.style.display = 'none';
@@ -891,19 +1303,39 @@ const PageKanban = {
     }
 
     try {
-      Toast.info('Génération du PDF officiel en temps réel...');
+      Toast.info('Génération du PDF officiel en cours...');
       const token = Auth.getToken();
       const params = new URLSearchParams({
         period_start: pStart,
         period_end: pEnd,
         period_label: title,
+        group_by: this._groupBy || 'site',
         token: token || '',
       });
+
       if (this._filterPriority && this._filterPriority !== 'all') params.append('priority', this._filterPriority);
       if (this._filterStatus && this._filterStatus !== 'all') params.append('status', this._filterStatus);
-      if (this._filterCity && this._filterCity !== 'all') params.append('city', this._filterCity);
-      if (this._filterProperty) params.append('property_id', this._filterProperty);
-      if (this._filterWorksite) params.append('worksite_id', this._filterWorksite);
+
+      // Multi-sélection ciblée
+      const hasMulti = this._selectedPropertyIds.length > 0 || this._selectedWorksiteIds.length > 0;
+      if (hasMulti) {
+        if (this._selectedPropertyIds.length > 0) {
+          params.append('property_ids', this._selectedPropertyIds.join(','));
+          const pNames = this._properties.filter((p) => this._selectedPropertyIds.includes(p.id)).map((p) => p.property_name);
+          params.append('property_names', pNames.join(', '));
+        }
+        if (this._selectedWorksiteIds.length > 0) {
+          params.append('worksite_ids', this._selectedWorksiteIds.join(','));
+          const wNames = this._worksites.filter((w) => this._selectedWorksiteIds.includes(w.id)).map((w) => w.title);
+          params.append('worksite_names', wNames.join(', '));
+        }
+        // Libellé de périmètre explicite
+        params.append('scope_label', this.getActiveScopeDescription().replace(/<[^>]+>/g, ''));
+      } else {
+        if (this._filterCity && this._filterCity !== 'all') params.append('city', this._filterCity);
+        if (this._filterProperty) params.append('property_id', this._filterProperty);
+        if (this._filterWorksite) params.append('worksite_id', this._filterWorksite);
+      }
 
       const url = `${CONFIG.API_URL}/tasks/work-plan-pdf?${params.toString()}`;
       const res = await fetch(url, {
@@ -914,8 +1346,10 @@ const PageKanban = {
       const blobUrl = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = blobUrl;
-      const cleanCity = this._filterCity && this._filterCity !== 'all' ? `_${this._filterCity.replace(/\s+/g, '_')}` : '';
-      a.download = `Plan_de_travail_urgent${cleanCity}_${pStart || 'GLOBAL'}_${pEnd || 'GLOBAL'}.pdf`;
+      const cleanScope = hasMulti
+        ? `_CIBLE_${this._selectedPropertyIds.length}Immeubles_${this._selectedWorksiteIds.length}Chantiers`
+        : (this._filterCity && this._filterCity !== 'all' ? `_${this._filterCity.replace(/\s+/g, '_')}` : '');
+      a.download = `Plan_de_travail${cleanScope}_${pStart || 'GLOBAL'}_${pEnd || 'GLOBAL'}.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();

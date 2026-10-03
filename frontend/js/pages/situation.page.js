@@ -347,6 +347,7 @@ const PageSituation = {
   refreshAfterDelete() {
     this.loadSituation();
     if (this._selectedBuildingIds.length > 0) this.loadSelectedBuildings();
+    this.loadRecap();
   },
 
   selectMyBuildingsOnly() {

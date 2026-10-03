@@ -6,6 +6,37 @@ const ledgerService = require('./ledger.service');
 const num = (v) => parseFloat(v) || 0;
 const UNPAID = ['pending', 'failed', 'awaiting_confirmation'];
 
+const mapPaymentMethod = (method) => {
+  if (!method) return 'cash';
+  const m = String(method).toLowerCase();
+  if (m.includes('orange') || m.includes('om')) return 'orange_money';
+  if (m.includes('mtn') || m.includes('momo') || m.includes('mobile')) return 'mtn_mobile_money';
+  if (m.includes('transfer') || m.includes('virement') || m.includes('bank') || m.includes('vir')) return 'bank_transfer';
+  return 'cash';
+};
+
+function parsePeriodDates(str) {
+  if (!str) return { period_start: null, period_end: null };
+  const dates = [];
+  const parts = String(str).split(/[-–—àau]/i);
+  for (const p of parts) {
+    const trimmed = p.trim();
+    const dmy = trimmed.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})$/);
+    if (dmy) {
+      dates.push(`${dmy[3]}-${String(dmy[2]).padStart(2, '0')}-${String(dmy[1]).padStart(2, '0')}`);
+    } else {
+      const ymd = trimmed.match(/^(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})$/);
+      if (ymd) {
+        dates.push(`${ymd[1]}-${String(ymd[2]).padStart(2, '0')}-${String(ymd[3]).padStart(2, '0')}`);
+      }
+    }
+  }
+  return {
+    period_start: dates[0] || null,
+    period_end: dates[1] || null,
+  };
+}
+
 class ReportService {
   _range(start, end) { return [`${start} 00:00:00`, `${end} 23:59:59`]; }
 
@@ -451,6 +482,7 @@ class ReportService {
 
       byTenantMap[id] = {
         tenant_id: id,
+        apartment_id: apt ? apt.id : null,
         nom: (t.user && t.user.full_name) || '—',
         immeuble: (prop && prop.property_name) || '—',
         logement: apt ? apt.apartment_number : '—',
@@ -468,6 +500,7 @@ class ReportService {
       if (!byTenantMap[id]) {
         byTenantMap[id] = {
           tenant_id: id,
+          apartment_id: p.apartment ? p.apartment.id : null,
           nom: (p.tenant && p.tenant.user && p.tenant.user.full_name) || '—',
           immeuble: (p.apartment && p.apartment.property && p.apartment.property.property_name) || '—',
           logement: p.apartment ? p.apartment.apartment_number : '—',
@@ -485,6 +518,35 @@ class ReportService {
         if (row.impaye === 0) row.impaye += num(p.amount);
       }
     });
+
+    // 3. Intégration des surcharges manuelles de la situation (situation_overrides)
+    try {
+      const overrides = await sequelize.query(
+        `SELECT * FROM situation_overrides`,
+        { type: sequelize.QueryTypes.SELECT }
+      );
+      if (overrides && overrides.length > 0) {
+        for (const ov of overrides) {
+          const matched = Object.values(byTenantMap).find((r) =>
+            (ov.tenant_id && r.tenant_id === Number(ov.tenant_id)) ||
+            (ov.apartment_id && r.apartment_id === Number(ov.apartment_id))
+          );
+          if (matched) {
+            if (ov.arriere_loyer !== null && ov.arriere_loyer !== undefined) {
+              matched.impaye = num(ov.arriere_loyer);
+            }
+            if (ov.nom_locataire) {
+              matched.nom = ov.nom_locataire;
+            }
+            if (ov.numero_chambre) {
+              matched.logement = ov.numero_chambre;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      // Ignorer si indisponible
+    }
 
     // --- Coût maintenance par immeuble (depuis les dépenses) ---
     const costByProp = {};
@@ -513,14 +575,9 @@ class ReportService {
     const encByProp = {};
     const unpaidByProp = {};
 
-    payments.forEach((p) => {
-      const propId = p.apartment ? p.apartment.property_id : null;
-      if (!propId) return;
-      if (p.status === 'completed') encByProp[propId] = (encByProp[propId] || 0) + num(p.amount);
-    });
-
     Object.values(byTenantMap).forEach((tRow) => {
       if (tRow.property_id) {
+        encByProp[tRow.property_id] = (encByProp[tRow.property_id] || 0) + (tRow.paye || 0);
         unpaidByProp[tRow.property_id] = (unpaidByProp[tRow.property_id] || 0) + (tRow.impaye || 0);
       }
     });
@@ -867,6 +924,87 @@ class ReportService {
         )`,
         { replacements: overrideFields }
       );
+    }
+
+    // 4. Synchronisation bidirectionnelle avec la table Payment
+    if (overrideFields.versement_mois !== null) {
+      try {
+        const vMois = Number(overrideFields.versement_mois);
+        const { period_start: pStart, period_end: pEnd } = parsePeriodDates(overrideFields.periode_paiement);
+
+        let pDate = null;
+        if (pStart) {
+          pDate = pStart;
+        } else if (overrideFields.period_ym) {
+          pDate = `${overrideFields.period_ym}-15`;
+        } else {
+          pDate = new Date().toISOString().slice(0, 10);
+        }
+
+        const targetYm = (overrideFields.period_ym || (pDate ? pDate.slice(0, 7) : new Date().toISOString().slice(0, 7)));
+        const pMethod = mapPaymentMethod(overrideFields.mode_paiement);
+
+        const [tYear, tMonth] = targetYm.split('-');
+        const lastDayNum = new Date(Number(tYear), Number(tMonth), 0).getDate();
+        const startOfMonth = `${targetYm}-01`;
+        const endOfMonth = `${targetYm}-${String(lastDayNum).padStart(2, '0')}`;
+
+        let existingPayment = null;
+        const whereClause = {
+          apartment_id: apt.id,
+          payment_date: {
+            [Op.between]: [startOfMonth, endOfMonth]
+          }
+        };
+        if (effTenantId) whereClause.tenant_id = effTenantId;
+
+        existingPayment = await Payment.findOne({
+          where: whereClause,
+          order: [['id', 'DESC']]
+        });
+
+        if (!existingPayment) {
+          existingPayment = await Payment.findOne({
+            where: {
+              apartment_id: apt.id,
+              payment_date: {
+                [Op.between]: [startOfMonth, endOfMonth]
+              }
+            },
+            order: [['id', 'DESC']]
+          });
+        }
+
+        if (vMois > 0) {
+          if (existingPayment) {
+            await existingPayment.update({
+              tenant_id: effTenantId || existingPayment.tenant_id,
+              amount: vMois,
+              payment_method: pMethod,
+              period_start: pStart || existingPayment.period_start,
+              period_end: pEnd || existingPayment.period_end,
+              observations: overrideFields.observations !== null ? overrideFields.observations : existingPayment.observations,
+              status: 'completed',
+            });
+          } else {
+            await Payment.create({
+              apartment_id: apt.id,
+              tenant_id: effTenantId || null,
+              amount: vMois,
+              payment_method: pMethod,
+              payment_date: pDate,
+              period_start: pStart,
+              period_end: pEnd,
+              observations: overrideFields.observations,
+              status: 'completed',
+            });
+          }
+        } else if (vMois === 0 && existingPayment) {
+          await existingPayment.destroy();
+        }
+      } catch (err) {
+        console.error('[updateSituationLine] Erreur synchronisation paiement:', err);
+      }
     }
 
     return { message: 'Ligne modifiée et surcharges enregistrées avec succès', line: overrideFields };

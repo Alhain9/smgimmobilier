@@ -412,31 +412,14 @@ class ImportService {
               transaction
             });
 
-            const months = monthsElapsed(lease.start_date);
-            const totalDue = months * (rentAmount || lease.monthly_rent);
-            const sheetDette = Math.max(arriere - avanceArriere, dette);
-            const solde = sheetDette - anticipation;
-
-            const targetTotalValide = Math.max(0, totalDue - solde);
-            const targetPastValide = Math.max(0, targetTotalValide - versementMois);
             const { period_start: pStart, period_end: pEnd } = parsePeriodDates(periodePaiement);
 
-            const currentMonthPaymentDate = new Date(sheetYear, sheetMonth - 1, 15);
-            const pastRegDate = new Date(sheetYear, sheetMonth - 2, 28);
-
-            if (targetPastValide > 0) {
-              await Payment.create({
-                tenant_id: activeTenant.id,
-                apartment_id: apartment.id,
-                amount: targetPastValide,
-                payment_method: 'cash',
-                payment_date: pastRegDate,
-                status: 'completed',
-                period_start: versementMois > 0 ? null : pStart,
-                period_end: versementMois > 0 ? (pStart || null) : pEnd,
-                observations: 'Régularisation antécédents import Excel',
-              }, { transaction });
-              overallStats.payments.totalCreated++;
+            let paymentDate = new Date(sheetYear, sheetMonth - 1, 15);
+            if (pStart) {
+              const parsedDate = new Date(pStart);
+              if (!isNaN(parsedDate.getTime())) {
+                paymentDate = parsedDate;
+              }
             }
 
             if (versementMois > 0) {
@@ -445,7 +428,7 @@ class ImportService {
                 apartment_id: apartment.id,
                 amount: versementMois,
                 payment_method: mapPaymentMethod(modePaiement),
-                payment_date: currentMonthPaymentDate,
+                payment_date: paymentDate,
                 status: 'completed',
                 period_start: pStart,
                 period_end: pEnd,

@@ -49,6 +49,12 @@ const authenticate = async (req, res, next) => {
       can_manage_users: permissions.includes('manage_users') || !!user.can_manage_users,
       can_view_all_calendars: permissions.includes('view_all_calendars') || !!user.can_view_all_calendars,
       can_manage_utilities: permissions.includes('manage_utilities') || !!user.can_manage_utilities,
+      can_manage_worksites: permissions.includes('manage_worksites') || !!user.can_manage_worksites,
+      can_delete_worksites: permissions.includes('delete_worksites') || !!user.can_delete_worksites,
+      can_manage_stock: permissions.includes('manage_stock') || !!user.can_manage_stock,
+      can_delete_stock: permissions.includes('delete_stock') || !!user.can_delete_stock,
+      can_manage_documents: permissions.includes('manage_documents') || !!user.can_manage_documents,
+      can_manage_expenses: permissions.includes('manage_expenses') || !!user.can_manage_expenses,
     };
     next();
   } catch (err) {

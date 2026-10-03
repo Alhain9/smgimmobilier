@@ -42,4 +42,13 @@ const Auth = {
     const allowed = roles.map((x) => String(x).toLowerCase().replace(/[^a-z0-9]/g, ''));
     return allowed.includes(r);
   },
+
+  hasPermission(perm) {
+    const u = this.getUser();
+    if (!u) return false;
+    const rawRole = this.getRole() || '';
+    const r = String(rawRole).toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (r === 'superadmin' || r === 'manager') return true;
+    return !!u[perm];
+  },
 };

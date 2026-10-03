@@ -84,7 +84,25 @@ class WorksiteService {
   async remove(id) {
     const ws = await Worksite.findByPk(id);
     if (!ws) throw Object.assign(new Error('Chantier introuvable'), { status: 404 });
+    const { WorksiteTask, WorksiteMaterial, WorksitePhoto, WorksiteEquipmentLoan, EquipmentAllocation } = require('../models');
+    if (WorksiteTask) await WorksiteTask.destroy({ where: { worksite_id: id } });
+    if (WorksiteMaterial) await WorksiteMaterial.destroy({ where: { worksite_id: id } });
+    if (WorksitePhoto) await WorksitePhoto.destroy({ where: { worksite_id: id } });
+    if (WorksiteEquipmentLoan) await WorksiteEquipmentLoan.destroy({ where: { worksite_id: id } });
+    if (EquipmentAllocation) await EquipmentAllocation.destroy({ where: { worksite_id: id } });
     await ws.destroy();
+    return true;
+  }
+
+  async bulkRemove(ids) {
+    if (!Array.isArray(ids) || !ids.length) return true;
+    const { WorksiteTask, WorksiteMaterial, WorksitePhoto, WorksiteEquipmentLoan, EquipmentAllocation } = require('../models');
+    if (WorksiteTask) await WorksiteTask.destroy({ where: { worksite_id: { [Op.in]: ids } } });
+    if (WorksiteMaterial) await WorksiteMaterial.destroy({ where: { worksite_id: { [Op.in]: ids } } });
+    if (WorksitePhoto) await WorksitePhoto.destroy({ where: { worksite_id: { [Op.in]: ids } } });
+    if (WorksiteEquipmentLoan) await WorksiteEquipmentLoan.destroy({ where: { worksite_id: { [Op.in]: ids } } });
+    if (EquipmentAllocation) await EquipmentAllocation.destroy({ where: { worksite_id: { [Op.in]: ids } } });
+    await Worksite.destroy({ where: { id: { [Op.in]: ids } } });
     return true;
   }
 

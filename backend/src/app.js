@@ -4,7 +4,8 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
-require('dotenv').config();
+require('dotenv').config({ path: path.join(__dirname, '../.env') });
+require('dotenv').config(); // fallback to cwd .env
 
 const routes = require('./routes');
 const { notFound, errorHandler } = require('./middlewares/error.middleware');

@@ -126,6 +126,23 @@ class ReceiptController {
       return success(res, receipt, 'Reçu annulé');
     } catch (err) { next(err); }
   }
+
+  // Supprimer définitivement un reçu
+  async remove(req, res, next) {
+    try {
+      const result = await receiptService.remove(req.params.id);
+      return success(res, result, 'Reçu supprimé avec succès');
+    } catch (err) { next(err); }
+  }
+
+  // Suppression multiple de reçus
+  async bulkRemove(req, res, next) {
+    try {
+      const { ids } = req.body || {};
+      const result = await receiptService.bulkRemove(ids);
+      return success(res, result, `${result.deletedCount} reçu(s) supprimé(s) avec succès`);
+    } catch (err) { next(err); }
+  }
 }
 
 module.exports = new ReceiptController();

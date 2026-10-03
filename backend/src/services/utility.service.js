@@ -453,5 +453,22 @@ class UtilityService {
     }
     return { count: created.length, bills: created };
   }
+
+  async remove(id) {
+    const b = await UtilityBill.findByPk(id);
+    if (!b) throw Object.assign(new Error('Facture introuvable'), { status: 404 });
+    await Receipt.destroy({ where: { utility_bill_id: id } }).catch(() => {});
+    await b.destroy();
+    try { emitDashboard(); } catch (_) {}
+    return true;
+  }
+
+  async bulkRemove(ids) {
+    if (!Array.isArray(ids) || !ids.length) return 0;
+    await Receipt.destroy({ where: { utility_bill_id: { [Op.in]: ids } } }).catch(() => {});
+    const count = await UtilityBill.destroy({ where: { id: { [Op.in]: ids } } });
+    try { emitDashboard(); } catch (_) {}
+    return count;
+  }
 }
 module.exports = new UtilityService();

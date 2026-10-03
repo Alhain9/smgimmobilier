@@ -46,7 +46,7 @@ class TenantService {
       { model: Lease, as: 'leases', separate: true, attributes: ['id', 'apartment_id', 'status', 'monthly_rent', 'start_date'], include: [this._apartmentInclude(['id', 'apartment_number', 'apartment_type', 'floor'])] },
     ];
   }
-  async getAll(filters = {}, ownerPropertyIds = null) {
+  async getAll(filters = {}, ownerPropertyIds = null, assignedPropertyIds = null) {
     const list = await Tenant.findAll({ include: this._includeList(), order: [['created_at', 'DESC']] });
     let mapped = list.map(flatten);
     if (Array.isArray(ownerPropertyIds)) {
@@ -54,6 +54,15 @@ class TenantService {
         const propId = t.apartment && t.apartment.property ? t.apartment.property.id : (t.apartment ? t.apartment.property_id : null);
         return propId && ownerPropertyIds.includes(Number(propId));
       });
+    }
+    if (Array.isArray(assignedPropertyIds) && assignedPropertyIds.length > 0) {
+      mapped.forEach((t) => {
+        const propId = t.apartment && t.apartment.property ? t.apartment.property.id : (t.apartment ? t.apartment.property_id : null);
+        t.is_assigned = !!(propId && assignedPropertyIds.includes(Number(propId)));
+      });
+      const assigned = mapped.filter((t) => t.is_assigned);
+      const others = mapped.filter((t) => !t.is_assigned);
+      return [...assigned, ...others];
     }
     return mapped;
   }

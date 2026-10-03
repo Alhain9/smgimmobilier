@@ -160,35 +160,48 @@ class PdfService {
   /**
    * Situation d'un immeuble → PDF optimisé
    */
+  /**
+   * Situation d'un immeuble → PDF optimisé (12 colonnes standardisées)
+   */
   async situationImmeublePdf(data) {
+    const titleText = `Situation — ${(data.immeuble || 'Immeuble').toUpperCase()}`;
+    const subtitleText = data.periode_libelle ? `Mois : ${data.periode_libelle}` : "Rapport d'occupation et financier";
+
     const { doc, finalize } = this.createDocument({
-      title: `Situation — ${data.immeuble || 'Immeuble'}`,
-      subtitle: `Rapport d'occupation et financier`,
+      title: titleText,
+      subtitle: subtitleText,
       landscape: true,
     });
 
-    const headers = ['N°', 'Locataire', 'Tél', 'Loyer', 'Arriéré', 'Dette', 'Anticip.', 'Vers. mois', 'Observations'];
-    const widths = [40, 140, 85, 75, 75, 75, 75, 85, 120]; // Total = 770 pt (paysage)
+    const headers = [
+      'N° Logement', 'Locataire', 'Contact', 'Loyer', 'Description',
+      'Arriéré', 'Anticip.', 'Versement', 'PÉRIODE CORRESPONDANT AU PAIEMENT', 'Mode', 'Caution', 'Observations'
+    ];
+    // 44+98+68+55+65+55+55+58+95+48+55+74 = 770 pt
+    const widths = [44, 98, 68, 55, 65, 55, 55, 58, 95, 48, 55, 74];
     const rows = (data.lignes || []).map((l) => [
       l.numero_chambre,
       l.nom_locataire || '—',
       l.telephone || '',
       fmtMoney(l.montant_loyer),
+      l.description_logement || '—',
       fmtMoney(l.arriere_loyer),
-      fmtMoney(l.dette),
       fmtMoney(l.anticipation),
       fmtMoney(l.versement_mois),
+      l.periode_paiement || '—',
+      l.mode_paiement || '—',
+      fmtMoney(l.caution),
       l.observations || '',
     ]);
 
-    this.drawTable(doc, { headers, rows, columnWidths: widths, alignRightCols: [3, 4, 5, 6, 7] });
+    this.drawTable(doc, { headers, rows, columnWidths: widths, alignRightCols: [3, 5, 6, 7, 10] });
 
-    // Totaux
+    // Totaux officiels
     if (data.total) {
       doc.y += 4;
-      const totalText = `Total loyers : ${fmtMoney(data.total.montant_loyer)}  |  Total dette : ${fmtMoney(data.total.dette)}  |  Total versements du mois : ${fmtMoney(data.total.versement_mois)}`;
+      const totalText = `Total loyers : ${fmtMoney(data.total.montant_loyer)}  |  Total arriéré : ${fmtMoney(data.total.arriere_loyer)}  |  Versements mois : ${fmtMoney(data.total.versement_mois)}  |  Anticipation : ${fmtMoney(data.total.anticipation)}  |  Caution : ${fmtMoney(data.total.caution)}`;
       doc.rect(36, doc.y, doc.page.width - 72, 18).fill('#e0f2fe');
-      doc.fontSize(8).fillColor(COLORS.primary).font('Helvetica-Bold')
+      doc.fontSize(7.5).fillColor(COLORS.primary).font('Helvetica-Bold')
         .text(totalText, 42, doc.y + 5, { width: doc.page.width - 84, align: 'center', lineBreak: false });
     }
 

@@ -16,8 +16,8 @@ router.post('/', managers, ctrl.create);
 router.post('/:id/lease-template', managers, upload.single('template'), ctrl.uploadLeaseTemplate);
 router.delete('/:id/lease-template', managers, ctrl.deleteLeaseTemplate);
 router.post('/import', managers, uploadExcel.single('file'), ctrl.importBuilding);
-router.post('/bulk-delete', authorize('manager'), ctrl.bulkRemove);
+router.post('/bulk-delete', authorize('manager', 'dir_admin', 'comptable'), ctrl.bulkRemove);
 router.put('/:id', managers, ctrl.update);
-router.delete('/:id', authorize('manager'), ctrl.remove);
+router.delete('/:id', authorize('manager', 'dir_admin', 'comptable'), ctrl.remove);
 
 module.exports = router;

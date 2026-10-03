@@ -49,16 +49,13 @@ const PageLeases = {
   },
 
   async render() {
-    const canEdit = Auth.hasRole('manager', 'dir_admin', 'gestionnaire');
-    const canContact = Auth.hasRole('manager', 'dir_admin', 'gestionnaire');
+    const canEdit = Auth.hasRole('manager', 'dir_admin', 'gestionnaire', 'comptable');
+    const canContact = Auth.hasRole('manager', 'dir_admin', 'gestionnaire', 'comptable');
 
     const toolbar = `
       <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
         <button class="btn btn-outline" onclick="Router.go('properties')">
           <span class="btn-icon">🏢</span> Modèles de contrat dans les Immeubles
-        </button>
-        <button class="btn btn-outline" onclick="PageLeases.downloadSampleTemplate()" style="color:var(--primary);font-weight:600">
-          <span class="btn-icon">📥</span> Exemplaire Officiel Word Vierge (.docx)
         </button>
       </div>
     `;
@@ -150,7 +147,7 @@ const PageLeases = {
         ${canContact ? `<button class="btn btn-sm btn-whatsapp" title="Relance WhatsApp" onclick="PageLeases.whatsapp(${r.id})">🟢</button>` : ''}
         ${canEdit ? `<button class="btn btn-sm btn-outline" title="Joindre / Remplacer contrat signé" onclick="PageLeases.uploadContract(${r.id})">⬆</button>
         <button class="btn btn-sm btn-outline" title="Modifier" onclick="PageLeases.edit(${r.id})">✏️</button>` : ''}
-        ${Auth.hasRole('manager', 'dir_admin') ? `<button class="btn btn-sm btn-danger" title="Supprimer" onclick="PageLeases.remove(${r.id})">🗑</button>` : ''}
+        ${Auth.hasRole('manager', 'dir_admin', 'comptable') ? `<button class="btn btn-sm btn-danger" title="Supprimer" onclick="PageLeases.remove(${r.id})">🗑</button>` : ''}
       `,
     });
 
@@ -730,23 +727,6 @@ const PageLeases = {
     }
   },
 
-  async downloadSampleTemplate() {
-    Toast.info('Téléchargement du modèle Word officiel vierge...');
-    try {
-      const blob = await API.downloadBlob('/properties/lease-template/sample');
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'Modele_Officiel_Contrat_Bail_SMG.docx';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
-      Toast.success('Modèle Word officiel vierge téléchargé avec succès ! 📄✅');
-    } catch (e) {
-      Toast.error(e.message || 'Erreur lors du téléchargement');
-    }
-  },
 
   remove(id) {
     CrudPage.confirmDelete('/leases/' + id, () => PageLeases.render());

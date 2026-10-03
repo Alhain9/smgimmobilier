@@ -43,7 +43,15 @@ class StockController {
   async removeItem(req, res, next) {
     try {
       await stockService.removeItem(req.params.id);
-      return success(res, null, 'Article désactivé avec succès');
+      return success(res, null, 'Article supprimé avec succès');
+    } catch (err) { next(err); }
+  }
+
+  async bulkRemoveItems(req, res, next) {
+    try {
+      const ids = req.body.ids || [];
+      await stockService.bulkRemoveItems(ids);
+      return success(res, null, 'Articles sélectionnés supprimés avec succès');
     } catch (err) { next(err); }
   }
 

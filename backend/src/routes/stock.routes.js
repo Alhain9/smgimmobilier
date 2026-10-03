@@ -2,14 +2,14 @@
 const router = require('express').Router();
 const ctrl = require('../controllers/stock.controller');
 const { authenticate } = require('../middlewares/auth.middleware');
-const { authorize } = require('../middlewares/rbac.middleware');
+const { authorize, authorizePermission } = require('../middlewares/rbac.middleware');
 
 router.use(authenticate);
 
 // Autorisations : Le Manager, Comptable, Dir Technique, Gestionnaire ont accès et peuvent gérer le stock
-const canViewStock = authorize('super_admin', 'manager', 'comptable', 'dir_technique', 'gestionnaire');
-const canManageStock = authorize('super_admin', 'manager', 'comptable', 'dir_technique', 'gestionnaire');
-const canDeleteStock = authorize('super_admin', 'manager');
+const canViewStock = authorizePermission('can_manage_stock', 'super_admin', 'manager', 'comptable', 'dir_technique', 'gestionnaire');
+const canManageStock = authorizePermission('can_manage_stock', 'super_admin', 'manager', 'comptable', 'dir_technique', 'gestionnaire');
+const canDeleteStock = authorizePermission('can_delete_stock', 'super_admin', 'manager', 'dir_technique');
 
 // Synthèse & Alertes
 router.get('/summary', canViewStock, ctrl.getSummary);
@@ -27,6 +27,7 @@ const upload = require('../middlewares/upload.middleware');
 
 // Articles
 router.get('/items', canViewStock, ctrl.listItems);
+router.post('/items/bulk-delete', canDeleteStock, ctrl.bulkRemoveItems);
 router.get('/items/:id', canViewStock, ctrl.getItemById);
 router.post('/items', canManageStock, upload.single('photo'), ctrl.createItem);
 router.post('/transfer', canManageStock, ctrl.transfer);

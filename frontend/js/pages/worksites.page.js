@@ -52,12 +52,26 @@ const PageWorksites = {
         <div class="card stat-card"><div class="spinner"></div></div>
       </div>
 
+      <!-- Barre d'actions groupées -->
+      <div id="wsBulkBar" style="display:none;background:#fef2f2;border:1px solid #fca5a5;padding:10px 16px;border-radius:8px;margin-bottom:14px;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+        <div style="font-weight:600;color:#991b1b;font-size:13px">
+          <span id="wsBulkCount">0</span> chantier(s) sélectionné(s)
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-sm btn-danger" onclick="PageWorksites.bulkDelete()">🗑️ Supprimer la sélection</button>
+          <button class="btn btn-sm btn-outline" onclick="PageWorksites.onSelectAll(false)">❌ Désélectionner</button>
+        </div>
+      </div>
+
       <!-- Table des chantiers -->
       <div class="card">
         <div class="table-responsive">
           <table class="table" id="worksitesTable">
             <thead>
               <tr>
+                <th style="width:38px;text-align:center">
+                  <input type="checkbox" id="wsSelectAll" onchange="PageWorksites.onSelectAll(this.checked)" title="Tout sélectionner" />
+                </th>
                 <th>Chantier</th>
                 <th>Type</th>
                 <th>Lieu / Client</th>
@@ -70,7 +84,7 @@ const PageWorksites = {
               </tr>
             </thead>
             <tbody id="worksitesTableBody">
-              <tr><td colspan="9" style="text-align:center;padding:30px"><div class="spinner"></div></td></tr>
+              <tr><td colspan="10" style="text-align:center;padding:30px"><div class="spinner"></div></td></tr>
             </tbody>
           </table>
         </div>
@@ -159,8 +173,10 @@ const PageWorksites = {
     const tbody = document.getElementById('worksitesTableBody');
     if (!tbody) return;
 
+    const canManage = Auth.hasRole('super_admin', 'manager', 'dir_technique');
+
     if (!list.length) {
-      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:30px;color:var(--text-muted)">Aucun chantier correspondant.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:30px;color:var(--text-muted)">Aucun chantier correspondant.</td></tr>';
       return;
     }
 
@@ -178,9 +194,13 @@ const PageWorksites = {
       const context = isInternal
         ? (w.property ? `🏢 ${w.property.property_name}` : 'Interne')
         : (w.client_name ? `👤 ${w.client_name}` : 'Externe');
+      const safeTitle = (w.title || '').replace(/'/g, "\\'");
 
       return `
         <tr>
+          <td style="text-align:center">
+            <input type="checkbox" class="ws-row-chk" value="${w.id}" onchange="PageWorksites.onRowCheck()" />
+          </td>
           <td>
             <strong style="color:var(--primary);font-size:14px">${w.title}</strong>
             <br><small style="color:var(--text-muted)">Début: ${w.start_date ? new Date(w.start_date).toLocaleDateString('fr-FR') : '—'}</small>
@@ -206,10 +226,166 @@ const PageWorksites = {
           <td style="text-align:right;white-space:nowrap">
             <button class="btn btn-sm btn-outline" onclick="PageWorksites.openDetailModal(${w.id})" title="Détail & Suivi">👁️ Détail</button>
             <button class="btn btn-sm btn-success" onclick="PageWorksites.downloadPdf(${w.id})" title="Rapport PDF">📄 PDF</button>
+            ${canManage ? `
+              <button class="btn btn-sm btn-outline" onclick="PageWorksites.openEditModal(${w.id})" title="Modifier">✏️</button>
+              <button class="btn btn-sm btn-outline" style="color:var(--danger);border-color:var(--danger)" onclick="PageWorksites.deleteWorksite(${w.id}, '${safeTitle}')" title="Supprimer définitivement">🗑️</button>
+            ` : ''}
           </td>
         </tr>
       `;
     }).join('');
+  },
+
+  onSelectAll(checked) {
+    const chks = document.querySelectorAll('.ws-row-chk');
+    chks.forEach((c) => { c.checked = checked; });
+    const allBox = document.getElementById('wsSelectAll');
+    if (allBox) allBox.checked = checked;
+    this.onRowCheck();
+  },
+
+  onRowCheck() {
+    const chks = Array.from(document.querySelectorAll('.ws-row-chk:checked'));
+    const bar = document.getElementById('wsBulkBar');
+    const countEl = document.getElementById('wsBulkCount');
+    if (bar && countEl) {
+      countEl.textContent = chks.length;
+      bar.style.display = chks.length > 0 ? 'flex' : 'none';
+    }
+  },
+
+  getSelectedIds() {
+    return Array.from(document.querySelectorAll('.ws-row-chk:checked')).map((c) => parseInt(c.value, 10)).filter(Boolean);
+  },
+
+  async bulkDelete() {
+    const ids = this.getSelectedIds();
+    if (!ids.length) return;
+    if (!confirm(`Voulez-vous vraiment supprimer définitivement les ${ids.length} chantier(s) sélectionné(s) ?`)) return;
+    try {
+      await API.post('/worksites/bulk-delete', { ids });
+      Toast.success(`${ids.length} chantier(s) supprimé(s) avec succès`);
+      this.load();
+    } catch (err) {
+      Toast.error(err.message || 'Erreur lors de la suppression groupée');
+    }
+  },
+
+  async deleteWorksite(id, title) {
+    if (!Auth.hasRole('manager', 'super_admin', 'dir_technique')) {
+      Toast.error('Permissions insuffisantes pour supprimer un chantier.');
+      return;
+    }
+    if (!confirm(`Voulez-vous vraiment supprimer définitivement le chantier « ${title || ''} » ?`)) return;
+    try {
+      await API.delete(`/worksites/${id}`);
+      Toast.success('Chantier supprimé avec succès');
+      this.load();
+    } catch (err) {
+      Toast.error(err.message || 'Erreur lors de la suppression');
+    }
+  },
+
+  async openEditModal(id) {
+    const ws = this._worksites.find((w) => w.id === id);
+    if (!ws) return;
+    const propOptions = this._properties.map((p) => `<option value="${p.id}" ${ws.property_id === p.id ? 'selected' : ''}>${p.property_name} (${p.city || '—'})</option>`).join('');
+
+    const html = `
+      <form id="editWorksiteForm" onsubmit="PageWorksites.submitEdit(event, ${ws.id})">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div>
+            <label class="form-label">Titre du chantier / projet *</label>
+            <input type="text" id="ws_edit_title" class="form-control" required value="${Helpers.escapeHtml(ws.title || '')}" />
+          </div>
+          <div>
+            <label class="form-label">Statut *</label>
+            <select id="ws_edit_status" class="form-control">
+              <option value="planned" ${ws.status === 'planned' ? 'selected' : ''}>Planifié</option>
+              <option value="in_progress" ${ws.status === 'in_progress' ? 'selected' : ''}>En cours</option>
+              <option value="on_hold" ${ws.status === 'on_hold' ? 'selected' : ''}>En pause</option>
+              <option value="completed" ${ws.status === 'completed' ? 'selected' : ''}>Terminé</option>
+              <option value="cancelled" ${ws.status === 'cancelled' ? 'selected' : ''}>Annulé</option>
+            </select>
+          </div>
+
+          <div id="ws_edit_prop_group" style="display:${ws.worksite_type === 'interne' ? 'block' : 'none'}">
+            <label class="form-label">Immeuble concerné</label>
+            <select id="ws_edit_property" class="form-control">
+              <option value="">Sélectionner un immeuble...</option>
+              ${propOptions}
+            </select>
+          </div>
+
+          <div id="ws_edit_client_group" style="display:${ws.worksite_type === 'externe' ? 'block' : 'none'}">
+            <label class="form-label">Nom du Client tiers</label>
+            <input type="text" id="ws_edit_client_name" class="form-control" value="${Helpers.escapeHtml(ws.client_name || '')}" />
+          </div>
+
+          <div>
+            <label class="form-label">Localisation / Adresse</label>
+            <input type="text" id="ws_edit_location" class="form-control" value="${Helpers.escapeHtml(ws.location || '')}" />
+          </div>
+
+          <div>
+            <label class="form-label">Budget prévisionnel global (FCFA) *</label>
+            <input type="number" id="ws_edit_budget" class="form-control" required min="0" value="${ws.budget || 0}" />
+          </div>
+
+          <div>
+            <label class="form-label">Date de début</label>
+            <input type="date" id="ws_edit_start" class="form-control" value="${ws.start_date ? ws.start_date.slice(0, 10) : ''}" />
+          </div>
+
+          <div>
+            <label class="form-label">Date de fin estimée</label>
+            <input type="date" id="ws_edit_end_est" class="form-control" value="${ws.end_date_planned ? ws.end_date_planned.slice(0, 10) : ''}" />
+          </div>
+
+          <div>
+            <label class="form-label">Progression (%)</label>
+            <input type="number" id="ws_edit_progress" class="form-control" min="0" max="100" value="${ws.progress_percent || 0}" />
+          </div>
+        </div>
+
+        <div style="margin-top:12px">
+          <label class="form-label">Description des travaux</label>
+          <textarea id="ws_edit_desc" class="form-control" rows="2">${Helpers.escapeHtml(ws.description || '')}</textarea>
+        </div>
+
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
+          <button type="button" class="btn btn-outline" onclick="Modal.close()">Annuler</button>
+          <button type="submit" class="btn btn-primary">Enregistrer les modifications</button>
+        </div>
+      </form>
+    `;
+
+    Modal.open({ title: `✏️ Modifier le Chantier #${ws.id}`, content: html, size: 'medium' });
+  },
+
+  async submitEdit(e, id) {
+    e.preventDefault();
+    const payload = {
+      title: document.getElementById('ws_edit_title').value.trim(),
+      status: document.getElementById('ws_edit_status').value,
+      property_id: document.getElementById('ws_edit_property')?.value ? parseInt(document.getElementById('ws_edit_property').value, 10) : null,
+      client_name: document.getElementById('ws_edit_client_name')?.value?.trim() || null,
+      location: document.getElementById('ws_edit_location')?.value?.trim() || null,
+      budget: parseFloat(document.getElementById('ws_edit_budget').value) || 0,
+      start_date: document.getElementById('ws_edit_start')?.value || null,
+      end_date_planned: document.getElementById('ws_edit_end_est')?.value || null,
+      progress_percent: parseInt(document.getElementById('ws_edit_progress')?.value, 10) || 0,
+      description: document.getElementById('ws_edit_desc')?.value?.trim() || null,
+    };
+
+    try {
+      await API.put(`/worksites/${id}`, payload);
+      Toast.success('Chantier mis à jour avec succès');
+      Modal.close();
+      this.load();
+    } catch (err) {
+      Toast.error(err.message || 'Erreur lors de la mise à jour du chantier');
+    }
   },
 
   filterTable() {

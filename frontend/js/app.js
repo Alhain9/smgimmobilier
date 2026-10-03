@@ -24,13 +24,13 @@
   PageCalendar.register();
   PageUsers.register();
   PageDocuments.register();
-  PageReports.register();
+  if (typeof PageReports !== 'undefined') PageReports.register();
   PageSalaries.register();
   PageProfile.register();
   PageRh.register();
   PageKanban.register();
-  PageMessages.register();
-  PageWhatsappGroups.register();
+  if (typeof PageMessages !== 'undefined') PageMessages.register();
+  if (typeof PageWhatsappGroups !== 'undefined') PageWhatsappGroups.register();
   PageWorkflows.register();
   PageReceipts.register();
   PageManagementReports.register();

@@ -138,6 +138,12 @@ Expense.belongsTo(User, { foreignKey: 'created_by', as: 'creator' });
 // Task
 Maintenance.hasMany(Task, { foreignKey: 'maintenance_id', as: 'tasks' });
 Task.belongsTo(Maintenance, { foreignKey: 'maintenance_id', as: 'maintenance' });
+Property.hasMany(Task, { foreignKey: 'property_id', as: 'tasks' });
+Task.belongsTo(Property, { foreignKey: 'property_id', as: 'property' });
+Apartment.hasMany(Task, { foreignKey: 'apartment_id', as: 'tasks' });
+Task.belongsTo(Apartment, { foreignKey: 'apartment_id', as: 'apartment' });
+Worksite.hasMany(Task, { foreignKey: 'worksite_id', as: 'generalTasks' });
+Task.belongsTo(Worksite, { foreignKey: 'worksite_id', as: 'worksite' });
 User.hasMany(Task, { foreignKey: 'assigned_to', as: 'tasks' });
 Task.belongsTo(User, { foreignKey: 'assigned_to', as: 'assignee' });
 User.hasMany(Task, { foreignKey: 'created_by', as: 'createdTasks' });

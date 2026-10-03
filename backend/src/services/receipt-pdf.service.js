@@ -92,23 +92,28 @@ class ReceiptPdfService {
     });
 
     const remaining = coverage.remaining;
-    const hasDebt = remaining > 0;
+    const hasDebt = coverage.hasDebt;
 
-    if (hasDebt) {
+    if (coverage.isOverdue) {
       doc.rect(36, y, contentW, 16).fill('#f8d7da');
       doc.fontSize(8.5).fillColor('#721c24').font('Helvetica-Bold')
-        .text(`Dette restante : ${fmtMoney(remaining)}`, 36, y + 4, { width: contentW, align: 'center' });
+        .text(cleanText(coverage.statusText), 36, y + 4, { width: contentW, align: 'center' });
+    } else if (hasDebt) {
+      doc.rect(36, y, contentW, 16).fill('#f8d7da');
+      doc.fontSize(8.5).fillColor('#721c24').font('Helvetica-Bold')
+        .text(cleanText(coverage.statusText || 'Dette restante'), 36, y + 4, { width: contentW, align: 'center' });
     } else {
       doc.rect(36, y, contentW, 16).fill('#d4edda');
       doc.fontSize(8.5).fillColor('#155724').font('Helvetica-Bold')
-        .text('Locataire à jour de ses paiements', 36, y + 4, { width: contentW, align: 'center' });
+        .text(cleanText(coverage.statusText || 'Locataire à jour de ses paiements'), 36, y + 4, { width: contentW, align: 'center' });
     }
     y += 19;
 
     // Période couverte détaillée
-    doc.rect(36, y, contentW, 15).fill('#d4edda');
-    doc.fontSize(7.5).fillColor('#155724').font('Helvetica-Bold')
-      .text(coverage.label, 36, y + 4, { width: contentW, align: 'center' });
+    const isWarnPeriod = coverage.isOverdue || hasDebt;
+    doc.rect(36, y, contentW, 15).fill(isWarnPeriod ? '#fff3cd' : '#d4edda');
+    doc.fontSize(7.5).fillColor(isWarnPeriod ? '#856404' : '#155724').font('Helvetica-Bold')
+      .text(cleanText(coverage.label), 36, y + 4, { width: contentW, align: 'center' });
     y += 18;
 
     // ===== CADRES LOCATAIRE & BIEN LOUÉ (2 COLONNES AVEC HAUTEUR DYNAMIQUE) =====
@@ -197,8 +202,19 @@ class ReceiptPdfService {
     doc.moveTo(36, y).lineTo(pageW - 36, y).strokeColor(COLORS.primary).lineWidth(1.2).stroke();
     doc.fontSize(8).fillColor(COLORS.primary).font('Helvetica-Bold')
       .text('STATUT DU COMPTE', 44, y + 4);
-    doc.fontSize(9).fillColor(hasDebt ? COLORS.accent : COLORS.success).font('Helvetica-Bold')
-      .text(hasDebt ? 'Dette restante' : 'À jour', pageW - 160, y + 4, { width: 120, align: 'right' });
+
+    let statutBadge = 'À jour';
+    let statutColor = COLORS.success;
+    if (coverage.isOverdue) {
+      statutBadge = cleanText(coverage.statusText);
+      statutColor = COLORS.accent;
+    } else if (hasDebt) {
+      statutBadge = cleanText(coverage.statusText || 'Dette restante');
+      statutColor = COLORS.accent;
+    }
+
+    doc.fontSize(8).fillColor(statutColor).font('Helvetica-Bold')
+      .text(statutBadge, pageW - 280, y + 4, { width: 240, align: 'right' });
     y += rowH + 6;
 
     // ===== INFORMATIONS PAIEMENT & OBSERVATIONS =====

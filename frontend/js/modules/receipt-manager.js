@@ -131,14 +131,57 @@ class ReceiptHtmlGenerator {
       const startStr = startDate.toLocaleDateString('fr-FR');
       const endStr = endDate.toLocaleDateString('fr-FR');
 
-      if (hasDebt) {
-        periodClass = 'dette';
-        if (remainingDebt > 0) {
-          periodText = `Paiement couvrant ${paidMonths} mois d'arriérés (du ${startStr} au ${endStr}) | Reste dû : ${fmtAmount(remainingDebt)} ${currency}`;
-        } else if (isDebtPaid) {
-          periodText = `✅ Dette totalement soldée ! Paiement couvrant ${paidMonths} mois (du ${startStr} au ${endStr})`;
-          periodClass = '';
+      const MONTH_NAMES_FR = [
+        'janvier', 'février', 'mars', 'avril', 'mai', 'juin',
+        'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'
+      ];
+
+      const ref = cfg.paymentDate ? new Date(cfg.paymentDate) : new Date();
+      const now = new Date();
+      const activeRef = ref > now ? ref : now;
+      const refYear = activeRef.getFullYear();
+      const refMonth = activeRef.getMonth();
+
+      const endYear = endDate.getFullYear();
+      const endMonth = endDate.getMonth();
+      const endDay = endDate.getDate();
+
+      let unpaidFromMonthIndex = endMonth;
+      let unpaidFromYear = endYear;
+      if (endDay <= 5) {
+        unpaidFromMonthIndex = endMonth;
+      } else if (endDay >= 25) {
+        const nextM = new Date(endYear, endMonth + 1, 1);
+        unpaidFromMonthIndex = nextM.getMonth();
+        unpaidFromYear = nextM.getFullYear();
+      }
+
+      let monthsGap = (refYear - unpaidFromYear) * 12 + (refMonth - unpaidFromMonthIndex);
+      let isOverdue = false;
+      let overdueMonths = 0;
+      if (monthsGap > 0) {
+        isOverdue = true;
+        overdueMonths = monthsGap;
+      } else if (monthsGap === 0 && endDay <= 5) {
+        isOverdue = true;
+        overdueMonths = 1;
+      }
+
+      const overdueMonthName = MONTH_NAMES_FR[unpaidFromMonthIndex];
+      if (isOverdue) {
+        const autoDebt = Math.round(overdueMonths * rent);
+        if (autoDebt > remainingDebt) {
+          remainingDebt = autoDebt;
         }
+        hasDebt = true;
+      }
+
+      if (isOverdue) {
+        periodClass = 'dette';
+        periodText = `Paiement couvrant ${paidMonths} mois (du ${startStr} au ${endStr})`;
+      } else if (hasDebt) {
+        periodClass = 'dette';
+        periodText = `Paiement couvrant ${paidMonths} mois (du ${startStr} au ${endStr})`;
       } else {
         periodText = `Paiement couvrant ${paidMonths} mois de loyer (du ${startStr} au ${endStr})`;
         periodClass = '';
@@ -160,18 +203,20 @@ class ReceiptHtmlGenerator {
     }
 
     let statusHtml = '';
-    if (hasDebt && remainingDebt > 0) {
-      statusHtml = `<div class="debt-indicator danger" style="padding:4px 8px;border-radius:4px;font-weight:700;font-size:10px;text-align:center;margin-bottom:3px;background:#f8d7da;color:#721c24;border:1px solid #f5c6cb"><i class="fas fa-exclamation-triangle"></i> Dette restante : ${fmtAmount(remainingDebt)} ${currency}</div>`;
+    if (typeof isOverdue !== 'undefined' && isOverdue) {
+      statusHtml = `<div class="debt-indicator danger" style="padding:4px 8px;border-radius:4px;font-weight:700;font-size:10px;text-align:center;margin-bottom:3px;background:#f8d7da;color:#721c24;border:1px solid #f5c6cb">Impayé à partir du mois de ${overdueMonthName} ${unpaidFromYear}</div>`;
+    } else if (hasDebt && remainingDebt > 0) {
+      statusHtml = `<div class="debt-indicator danger" style="padding:4px 8px;border-radius:4px;font-weight:700;font-size:10px;text-align:center;margin-bottom:3px;background:#f8d7da;color:#721c24;border:1px solid #f5c6cb">Dette restante</div>`;
     } else if (hasDebt && remainingDebt === 0) {
-      statusHtml = `<div class="debt-indicator success" style="padding:4px 8px;border-radius:4px;font-weight:700;font-size:10px;text-align:center;margin-bottom:3px;background:#d4edda;color:#155724;border:1px solid #c3e6cb"><i class="fas fa-check-circle"></i> ✅ Dette totalement soldée</div>`;
+      statusHtml = `<div class="debt-indicator success" style="padding:4px 8px;border-radius:4px;font-weight:700;font-size:10px;text-align:center;margin-bottom:3px;background:#d4edda;color:#155724;border:1px solid #c3e6cb">Dette totalement soldée</div>`;
     } else if (paid > 0 && !hasDebt) {
-      statusHtml = `<div class="debt-indicator success" style="padding:4px 8px;border-radius:4px;font-weight:700;font-size:10px;text-align:center;margin-bottom:3px;background:#d4edda;color:#155724;border:1px solid #c3e6cb"><i class="fas fa-check-circle"></i> ✅ Locataire à jour</div>`;
+      statusHtml = `<div class="debt-indicator success" style="padding:4px 8px;border-radius:4px;font-weight:700;font-size:10px;text-align:center;margin-bottom:3px;background:#d4edda;color:#155724;border:1px solid #c3e6cb">Locataire à jour de ses paiements</div>`;
     }
 
     let periodHtml = '';
     if (periodText) {
       const cls = periodClass ? `period-paid ${periodClass}` : 'period-paid';
-      periodHtml = `<div class="${cls}">📅 ${periodText}</div>`;
+      periodHtml = `<div class="${cls}">${periodText}</div>`;
     }
 
     return `
@@ -227,14 +272,14 @@ class ReceiptHtmlGenerator {
             <tbody>
               ${hasDebt ? `<tr><td>Arriérés de loyer</td><td class="text-right">${fmtAmount(cfg.debtAmount)}</td></tr>` : ''}
               <tr><td>Paiement effectué</td><td class="text-right"><strong>${fmtAmount(cfg.paidAmount)}</strong></td></tr>
-              ${remainingDebt > 0 ? `<tr><td>Reste à payer</td><td class="text-right" style="color:var(--accent-color,#c0392b);font-weight:700;">${fmtAmount(remainingDebt)}</td></tr>` : ''}
-              ${isDebtPaid ? `<tr><td>✅ Dette soldée</td><td class="text-right" style="color:#27ae60;font-weight:700;">0</td></tr>` : ''}
+              ${remainingDebt > 0 ? `<tr><td>Reste à payer (Arriérés)</td><td class="text-right" style="color:var(--accent-color,#c0392b);font-weight:700;">${fmtAmount(remainingDebt)}</td></tr>` : ''}
+              ${isDebtPaid ? `<tr><td>Dette soldée</td><td class="text-right" style="color:#27ae60;font-weight:700;">0</td></tr>` : ''}
             </tbody>
             <tfoot>
               <tr>
-                <td><strong>STATUT</strong></td>
+                <td><strong>STATUT DU COMPTE</strong></td>
                 <td class="text-right total">
-                  <strong>${remainingDebt > 0 ? '⚠️ Dette restante' : '✅ À jour'}</strong>
+                  <strong style="color:${typeof isOverdue !== 'undefined' && isOverdue ? 'var(--accent-color,#c0392b)' : (remainingDebt > 0 ? 'var(--accent-color,#c0392b)' : '#27ae60')}">${typeof isOverdue !== 'undefined' && isOverdue ? `Impayé à partir du mois de ${overdueMonthName} ${unpaidFromYear}` : (remainingDebt > 0 ? 'Dette restante' : 'À jour')}</strong>
                 </td>
               </tr>
             </tfoot>
@@ -398,6 +443,8 @@ const ReceiptManager = {
       debtAmount: Number(p.debt_amount || 0),
       paidAmount,
       paymentMethod,
+      periodStart: p.period_start || null,
+      periodEnd: p.period_end || null,
       observations: p.observations || '',
       currency: 'FCFA',
     };

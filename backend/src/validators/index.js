@@ -74,6 +74,12 @@ const createUser = Joi.object({
   can_manage_users: Joi.boolean().default(false),
   can_view_all_calendars: Joi.boolean().default(false),
   can_manage_utilities: Joi.boolean().default(false),
+  can_manage_worksites: Joi.boolean().default(false),
+  can_delete_worksites: Joi.boolean().default(false),
+  can_manage_stock: Joi.boolean().default(false),
+  can_delete_stock: Joi.boolean().default(false),
+  can_manage_documents: Joi.boolean().default(false),
+  can_manage_expenses: Joi.boolean().default(false),
 });
 
 const updateUser = Joi.object({
@@ -88,6 +94,12 @@ const updateUser = Joi.object({
   can_manage_users: Joi.boolean(),
   can_view_all_calendars: Joi.boolean(),
   can_manage_utilities: Joi.boolean(),
+  can_manage_worksites: Joi.boolean(),
+  can_delete_worksites: Joi.boolean(),
+  can_manage_stock: Joi.boolean(),
+  can_delete_stock: Joi.boolean(),
+  can_manage_documents: Joi.boolean(),
+  can_manage_expenses: Joi.boolean(),
 }).min(1);
 
 // ===== PROPERTIES =====

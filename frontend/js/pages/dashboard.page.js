@@ -94,81 +94,120 @@ const PageDashboard = {
             </div>
           </div>
 
-          <div class="card stat-card">
-            <div class="stat-icon danger">⚠️</div>
+          <div class="card stat-card" onclick="PageExpenses.filterType('gardiennage');Router.go('expenses')" style="cursor:pointer;border-left:4px solid var(--success)">
+            <div class="stat-icon success">🛡️</div>
             <div class="stat-info">
-              <div class="stat-value">${fmt(fin.unpaid)}</div>
-              <div class="stat-name">Impayés & Retards</div>
+              <div class="stat-value" style="color:var(--success)">${fmt(fin.caretaker_expenses)}</div>
+              <div class="stat-name">Salaires Gardiens Déduits</div>
             </div>
           </div>
 
-          <div class="card stat-card" onclick="Router.go('maintenance')" style="cursor:pointer">
+          <div class="card stat-card" onclick="PageExpenses.filterType('maintenance');Router.go('expenses')" style="cursor:pointer;border-left:4px solid var(--warning)">
             <div class="stat-icon warning">🔧</div>
             <div class="stat-info">
-              <div class="stat-value">${fmt(fin.expenses)}</div>
-              <div class="stat-name">Dépenses (${mnt.active || 0} maint. en cours)</div>
+              <div class="stat-value" style="color:var(--warning)">${fmt(fin.maintenance_expenses + (fin.other_expenses || 0))}</div>
+              <div class="stat-name">Travaux & Autres Charges</div>
             </div>
           </div>
 
-          <div class="card stat-card" style="border:2px solid ${balanceColor}">
+          <div class="card stat-card" style="border:2px solid ${balanceColor};background:rgba(39,174,96,0.03)">
             <div class="stat-icon" style="background:rgba(39,174,96,0.1);color:${balanceColor}">📈</div>
             <div class="stat-info">
               <div class="stat-value" style="color:${balanceColor}">${fmt(fin.balance)}</div>
-              <div class="stat-name">Solde Net (Revenus − Dépenses)</div>
+              <div class="stat-name">Solde Net Reversé au Bailleur</div>
             </div>
           </div>
         </div>
 
-        <!-- DÉTAIL PAR IMMEUBLE -->
+        <!-- DÉTAIL PAR IMMEUBLE AVEC TRANSPARENCE COMPLÈTE -->
         <div class="card">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-            <h3 style="font-size:16px;font-weight:700">🏢 Vos Immeubles (${props.length})</h3>
-            <span style="font-size:12px;color:var(--text-muted)">Cliquez sur un immeuble pour analyser son bilan</span>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+            <div>
+              <h3 style="font-size:16px;font-weight:700;margin:0">🏢 Situation Détaillée de Vos Immeubles (${props.length})</h3>
+              <p style="font-size:12px;color:var(--text-muted);margin:3px 0 0">
+                Transparence complète : loyers perçus, salaires des gardiens payés, travaux réalisés et solde net reversé.
+              </p>
+            </div>
+            <button class="btn btn-sm btn-outline" onclick="Router.go('expenses')">🧾 Toutes les Dépenses</button>
           </div>
 
           ${!props.length ? '<p style="color:var(--text-muted);text-align:center;padding:30px">Aucun immeuble assigné à votre compte pour le moment. Contactez SMG IMMOBILIER.</p>' : `
-            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px">
-              ${props.map((p) => `
-                <div class="card" style="border:1px solid var(--border);border-radius:10px;padding:16px;background:var(--card-bg)">
-                  <div style="display:flex;justify-content:space-between;align-items:flex-start">
-                    <div>
-                      <h4 style="font-size:15px;font-weight:800;color:var(--primary);margin:0">🏢 ${p.property_name}</h4>
-                      <p style="font-size:12px;color:var(--text-muted);margin:2px 0 0">📍 ${p.address || ''}, ${p.city || ''}</p>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px">
+              ${props.map((p) => {
+                const propBalanceColor = (p.balance >= 0) ? 'var(--success)' : 'var(--danger)';
+                return `
+                  <div class="card" style="border:1px solid var(--border);border-radius:10px;padding:16px;background:var(--card-bg)">
+                    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+                      <div>
+                        <h4 style="font-size:15px;font-weight:800;color:var(--primary);margin:0">🏢 ${p.property_name}</h4>
+                        <p style="font-size:12px;color:var(--text-muted);margin:2px 0 0">📍 ${p.address || ''}, ${p.city || ''}</p>
+                      </div>
+                      <span class="badge badge-${p.free > 0 ? 'warning' : 'success'}">
+                        ${p.occupied}/${p.apartments} occupés
+                      </span>
                     </div>
-                    <span class="badge badge-${p.free > 0 ? 'warning' : 'success'}">
-                      ${p.occupied}/${p.apartments} occupés
-                    </span>
-                  </div>
 
-                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:14px 0;padding:10px;background:var(--secondary-bg, #f8f9fa);border-radius:8px;font-size:12px">
-                    <div>
-                      <span style="color:var(--text-muted);display:block">Loyer mensuel attendu</span>
-                      <b style="color:var(--text)">${fmt(p.loyer_attendu)}</b>
+                    <!-- BLOC GARDIEN DE L'IMMEUBLE -->
+                    <div style="margin:12px 0;padding:10px;background:rgba(46,125,50,0.06);border-left:3px solid var(--success);border-radius:6px;font-size:12px">
+                      <div style="display:flex;justify-content:space-between;align-items:center">
+                        <span style="font-weight:700;color:var(--success)">🛡️ Gardien de l'immeuble :</span>
+                        <b>${p.caretaker_name || 'Non renseigné'}</b>
+                      </div>
+                      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;color:var(--text-muted)">
+                        <span>Salaire mensuel convenu : <b>${fmt(p.caretaker_salary)}</b></span>
+                        <span>Déduit au bilan : <b style="color:var(--danger)">${fmt(p.expenses_caretaker)}</b></span>
+                      </div>
                     </div>
-                    <div>
-                      <span style="color:var(--text-muted);display:block">Total encaissé</span>
-                      <b style="color:var(--success)">${fmt(p.revenue)}</b>
-                    </div>
-                    <div>
-                      <span style="color:var(--text-muted);display:block">Impayés</span>
-                      <b style="color:var(--danger)">${fmt(p.unpaid)}</b>
-                    </div>
-                    <div>
-                      <span style="color:var(--text-muted);display:block">Maintenances</span>
-                      <b>${p.maintenances_active} en cours</b>
-                    </div>
-                  </div>
 
-                  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">
-                    <button class="btn btn-sm btn-primary" style="flex:1" onclick="Router.go('management-reports')">
-                      📊 Rapport
-                    </button>
-                    <button class="btn btn-sm btn-outline" style="flex:1" onclick="Router.go('situation')">
-                      📋 Situation
-                    </button>
+                    <!-- BILAN FINANCIER DE L'IMMEUBLE -->
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;padding:10px;background:var(--secondary-bg, #f8f9fa);border-radius:8px;font-size:12px">
+                      <div>
+                        <span style="color:var(--text-muted);display:block">Loyers perçus</span>
+                        <b style="color:var(--success);font-size:13px">${fmt(p.revenue)}</b>
+                        <span style="display:block;font-size:10.5px;color:var(--text-muted)">(${p.paying_tenants_count || 0} locataire(s) ont réglé)</span>
+                      </div>
+                      <div>
+                        <span style="color:var(--text-muted);display:block">Impayés & retards</span>
+                        <b style="color:var(--danger);font-size:13px">${fmt(p.unpaid)}</b>
+                        <span style="display:block;font-size:10.5px;color:var(--text-muted)">(Attendu: ${fmt(p.loyer_attendu)})</span>
+                      </div>
+                      <div>
+                        <span style="color:var(--text-muted);display:block">Dépenses déduites</span>
+                        <b style="color:var(--danger);font-size:13px">− ${fmt(p.expenses_total)}</b>
+                        <span style="display:block;font-size:10.5px;color:var(--text-muted)">(${fmt(p.expenses_caretaker)} gardien + ${fmt(p.expenses_maintenance)} travaux)</span>
+                      </div>
+                      <div style="border-left:2px solid var(--border);padding-left:6px">
+                        <span style="color:var(--text-muted);display:block;font-weight:700">Solde Net Reversé</span>
+                        <b style="color:${propBalanceColor};font-size:13.5px">${fmt(p.balance)}</b>
+                      </div>
+                    </div>
+
+                    <!-- DERNIÈRES DÉPENSES DE L'IMMEUBLE -->
+                    ${p.recent_expenses && p.recent_expenses.length ? `
+                      <div style="margin-bottom:12px;font-size:11.5px">
+                        <span style="font-weight:700;color:var(--text-muted);display:block;margin-bottom:4px">Dernières dépenses imputées :</span>
+                        <div style="display:flex;flex-direction:column;gap:3px">
+                          ${p.recent_expenses.map(e => `
+                            <div style="display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px dashed var(--border)">
+                              <span>${e.expense_type === 'gardiennage' ? '🛡️' : '🔧'} ${e.item_name}</span>
+                              <b style="color:var(--danger)">− ${fmt(e.total_price || (e.unit_price * (e.quantity || 1)))}</b>
+                            </div>
+                          `).join('')}
+                        </div>
+                      </div>
+                    ` : ''}
+
+                    <div style="display:flex;gap:6px;flex-wrap:wrap">
+                      <button class="btn btn-sm btn-outline" style="flex:1" onclick="PageExpenses.filterProperty(${p.id}); Router.go('expenses')">
+                        🧾 Dépenses (${fmt(p.expenses_total)})
+                      </button>
+                      <button class="btn btn-sm btn-primary" style="flex:1" onclick="Router.go('management-reports')">
+                        📊 Rapport
+                      </button>
+                    </div>
                   </div>
-                </div>
-              `).join('')}
+                `;
+              }).join('')}
             </div>
           `}
         </div>

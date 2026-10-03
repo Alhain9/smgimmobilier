@@ -7,7 +7,7 @@ const Upload = sequelize.define('Upload', {
   file_name: { type: DataTypes.STRING(255), allowNull: false },
   file_path: { type: DataTypes.STRING(255), allowNull: false },
   file_type: { type: DataTypes.STRING(100) },
-  related_table: { type: DataTypes.STRING(64) },
+  related_table: { type: DataTypes.STRING(255) },
   related_id: { type: DataTypes.BIGINT.UNSIGNED },
 }, { tableName: 'uploads', timestamps: true, updatedAt: false });
 

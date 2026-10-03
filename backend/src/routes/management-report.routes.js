@@ -8,6 +8,10 @@ const { injectOwnerProperties } = require('../middlewares/bailleur.middleware');
 // Toutes les routes nécessitent l'authentification
 router.use(authenticate, injectOwnerProperties);
 
+// Récapitulatif des entrées par immeuble (JSON & PDF)
+router.get('/inflows-recap', ctrl.getInflowsRecap.bind(ctrl));
+router.get('/inflows-recap/pdf', ctrl.downloadInflowsRecapPdf.bind(ctrl));
+
 // Rapport d'un immeuble (JSON & PDF) — accessible bailleur (sur ses biens) ou staff
 router.get('/building/:propertyId', ctrl.getBuildingReport.bind(ctrl));
 router.get('/building/:propertyId/pdf', ctrl.downloadBuildingReportPdf.bind(ctrl));

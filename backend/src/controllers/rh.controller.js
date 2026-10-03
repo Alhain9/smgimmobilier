@@ -116,6 +116,15 @@ exports.deletePlanning = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+exports.bulkDeletePlannings = async (req, res, next) => {
+  try {
+    const ids = req.body.ids || [];
+    const count = await rhService.bulkDeletePlannings(ids);
+    res.locals.audit = { action: 'DELETE', entity: 'plannings', meta: { ids } };
+    return success(res, { count }, `${count} planning(s) supprimé(s)`);
+  } catch (err) { next(err); }
+};
+
 // ================= POINTAGES =================
 exports.listPointages = async (req, res, next) => {
   try {
@@ -167,5 +176,14 @@ exports.deleteConge = async (req, res, next) => {
     await rhService.deleteConge(req.params.id);
     res.locals.audit = { action: 'DELETE', entity: 'conges', entityId: req.params.id };
     return success(res, null, 'Congé supprimé');
+  } catch (err) { next(err); }
+};
+
+exports.bulkDeleteConges = async (req, res, next) => {
+  try {
+    const ids = req.body.ids || [];
+    const count = await rhService.bulkDeleteConges(ids);
+    res.locals.audit = { action: 'DELETE', entity: 'conges', meta: { ids } };
+    return success(res, { count }, `${count} congé(s) supprimé(s)`);
   } catch (err) { next(err); }
 };

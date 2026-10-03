@@ -629,52 +629,117 @@ class DashboardService {
     const aptIds = allApts.map((a) => a.id);
     const occupied = allApts.filter((a) => a.status === 'occupied').length;
 
-    // Finances : paiements liés aux appartements du bailleur
-    const [payments, maintenances, expenses, directExpenses] = await Promise.all([
-      Payment.findAll({ where: { apartment_id: { [Op.in]: aptIds } } }),
-      Maintenance.findAll({ where: { apartment_id: { [Op.in]: aptIds } } }),
-      Expense.findAll({
-        where: { maintenance_id: { [Op.not]: null } },
-        include: [{
-          model: Maintenance, as: 'maintenance', required: true,
-          where: { apartment_id: { [Op.in]: aptIds } },
-          attributes: ['id', 'apartment_id'],
-        }],
+    // Finances : paiements et dépenses liés aux biens du bailleur
+    const [payments, maintenances, directExpenses] = await Promise.all([
+      Payment.findAll({
+        where: { apartment_id: { [Op.in]: aptIds } },
+        include: [{ model: Tenant, as: 'tenant', attributes: ['id', 'user_id'] }],
       }),
-      // Dépenses directement rattachées à une propriété du bailleur
-      Expense.findAll({ where: { property_id: { [Op.in]: propertyIds } } }),
+      Maintenance.findAll({
+        where: { apartment_id: { [Op.in]: aptIds } },
+        include: [{ model: Expense, as: 'expenses' }],
+      }),
+      // Dépenses directement rattachées aux propriétés du bailleur
+      Expense.findAll({
+        where: { property_id: { [Op.in]: propertyIds } },
+        order: [['payment_date', 'DESC'], ['created_at', 'DESC']],
+      }),
     ]);
+
+    // Extraire toutes les dépenses de maintenance rattachées aux appartements
+    const maintenanceExpenses = [];
+    maintenances.forEach((m) => {
+      (m.expenses || []).forEach((e) => {
+        maintenanceExpenses.push({
+          ...e.toJSON(),
+          property_id: allApts.find((a) => a.id === m.apartment_id)?.property_id,
+        });
+      });
+    });
+
+    const allExpensesList = [...directExpenses.map(e => e.toJSON()), ...maintenanceExpenses];
 
     const revenue = payments.filter((p) => p.status === 'completed').reduce((s, p) => s + parseFloat(p.amount || 0), 0);
     const unpaid = payments.filter((p) => ['pending', 'failed', 'awaiting_confirmation'].includes(p.status)).reduce((s, p) => s + parseFloat(p.amount || 0), 0);
-    const totalExpenses = [...expenses, ...directExpenses].reduce((s, e) => s + parseFloat(e.total_price || 0), 0);
+    
+    let totalCaretakerExpenses = 0;
+    let totalMaintExpenses = 0;
+    let totalOtherExpenses = 0;
 
+    allExpensesList.forEach((e) => {
+      const price = parseFloat(e.total_price || (e.unit_price * (e.quantity || 1)) || 0);
+      if (e.expense_type === 'gardiennage' || (e.category && e.category.toLowerCase().includes('gardien'))) {
+        totalCaretakerExpenses += price;
+      } else if (e.expense_type === 'maintenance' || e.maintenance_id) {
+        totalMaintExpenses += price;
+      } else {
+        totalOtherExpenses += price;
+      }
+    });
+
+    const totalExpenses = totalCaretakerExpenses + totalMaintExpenses + totalOtherExpenses;
     const activeMaint = maintenances.filter((m) => ['reported', 'validated', 'in_progress'].includes(m.status)).length;
     const completedMaint = maintenances.filter((m) => m.status === 'completed').length;
 
-    // Détail par immeuble
+    // Détail par immeuble avec transparence totale
     const byProperty = properties.map((prop) => {
       const apts = prop.apartments || [];
       const aIds = apts.map((a) => a.id);
       const propPayments = payments.filter((p) => aIds.includes(p.apartment_id));
-      const propRev = propPayments.filter((p) => p.status === 'completed').reduce((s, p) => s + parseFloat(p.amount || 0), 0);
+      const propCompletedPayments = propPayments.filter((p) => p.status === 'completed');
+      const propRev = propCompletedPayments.reduce((s, p) => s + parseFloat(p.amount || 0), 0);
       const propUnpaid = propPayments.filter((p) => ['pending', 'failed', 'awaiting_confirmation'].includes(p.status)).reduce((s, p) => s + parseFloat(p.amount || 0), 0);
       const propMaint = maintenances.filter((m) => aIds.includes(m.apartment_id));
       const loyerAttendu = apts.filter((a) => a.status === 'occupied').reduce((s, a) => s + parseFloat(a.rent_amount || 0), 0);
+
+      // Dépenses de cet immeuble
+      const propExpensesList = allExpensesList.filter((e) => Number(e.property_id) === Number(prop.id));
+      let propCaretakerExp = 0;
+      let propMaintExp = 0;
+      let propOtherExp = 0;
+
+      propExpensesList.forEach((e) => {
+        const cost = parseFloat(e.total_price || (e.unit_price * (e.quantity || 1)) || 0);
+        if (e.expense_type === 'gardiennage' || (e.category && e.category.toLowerCase().includes('gardien'))) {
+          propCaretakerExp += cost;
+        } else if (e.expense_type === 'maintenance' || e.maintenance_id) {
+          propMaintExp += cost;
+        } else {
+          propOtherExp += cost;
+        }
+      });
+
+      const propTotalExp = propCaretakerExp + propMaintExp + propOtherExp;
+      const propBalance = propRev - propTotalExp;
+
+      // Nombre de locataires ayant réglé
+      const payingTenantIds = new Set(propCompletedPayments.map((p) => p.tenant_id).filter(Boolean));
+      const totalTenantsInProp = apts.reduce((sum, a) => sum + (a.tenants ? a.tenants.length : 0), 0);
 
       return {
         id: prop.id,
         property_name: prop.property_name,
         address: prop.address,
         city: prop.city,
+        caretaker_name: prop.caretaker_name || null,
+        caretaker_phone: prop.caretaker_phone || null,
+        caretaker_salary: parseFloat(prop.caretaker_salary || 0),
         apartments: apts.length,
         occupied: apts.filter((a) => a.status === 'occupied').length,
         free: apts.filter((a) => a.status === 'free').length,
+        tenants_count: totalTenantsInProp,
+        paying_tenants_count: payingTenantIds.size,
         loyer_attendu: loyerAttendu,
         revenue: propRev,
         unpaid: propUnpaid,
+        expenses_total: propTotalExp,
+        expenses_caretaker: propCaretakerExp,
+        expenses_maintenance: propMaintExp,
+        expenses_other: propOtherExp,
+        balance: propBalance,
         maintenances_active: propMaint.filter((m) => ['reported', 'validated', 'in_progress'].includes(m.status)).length,
         maintenances_completed: propMaint.filter((m) => m.status === 'completed').length,
+        recent_expenses: propExpensesList.slice(0, 5),
       };
     });
 
@@ -691,6 +756,9 @@ class DashboardService {
         revenue,
         unpaid,
         expenses: totalExpenses,
+        caretaker_expenses: totalCaretakerExpenses,
+        maintenance_expenses: totalMaintExpenses,
+        other_expenses: totalOtherExpenses,
         balance: revenue - totalExpenses,
       },
       maintenances: { active: activeMaint, completed: completedMaint, total: maintenances.length },

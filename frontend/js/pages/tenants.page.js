@@ -32,14 +32,66 @@ const PageTenants = {
     }
   },
 
+  _showAll: false,
+  toggleShowAll() {
+    this._showAll = !this._showAll;
+    this.render();
+  },
+
   async render() {
     await this.loadAuxiliaryData();
+
+    const isRestrictedRole = Auth.hasRole('comptable', 'gestionnaire') && !Auth.hasRole('manager', 'super_admin');
+
+    let rawTenants = [];
+    try {
+      const res = await API.get('/tenants');
+      rawTenants = res.data || [];
+    } catch (_) { rawTenants = []; }
+
+    const assignedCount = rawTenants.filter((t) => t.is_assigned).length;
+    const othersCount = rawTenants.length - assignedCount;
+    const hasAssigned = assignedCount > 0;
+
+    let filterBanner = '';
+    if (isRestrictedRole && hasAssigned) {
+      if (!this._showAll) {
+        filterBanner = `
+          <div style="background:#e8f5e9;border:1px solid #c8e6c9;padding:10px 16px;border-radius:8px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+            <div style="font-size:13px;color:#1b5e20;font-weight:600">
+              👤 <b>Affichage prioritaire :</b> Vous visualisez les <b>${assignedCount}</b> locataire(s) de vos immeubles. ${othersCount > 0 ? `(${othersCount} autre(s) locataire(s) masqué(s))` : ''}
+            </div>
+            ${othersCount > 0 ? `
+              <button class="btn btn-sm btn-outline" style="border-color:#2e7d32;color:#1b5e20" onclick="PageTenants.toggleShowAll()">
+                👁️ Afficher tous les locataires (démasquer)
+              </button>
+            ` : ''}
+          </div>
+        `;
+      } else {
+        filterBanner = `
+          <div style="background:#fff3cd;border:1px solid #ffeeba;padding:10px 16px;border-radius:8px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+            <div style="font-size:13px;color:#856404;font-weight:600">
+              👁️ <b>Tous les locataires sont visibles :</b> Ceux de vos immeubles assignés sont placés en tête de liste.
+            </div>
+            <button class="btn btn-sm btn-primary" onclick="PageTenants.toggleShowAll()">
+              🔒 Masquer les autres locataires
+            </button>
+          </div>
+        `;
+      }
+    }
 
     const data = await CrudPage.list({
       endpoint: '/tenants',
       title: 'Locataires & Affectations',
       canCreate: true,
       onCreate: 'PageTenants.openTenantModal',
+      toolbar: filterBanner,
+      mapData: (all) => {
+        if (!isRestrictedRole || !hasAssigned || this._showAll) return all;
+        return all.filter((t) => t.is_assigned);
+      },
       columns: [
         {
           label: 'Locataire',
@@ -65,8 +117,11 @@ const PageTenants = {
           label: 'Immeuble de Résidence',
           render: (r) => {
             const prop = r.apartment?.property;
+            const badge = r.is_assigned
+              ? `<span style="display:inline-block;background:#d4edda;color:#155724;font-size:10px;font-weight:700;padding:1px 6px;border-radius:20px;margin-left:4px">★ Mon immeuble</span>`
+              : (isRestrictedRole && hasAssigned ? `<span style="display:inline-block;background:#f1f5f9;color:#64748b;font-size:10px;font-weight:600;padding:1px 6px;border-radius:20px;margin-left:4px">Autre</span>` : '');
             return prop
-              ? `<b style="color:var(--primary)">🏢 ${prop.property_name}</b>${prop.city ? `<br><small class="text-muted">📍 ${prop.city}</small>` : ''}`
+              ? `<b style="color:var(--primary)">🏢 ${prop.property_name}</b>${badge}${prop.city ? `<br><small class="text-muted">📍 ${prop.city}</small>` : ''}`
               : '<span class="text-muted">—</span>';
           },
         },
@@ -167,18 +222,6 @@ const PageTenants = {
               <input type="text" id="tm_profession" class="form-control" placeholder="ex: Cadre, Commerçant(e)..." value="${t ? (t.profession || '') : ''}" />
             </div>
             <div>
-              <label class="form-label">Numéro de CNI</label>
-              <input type="text" id="tm_cni" class="form-control" placeholder="ex: 118492048" value="${t ? (t.cni || t.national_id || '') : ''}" />
-            </div>
-            <div>
-              <label class="form-label">Date de délivrance CNI</label>
-              <input type="date" id="tm_cni_date" class="form-control" value="${t ? (t.cni_delivery_date ? t.cni_delivery_date.slice(0, 10) : '') : ''}" />
-            </div>
-            <div>
-              <label class="form-label">Lieu de délivrance CNI</label>
-              <input type="text" id="tm_cni_place" class="form-control" placeholder="ex: Yaoundé, Douala..." value="${t ? (t.cni_delivery_place || '') : ''}" />
-            </div>
-            <div>
               <label class="form-label">Contact d'urgence (Nom & Tél)</label>
               <input type="text" id="tm_emergency" class="form-control" placeholder="ex: Époux/Parent : 677 00 00 00" value="${t ? (t.emergency_contact || '') : ''}" />
             </div>
@@ -209,51 +252,63 @@ const PageTenants = {
             </div>
           </div>
 
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+            <div>
+              <label class="form-label">Montant du loyer mensuel (FCFA) *</label>
+              <input type="number" id="tm_monthly_rent" class="form-control" required placeholder="ex: 150000" oninput="PageTenants.updateCalculatedMonths()" />
+            </div>
+            <div>
+              <label class="form-label">Description du logement</label>
+              <input type="text" id="tm_description" class="form-control" placeholder="ex: Studio moderne, Chambre 12..." />
+            </div>
+          </div>
+
           <div id="tm_apt_info_box" style="display:none;margin-top:10px;padding:10px;background:rgba(26,58,92,0.05);border-radius:6px;font-size:12px">
             <!-- Rempli dynamiquement -->
           </div>
         </div>
 
-        <!-- VOLET 3 : CONTRAT DE BAIL & MODALITÉS -->
-        <div id="tm_lease_section" style="background:var(--card-bg, #ffffff);border:1px solid var(--border);padding:14px;border-radius:8px;margin-bottom:14px">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-            <h4 style="font-size:14px;font-weight:700;margin:0;color:var(--primary);display:flex;align-items:center;gap:6px">
-              <span>📄</span> 3. Contrat de Bail & Modalités Financières
-            </h4>
-            <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
-              <input type="checkbox" id="tm_create_lease" checked onchange="PageTenants.toggleLeaseFields()" />
-              Établir le bail automatiquement
-            </label>
-          </div>
+        <!-- VOLET 3 : RÈGLEMENT INITIAL & OBSERVATIONS -->
+        <div style="background:var(--card-bg, #ffffff);border:1px solid var(--border);padding:14px;border-radius:8px;margin-bottom:14px">
+          <h4 style="font-size:14px;font-weight:700;margin:0 0 12px;color:var(--primary);display:flex;align-items:center;gap:6px">
+            <span>💰</span> 3. Modalités Financières, Paiement & Observations
+          </h4>
+          <p style="font-size:12px;color:var(--text-muted);margin:-6px 0 12px">
+            Renseignez le montant versé, la période couverte, le mode de règlement, la caution et les observations contractuelles pour l'archivage.
+          </p>
 
-          <div id="tm_lease_fields">
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-              <div>
-                <label class="form-label">Date d'entrée / prise d'effet *</label>
-                <input type="date" id="tm_start_date" class="form-control" value="${t?.start_date ? t.start_date.slice(0, 10) : new Date().toISOString().slice(0, 10)}" onchange="PageTenants.onDurationOrStartChange()" />
-              </div>
-              <div>
-                <label class="form-label">Durée ferme du bail *</label>
-                <select id="tm_duration" class="form-control" onchange="PageTenants.onDurationOrStartChange()">
-                  <option value="12" selected>1 an (12 mois) — Recommandé</option>
-                  <option value="6">6 mois</option>
-                  <option value="24">2 ans (24 mois)</option>
-                  <option value="36">3 ans (36 mois)</option>
-                  <option value="custom">Personnalisée</option>
-                </select>
-              </div>
-              <div>
-                <label class="form-label">Date d'échéance (Fin du bail) *</label>
-                <input type="date" id="tm_end_date" class="form-control" value="${t?.end_date ? t.end_date.slice(0, 10) : ''}" />
-              </div>
-              <div>
-                <label class="form-label">Loyer mensuel contractuel (FCFA) *</label>
-                <input type="number" id="tm_monthly_rent" class="form-control" placeholder="Loyer en FCFA" />
-              </div>
-              <div>
-                <label class="form-label">Dépôt de garantie / Caution (FCFA)</label>
-                <input type="number" id="tm_deposit" class="form-control" placeholder="Montant caution" />
-              </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div>
+              <label class="form-label">Montant versé (FCFA)</label>
+              <input type="number" id="tm_paid_amount" class="form-control" placeholder="0" oninput="PageTenants.updateCalculatedMonths()" />
+              <small id="tm_months_calc_badge" class="text-muted" style="display:block;margin-top:3px;font-size:11.5px;font-weight:600;color:var(--primary)"></small>
+            </div>
+            <div>
+              <label class="form-label">Caution / Dépôt de garantie (FCFA)</label>
+              <input type="number" id="tm_deposit" class="form-control" placeholder="0" />
+            </div>
+            <div>
+              <label class="form-label">Période correspondant au paiement (Début)</label>
+              <input type="date" id="tm_period_start" class="form-control" value="${t?.start_date ? t.start_date.slice(0, 10) : new Date().toISOString().slice(0, 10)}" onchange="PageTenants.updateCalculatedMonths()" />
+            </div>
+            <div>
+              <label class="form-label">Période correspondant au paiement (Fin)</label>
+              <input type="date" id="tm_period_end" class="form-control" value="${t?.end_date ? t.end_date.slice(0, 10) : ''}" />
+            </div>
+            <div style="grid-column: 1 / -1">
+              <label class="form-label">Mode de paiement</label>
+              <select id="tm_payment_method" class="form-control">
+                <option value="cash" selected>Espèces (Cash)</option>
+                <option value="bank_transfer">Virement bancaire</option>
+                <option value="orange_money">Orange Money</option>
+                <option value="mtn_mobile_money">MTN MoMo</option>
+                <option value="campay">Campay</option>
+              </select>
+            </div>
+            <div style="grid-column: 1 / -1">
+              <label class="form-label">Observation (Archivage et historique des modalités)</label>
+              <textarea id="tm_observations" class="form-control" rows="3" placeholder="ex: Paye 08 mois + la caution maintenant et à la fin du mois il complète le reste...">${t ? (t.observations || '') : ''}</textarea>
+              <small class="text-muted" style="font-size:11px">Très important pour archiver les informations du locataire et les modalités de paiement.</small>
             </div>
           </div>
         </div>
@@ -261,7 +316,7 @@ const PageTenants = {
         <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
           <button type="button" class="btn btn-outline" onclick="Modal.close()">Annuler</button>
           <button type="submit" class="btn btn-primary" id="tm_submit_btn">
-            ${t ? 'Enregistrer les Modifications' : 'Enregistrer le Locataire & Établir le Bail'}
+            ${t ? 'Enregistrer les Modifications' : 'Enregistrer le Locataire'}
           </button>
         </div>
       </form>
@@ -277,7 +332,6 @@ const PageTenants = {
     if (currentPropId) {
       PageTenants.populateApartmentsForProperty(currentPropId, currentAptId);
     }
-    PageTenants.onDurationOrStartChange();
   },
 
   onPropertyChange() {
@@ -321,7 +375,7 @@ const PageTenants = {
         const isSel = String(selectedAptId) === String(a.id);
         const statusBadge = isFree ? '🟢 Libre' : '🔴 Occupé';
 
-        return `<option value="${a.id}" data-rent="${a.rent_amount}" data-type="${a.apartment_type || ''}" data-status="${a.status}" ${isSel ? 'selected' : ''}>
+        return `<option value="${a.id}" data-rent="${a.rent_amount}" data-type="${a.apartment_type || ''}" data-desc="${Helpers.escapeHtml(a.description || a.apartment_type || '')}" data-status="${a.status}" ${isSel ? 'selected' : ''}>
           Logement ${a.apartment_number}${typeStr}${floorStr} — ${fmt(a.rent_amount)} FCFA [${statusBadge}]
         </option>`;
       }).join('');
@@ -333,6 +387,7 @@ const PageTenants = {
     const aptSelect = document.getElementById('tm_apartment');
     const infoBox = document.getElementById('tm_apt_info_box');
     const rentInput = document.getElementById('tm_monthly_rent');
+    const descInput = document.getElementById('tm_description');
     const depositInput = document.getElementById('tm_deposit');
     if (!aptSelect) return;
 
@@ -344,10 +399,14 @@ const PageTenants = {
 
     const rent = opt.getAttribute('data-rent') || '0';
     const type = opt.getAttribute('data-type') || 'Logement';
+    const desc = opt.getAttribute('data-desc') || type;
     const status = opt.getAttribute('data-status') || '';
 
     if (rentInput && (!rentInput.value || rentInput.value === '0')) {
       rentInput.value = rent;
+    }
+    if (descInput && !descInput.value) {
+      descInput.value = desc;
     }
     if (depositInput && (!depositInput.value || depositInput.value === '0')) {
       depositInput.value = rent;
@@ -366,31 +425,34 @@ const PageTenants = {
         </div>
       `;
     }
+    this.updateCalculatedMonths();
   },
 
-  toggleLeaseFields() {
-    const chk = document.getElementById('tm_create_lease');
-    const fields = document.getElementById('tm_lease_fields');
-    if (fields && chk) {
-      fields.style.display = chk.checked ? 'block' : 'none';
+  updateCalculatedMonths() {
+    const rent = parseFloat(document.getElementById('tm_monthly_rent')?.value) || 0;
+    const paid = parseFloat(document.getElementById('tm_paid_amount')?.value) || 0;
+    const badge = document.getElementById('tm_months_calc_badge');
+    const startVal = document.getElementById('tm_period_start')?.value;
+    const endInput = document.getElementById('tm_period_end');
+
+    if (rent > 0 && paid > 0) {
+      const months = Math.floor(paid / rent);
+      const remainder = paid % rent;
+      const desc = months > 0 
+        ? `💡 Correspond à ${months} mois de loyer${remainder > 0 ? ` + reliquat ${remainder.toLocaleString('fr-FR')} FCFA` : ''}`
+        : `💡 Avance partielle (${paid.toLocaleString('fr-FR')} FCFA)`;
+      if (badge) badge.textContent = desc;
+
+      if (startVal && endInput && months > 0 && (!endInput.value || endInput.dataset.autoCalculated === 'true')) {
+        const d = new Date(startVal);
+        d.setMonth(d.getMonth() + months);
+        d.setDate(d.getDate() - 1);
+        endInput.value = d.toISOString().slice(0, 10);
+        endInput.dataset.autoCalculated = 'true';
+      }
+    } else {
+      if (badge) badge.textContent = '';
     }
-  },
-
-  onDurationOrStartChange() {
-    const startVal = document.getElementById('tm_start_date')?.value;
-    const durVal = document.getElementById('tm_duration')?.value;
-    const endInput = document.getElementById('tm_end_date');
-    if (!startVal || !endInput) return;
-
-    if (durVal === 'custom') return;
-
-    const months = parseInt(durVal, 10);
-    if (isNaN(months) || months <= 0) return;
-
-    const end = new Date(startVal);
-    end.setMonth(end.getMonth() + months);
-    end.setDate(end.getDate() - 1);
-    endInput.value = end.toISOString().slice(0, 10);
   },
 
   async submitTenantModal(e, tenantId) {
@@ -401,43 +463,41 @@ const PageTenants = {
     const civility = document.getElementById('tm_civility')?.value || 'Monsieur';
     const full_name = document.getElementById('tm_full_name').value.trim();
     const phone = document.getElementById('tm_phone').value.trim();
-    const email = document.getElementById('tm_email').value.trim();
-    const password = document.getElementById('tm_password').value;
-    const profession = document.getElementById('tm_profession').value.trim();
-    const national_id = document.getElementById('tm_cni').value.trim();
-    const cni_delivery_date = document.getElementById('tm_cni_date').value || null;
-    const cni_delivery_place = document.getElementById('tm_cni_place').value.trim() || null;
-    const emergency_contact = document.getElementById('tm_emergency').value.trim();
+    const email = document.getElementById('tm_email')?.value.trim() || `${phone.replace(/\s+/g, '')}@smg-immobilier.com`;
+    const password = document.getElementById('tm_password')?.value;
+    const profession = document.getElementById('tm_profession')?.value.trim() || null;
+    const national_id = document.getElementById('tm_cni')?.value.trim() || null;
+    const cni_delivery_date = document.getElementById('tm_cni_date')?.value || null;
+    const cni_delivery_place = document.getElementById('tm_cni_place')?.value.trim() || null;
+    const emergency_contact = document.getElementById('tm_emergency')?.value.trim() || null;
 
     const apartment_id = document.getElementById('tm_apartment').value ? parseInt(document.getElementById('tm_apartment').value, 10) : null;
-    const create_lease = document.getElementById('tm_create_lease') ? document.getElementById('tm_create_lease').checked : false;
-
-    const start_date = document.getElementById('tm_start_date')?.value || null;
-    const end_date = document.getElementById('tm_end_date')?.value || null;
-    const duration_months = document.getElementById('tm_duration')?.value !== 'custom' ? parseInt(document.getElementById('tm_duration').value, 10) : null;
     const monthly_rent = parseFloat(document.getElementById('tm_monthly_rent')?.value) || 0;
+    const description = document.getElementById('tm_description')?.value.trim() || '';
     const deposit_amount = parseFloat(document.getElementById('tm_deposit')?.value) || 0;
-
-    const downloadWord = document.getElementById('tm_download_word')?.checked;
+    const paid_amount = parseFloat(document.getElementById('tm_paid_amount')?.value) || 0;
+    const period_start = document.getElementById('tm_period_start')?.value || null;
+    const period_end = document.getElementById('tm_period_end')?.value || null;
+    const payment_method = document.getElementById('tm_payment_method')?.value || 'cash';
+    const observations = document.getElementById('tm_observations')?.value.trim() || '';
 
     const payload = {
       civility,
       full_name,
       phone,
       email,
-      profession: profession || null,
-      national_id: national_id || null,
-      cni: national_id || null,
+      profession,
+      national_id,
+      cni: national_id,
       cni_delivery_date,
       cni_delivery_place,
-      emergency_contact: emergency_contact || null,
+      emergency_contact,
       apartment_id,
-      create_lease,
-      start_date,
-      end_date,
-      duration_months,
       monthly_rent,
       deposit_amount,
+      start_date: period_start || new Date().toISOString().slice(0, 10),
+      end_date: period_end,
+      observations,
     };
 
     if (password) payload.password = password;
@@ -452,6 +512,35 @@ const PageTenants = {
         const res = await API.post('/tenants', payload);
         savedTenant = res.data;
         Toast.success('Locataire enregistré et logement attribué avec succès ! 🎉');
+      }
+
+      // Mettre à jour la description et le loyer du logement si renseigné
+      if (apartment_id && (description || monthly_rent > 0)) {
+        try {
+          await API.put('/apartments/' + apartment_id, {
+            description: description,
+            rent_amount: monthly_rent
+          });
+        } catch (_) {}
+      }
+
+      // Si un versement initial est effectué, créer le paiement correspondant
+      if (paid_amount > 0 && savedTenant) {
+        try {
+          await API.post('/payments', {
+            tenant_id: savedTenant.id,
+            apartment_id: apartment_id,
+            amount: paid_amount,
+            payment_date: new Date().toISOString().slice(0, 10),
+            payment_method: payment_method,
+            period_start: period_start,
+            period_end: period_end,
+            observations: observations,
+            status: 'completed'
+          });
+        } catch (payErr) {
+          console.warn('Erreur enregistrement versement initial:', payErr);
+        }
       }
 
       Modal.close();

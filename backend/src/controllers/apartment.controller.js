@@ -8,7 +8,7 @@ const controller = createCrudController(service, {
 
 controller.getAll = async (req, res, next) => {
   try {
-    const data = await service.getAll(req.query, req.ownerPropertyIds);
+    const data = await service.getAll(req.query, req.ownerPropertyIds, req.assignedPropertyIds);
     return success(res, data);
   } catch (err) { next(err); }
 };

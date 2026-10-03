@@ -129,27 +129,134 @@ class ExcelService {
   // ===== Rapports prédéfinis =====
 
   /**
-   * Situation d'un immeuble → Excel
+   * Situation d'un immeuble → Excel (Modèle officiel 12 colonnes avec en-tête vert et totaux rouges)
    */
   situationImmeubleWorkbook(data) {
-    return this.createWorkbook({
-      title: `Situation — ${data.immeuble}`,
-      sheetName: 'Situation Immeuble',
-      columns: [
-        { header: 'N° Chambre', key: 'numero_chambre', width: 14 },
-        { header: 'Locataire', key: 'nom_locataire', width: 25 },
-        { header: 'Téléphone', key: 'telephone', width: 16 },
-        { header: 'Date occupation', key: 'date_occupation', width: 16 },
-        { header: 'Loyer', key: 'montant_loyer', width: 14, style: 'money' },
-        { header: 'Arriéré', key: 'arriere_loyer', width: 14, style: 'money' },
-        { header: 'Dette', key: 'dette', width: 14, style: 'money' },
-        { header: 'Anticipation', key: 'anticipation', width: 14, style: 'money' },
-        { header: 'Versement mois', key: 'versement_mois', width: 16, style: 'money' },
-        { header: 'Observations', key: 'observations', width: 22 },
-      ],
-      rows: data.lignes,
-      totals: data.total,
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'SMG IMMOBILIER';
+    wb.created = new Date();
+
+    const ws = wb.addWorksheet('Situation Immeuble');
+
+    const titleText = `SITUATION IMMEUBLE ${(data.immeuble || '').toUpperCase()} MOIS ${(data.periode_libelle || '').toUpperCase()}`.trim();
+
+    // 1. Titre général fusionné
+    ws.mergeCells(1, 1, 1, 12);
+    const titleCell = ws.getCell('A1');
+    titleCell.value = titleText;
+    titleCell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FF000000' } };
+    titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getRow(1).height = 32;
+
+    // Définition des 12 colonnes standardisées
+    const columns = [
+      { header: 'N° DU LOGEMENT', key: 'numero_chambre', width: 16, align: 'center' },
+      { header: 'NOMS & PRÉNOMS', key: 'nom_locataire', width: 28, align: 'left', bold: true },
+      { header: 'CONTACT', key: 'telephone', width: 20, align: 'center' },
+      { header: 'MONTANT DU LOYER', key: 'montant_loyer', width: 18, align: 'right', isMoney: true },
+      { header: 'DESCRIPTION DU LOGEMENT', key: 'description_logement', width: 25, align: 'center' },
+      { header: 'ARRIÉRÉ DU LOYER', key: 'arriere_loyer', width: 20, align: 'right', isMoney: true },
+      { header: 'LOYER PAR ANTICIPATION', key: 'anticipation', width: 22, align: 'right', isMoney: true },
+      { header: 'VERSEMENT AU COURS DU MOIS', key: 'versement_mois', width: 24, align: 'right', isMoney: true },
+      { header: 'PÉRIODE CORRESPONDANT AU PAIEMENT', key: 'periode_paiement', width: 30, align: 'center' },
+      { header: 'MODE DE PAIEMENT', key: 'mode_paiement', width: 18, align: 'center' },
+      { header: 'CAUTION', key: 'caution', width: 18, align: 'right', isMoney: true },
+      { header: 'OBSERVATIONS', key: 'observations', width: 34, align: 'left' },
+    ];
+
+    ws.columns = columns.map(c => ({ key: c.key, width: c.width }));
+
+    // 2. Ligne des en-têtes (Ligne 2 avec fond vert pastel #C8E6C9)
+    const headerRow = ws.getRow(2);
+    headerRow.height = 28;
+    columns.forEach((col, idx) => {
+      const cell = headerRow.getCell(idx + 1);
+      cell.value = col.header;
+      cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF000000' } };
+      cell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFC8E6C9' }, // Vert pastel fidèle au modèle
+      };
+      cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FF000000' } },
+        bottom: { style: 'thin', color: { argb: 'FF000000' } },
+        left: { style: 'thin', color: { argb: 'FFCCCCCC' } },
+        right: { style: 'thin', color: { argb: 'FFCCCCCC' } },
+      };
     });
+
+    // 3. Lignes de données
+    const lignes = data.lignes || [];
+    lignes.forEach((item, rIdx) => {
+      const row = ws.addRow(columns.map(c => {
+        const val = item[c.key];
+        if (c.isMoney) return Number(val) || 0;
+        return val != null && val !== '' ? val : '—';
+      }));
+      row.height = 20;
+
+      columns.forEach((col, cIdx) => {
+        const cell = row.getCell(cIdx + 1);
+        cell.alignment = {
+          horizontal: col.align || 'left',
+          vertical: 'middle',
+        };
+        if (col.isMoney) {
+          cell.numFmt = '#,##0';
+        }
+        if (col.bold && item[col.key] && item[col.key] !== '—') {
+          cell.font = { name: 'Calibri', size: 10.5, bold: true };
+        } else {
+          cell.font = { name: 'Calibri', size: 10.5 };
+        }
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FFE0E0E0' } },
+          bottom: { style: 'thin', color: { argb: 'FFE0E0E0' } },
+          left: { style: 'thin', color: { argb: 'FFE0E0E0' } },
+          right: { style: 'thin', color: { argb: 'FFE0E0E0' } },
+        };
+      });
+    });
+
+    // 4. Ligne TOTAL (Rouge en gras fidèle au modèle)
+    const tot = data.total || {};
+    const totalRow = ws.addRow([
+      'TOTAL',
+      '',
+      '',
+      tot.montant_loyer || 0,
+      '',
+      tot.arriere_loyer || 0,
+      tot.anticipation || 0,
+      tot.versement_mois || 0,
+      '',
+      '',
+      tot.caution || 0,
+      '',
+    ]);
+    totalRow.height = 24;
+
+    totalRow.eachCell((cell, colNumber) => {
+      cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFD32F2F' } }; // Rouge vif officiel
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FF000000' } },
+        bottom: { style: 'double', color: { argb: 'FF000000' } },
+        left: { style: 'thin', color: { argb: 'FFE0E0E0' } },
+        right: { style: 'thin', color: { argb: 'FFE0E0E0' } },
+      };
+      if ([4, 6, 7, 8, 12].includes(colNumber)) {
+        cell.numFmt = '#,##0';
+        cell.alignment = { horizontal: 'right', vertical: 'middle' };
+      } else if (colNumber === 1) {
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      } else {
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      }
+    });
+
+    return wb;
   }
 
   /**

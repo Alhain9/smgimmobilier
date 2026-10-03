@@ -1,20 +1,35 @@
 const service = require('../services/expense.service');
-const { createCrudController } = require('./crud.factory');
 const { success } = require('../utils/response');
 
-const base = createCrudController(service, {
-  created: 'Dépense créé(e)', updated: 'Dépense mis(e) à jour', deleted: 'Dépense supprimé(e)',
-});
-
-// Construit l'URL publique d'un fichier uploadé (le dossier dépend du type, cf. upload.middleware)
+// Construit l'URL publique d'un fichier uploadé
 const fileUrl = (file) => {
   const rel = file.path.split(/uploads[\\/]/).pop().replace(/\\/g, '/');
   return `/uploads/${rel}`;
 };
 
 module.exports = {
-  ...base,
-  // Gère le justificatif (champ "receipt") : PDF -> invoice_file, image -> photo
+  getAll: async (req, res, next) => {
+    try {
+      const data = await service.getAll(req.query, req.ownerPropertyIds, req.assignedPropertyIds, req.user);
+      return success(res, data);
+    } catch (err) { next(err); }
+  },
+
+  getStats: async (req, res, next) => {
+    try {
+      const data = await service.getStats(req.query, req.ownerPropertyIds, req.assignedPropertyIds);
+      return success(res, data);
+    } catch (err) { next(err); }
+  },
+
+  getById: async (req, res, next) => {
+    try {
+      const data = await service.getById(req.params.id, req.ownerPropertyIds);
+      return success(res, data);
+    } catch (err) { next(err); }
+  },
+
+  // Gère le justificatif (champ "receipt" ou "invoice_file") : PDF -> invoice_file, image -> photo
   create: async (req, res, next) => {
     try {
       const data = { ...req.body };
@@ -23,8 +38,36 @@ module.exports = {
         if (req.file.mimetype === 'application/pdf') data.invoice_file = url;
         else data.photo = url;
       }
-      const expense = await service.create(data);
-      return success(res, expense, 'Dépense enregistrée', 201);
+      const expense = await service.create(data, req.user?.id);
+      return success(res, expense, 'Dépense enregistrée avec succès', 201);
+    } catch (err) { next(err); }
+  },
+
+  update: async (req, res, next) => {
+    try {
+      const data = { ...req.body };
+      if (req.file) {
+        const url = fileUrl(req.file);
+        if (req.file.mimetype === 'application/pdf') data.invoice_file = url;
+        else data.photo = url;
+      }
+      const expense = await service.update(req.params.id, data, req.ownerPropertyIds);
+      return success(res, expense, 'Dépense mise à jour avec succès');
+    } catch (err) { next(err); }
+  },
+
+  remove: async (req, res, next) => {
+    try {
+      await service.remove(req.params.id, req.ownerPropertyIds);
+      return success(res, null, 'Dépense supprimée');
+    } catch (err) { next(err); }
+  },
+
+  bulkRemove: async (req, res, next) => {
+    try {
+      const ids = req.body.ids || [];
+      const count = await service.bulkRemove(ids, req.ownerPropertyIds);
+      return success(res, { count }, `${count} dépense(s) supprimée(s)`);
     } catch (err) { next(err); }
   },
 };

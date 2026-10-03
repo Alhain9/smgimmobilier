@@ -38,9 +38,37 @@ const getDateVal = (cell) => {
   if (typeof cell.value === 'object' && cell.value.result instanceof Date) return cell.value.result;
   const str = getStrVal(cell);
   if (!str) return null;
+  const m = str.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})$/);
+  if (m) {
+    const d = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+    return isNaN(d.getTime()) ? null : d;
+  }
   const d = new Date(str);
   return isNaN(d.getTime()) ? null : d;
 };
+
+function parsePeriodDates(str) {
+  if (!str) return { period_start: null, period_end: null };
+  const dates = [];
+  const parts = String(str).split(/[-–—àau]/i);
+  for (const p of parts) {
+    const trimmed = p.trim();
+    const dmy = trimmed.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})$/);
+    if (dmy) {
+      dates.push(`${dmy[3]}-${String(dmy[2]).padStart(2, '0')}-${String(dmy[1]).padStart(2, '0')}`);
+    } else {
+      const ymd = trimmed.match(/^(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})$/);
+      if (ymd) {
+        dates.push(`${ymd[1]}-${String(ymd[2]).padStart(2, '0')}-${String(ymd[3]).padStart(2, '0')}`);
+      }
+    }
+  }
+  return {
+    period_start: dates[0] || null,
+    period_end: dates[1] || null,
+  };
+}
+
 
 const mapPaymentMethod = (method) => {
   if (!method) return 'cash';
@@ -86,25 +114,59 @@ class ImportService {
       for (const worksheet of workbook.worksheets) {
         if (!worksheet || worksheet.rowCount < 2) continue;
 
-        // Determination du nom de l'immeuble
-        let propertyName = '';
+        // Determination du nom de l'immeuble ou utilisation du propertyId fourni
+        let property = null;
+        if (options.propertyId) {
+          property = await Property.findByPk(options.propertyId, { transaction });
+        }
+
+        let propertyName = (property && property.property_name) || options.propertyName || '';
         const titleVal = worksheet.getCell('A1').value;
-        if (typeof titleVal === 'string' && titleVal.trim()) {
-          if (titleVal.startsWith('Situation — ')) {
-            propertyName = titleVal.replace('Situation — ', '').trim();
-          } else if (titleVal.toLowerCase().includes('situation') || titleVal.toLowerCase().includes('immeuble')) {
-            propertyName = titleVal.replace(/situation\s*(de\s*l'|de\s*|d'|—|-)*\s*/i, '').trim();
-          } else {
-            propertyName = titleVal.trim();
+        if (!propertyName) {
+          if (typeof titleVal === 'string' && titleVal.trim()) {
+            let clean = titleVal
+              .replace(/situation\s*(de\s*l'|de\s*|d'|—|-)*\s*/i, '')
+              .replace(/\s*(mois\s*(de\s*)?[a-zéû]+\s*\d{4}|\d{4})/i, '')
+              .trim();
+            propertyName = clean;
           }
         }
         if (!propertyName || propertyName.length > 80 || propertyName.includes('\n')) {
           propertyName = worksheet.name || 'Immeuble Importé';
         }
 
-        // Créer ou réutiliser l'immeuble
-        let property = await Property.findOne({ where: { property_name: propertyName }, transaction });
+        const MOIS_MAP = {
+          'janvier': 1, 'fevrier': 2, 'février': 2, 'mars': 3, 'avril': 4,
+          'mai': 5, 'juin': 6, 'juillet': 7, 'aout': 8, 'août': 8,
+          'septembre': 9, 'octobre': 10, 'novembre': 11, 'decembre': 12, 'décembre': 12
+        };
+        let sheetMonth = options.month ? Number(options.month) : null;
+        let sheetYear = options.year ? Number(options.year) : null;
+
+        if (titleVal && (!sheetMonth || !sheetYear)) {
+          const mMatch = String(titleVal).match(/mois\s*(?:de\s*)?([a-zéû]+)\s*(\d{4})/i);
+          if (mMatch) {
+            const mKey = mMatch[1].toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+            if (MOIS_MAP[mKey]) sheetMonth = MOIS_MAP[mKey];
+            sheetYear = Number(mMatch[2]);
+          }
+        }
+        if (!sheetYear) sheetYear = new Date().getFullYear();
+        if (!sheetMonth) sheetMonth = new Date().getMonth() + 1;
+
         let isNewProp = false;
+        if (!property) {
+          property = await Property.findOne({
+            where: {
+              [Op.or]: [
+                { property_name: propertyName },
+                { property_name: { [Op.like]: `%${propertyName}%` } },
+              ],
+            },
+            transaction,
+          });
+        }
+
         if (!property) {
           property = await Property.create({
             property_name: propertyName,
@@ -125,66 +187,65 @@ class ImportService {
             await property.update(updateData, { transaction });
           }
         }
-        overallStats.properties.push(propertyName);
+        overallStats.properties.push(property.property_name);
 
         // Analyse dynamique de l'en-tête (lignes 1 à 10)
-        let headerRowIndex = 5;
+        let headerRowIndex = 3;
         const colMap = {
           room: 1,
           tenant: 2,
           phone: 3,
-          date: 4,
-          rent: 5,
-          caution: 0,
-          arriere: 6,
-          avance: 0,
-          dette: 7,
-          anticipation: 8,
-          versement: 9,
-          periode: 10,
-          mode: 11,
+          date: 0,
+          rent: 0,
           type: 0,
-          chateau: 0,
+          arriere: 0,
+          dette: 0,
+          avance: 0,
+          anticipation: 0,
+          versement: 0,
+          periode: 0,
+          mode: 0,
           obs: 0,
+          caution: 0,
+          chateau: 0,
         };
 
         for (let r = 1; r <= Math.min(12, worksheet.rowCount); r++) {
           const row = worksheet.getRow(r);
           let matchCount = 0;
           row.eachCell((cell, colNum) => {
-            const val = getStrVal(cell).toLowerCase();
-            if (val.includes('chambre') || val.includes('logement') || val.includes('code') || val.includes('n°') || val.includes('numéro')) {
-              colMap.room = colNum; matchCount++;
-            } else if (val.includes('locataire') || val.includes('nom') || val.includes('client')) {
-              colMap.tenant = colNum; matchCount++;
-            } else if (val.includes('téléphone') || val.includes('contact') || val.includes('tel') || val.includes('phone')) {
-              colMap.phone = colNum; matchCount++;
-            } else if (val.includes('date') || val.includes('entrée') || val.includes('occupation')) {
-              colMap.date = colNum; matchCount++;
-            } else if (val.includes('loyer') || val.includes('montant attendu') || val.includes('mensuel')) {
-              colMap.rent = colNum; matchCount++;
-            } else if (val.includes('caution') || val.includes('dépôt')) {
-              colMap.caution = colNum; matchCount++;
-            } else if (val.includes('arriéré') || val.includes('arriere')) {
-              colMap.arriere = colNum; matchCount++;
-            } else if (val.includes('avance sur arriéré') || val.includes('avance')) {
-              colMap.avance = colNum; matchCount++;
-            } else if (val.includes('dette')) {
-              colMap.dette = colNum; matchCount++;
-            } else if (val.includes('anticipation')) {
+            const val = getStrVal(cell).toLowerCase().trim();
+            if (!val) return;
+
+            // Priorité aux termes composés pour éviter les collisions (ex: "arriere de loyer" contient "loyer")
+            if (val.includes('anticipation')) {
               colMap.anticipation = colNum; matchCount++;
-            } else if (val.includes('versement') || val.includes('payé') || val.includes('reçu')) {
+            } else if (val.includes('arriéré') || val.includes('arriere') || val.includes('dette') || val.includes('solde dû')) {
+              colMap.arriere = colNum; colMap.dette = colNum; matchCount++;
+            } else if (val.includes('versement') || val.includes('cour du mois') || val.includes('cours du mois') || (val.includes('payé') && !val.includes('anticipation')) || val.includes('reçu')) {
               colMap.versement = colNum; matchCount++;
             } else if (val.includes('période') || val.includes('periode')) {
               colMap.periode = colNum; matchCount++;
-            } else if (val.includes('mode') || val.includes('moyen')) {
+            } else if (val.includes('caution') || val.includes('dépôt') || val.includes('depot') || val.includes('garantie')) {
+              colMap.caution = colNum; matchCount++;
+            } else if (val.includes('mode') || val.includes('moyen de paiement')) {
               colMap.mode = colNum; matchCount++;
-            } else if (val.includes('description') || val.includes('type')) {
+            } else if (val.includes('observation') || val.includes('remarque') || val.includes('obs')) {
+              colMap.obs = colNum; matchCount++;
+            } else if (val.includes('description') || val.includes('type de logement') || val.includes('type')) {
               colMap.type = colNum; matchCount++;
+            } else if (val.includes('chambre') || val.includes('appartement') || val.includes('logement') || val.includes('code') || val.includes('n°') || val.includes('numéro')) {
+              colMap.room = colNum; matchCount++;
+            } else if (val.includes('locataire') || val.includes('client') || (val.includes('nom') && !val.includes('immeuble'))) {
+              colMap.tenant = colNum; matchCount++;
+            } else if (val.includes('contact') || val.includes('téléphone') || val.includes('tel') || val.includes('phone')) {
+              colMap.phone = colNum; matchCount++;
+            } else if (val.includes('date') || val.includes('entrée') || val.includes('occupation')) {
+              colMap.date = colNum; matchCount++;
+            } else if (val.includes('loyer') || val.includes('montant') || val.includes('mensuel')) {
+              if (!colMap.rent) { colMap.rent = colNum; matchCount++; }
             } else if (val.includes('château') || val.includes('chateau') || val.includes('entretien')) {
               colMap.chateau = colNum; matchCount++;
-            } else if (val.includes('observation') || val.includes('remarque')) {
-              colMap.obs = colNum; matchCount++;
             }
           });
           if (matchCount >= 3) {
@@ -217,6 +278,8 @@ class ImportService {
           const modePaiement = colMap.mode ? getStrVal(row.getCell(colMap.mode)) : '';
           const descType = colMap.type ? getStrVal(row.getCell(colMap.type)) : '';
           const chateauFee = colMap.chateau ? getNumVal(row.getCell(colMap.chateau)) : 0;
+          const observations = colMap.obs ? getStrVal(row.getCell(colMap.obs)) : '';
+          const periodePaiement = colMap.periode ? getStrVal(row.getCell(colMap.periode)) : '';
 
           // Déterminer le type de logement
           let aptType = 'appartement';
@@ -314,6 +377,10 @@ class ImportService {
               overallStats.tenants.updated++;
             }
 
+            if (observations) {
+              await activeTenant.update({ observations }, { transaction });
+            }
+
             // C. Création / Mise à jour du bail (Lease)
             let lease = await Lease.findOne({
               where: { tenant_id: activeTenant.id, apartment_id: apartment.id, status: 'active' },
@@ -333,6 +400,7 @@ class ImportService {
               const leaseUpdates = {};
               if (rentAmount > 0) leaseUpdates.monthly_rent = rentAmount;
               if (cautionAmount > 0) leaseUpdates.deposit_amount = cautionAmount;
+              if (dateOccupation && dateOccupation !== lease.start_date) leaseUpdates.start_date = dateOccupation;
               if (Object.keys(leaseUpdates).length) {
                 await lease.update(leaseUpdates, { transaction });
               }
@@ -351,17 +419,22 @@ class ImportService {
 
             const targetTotalValide = Math.max(0, totalDue - solde);
             const targetPastValide = Math.max(0, targetTotalValide - versementMois);
+            const { period_start: pStart, period_end: pEnd } = parsePeriodDates(periodePaiement);
+
+            const currentMonthPaymentDate = new Date(sheetYear, sheetMonth - 1, 15);
+            const pastRegDate = new Date(sheetYear, sheetMonth - 2, 28);
 
             if (targetPastValide > 0) {
-              const today = new Date();
-              const pastDate = new Date(today.getFullYear(), today.getMonth(), 0);
               await Payment.create({
                 tenant_id: activeTenant.id,
                 apartment_id: apartment.id,
                 amount: targetPastValide,
                 payment_method: 'cash',
-                payment_date: pastDate,
+                payment_date: pastRegDate,
                 status: 'completed',
+                period_start: versementMois > 0 ? null : pStart,
+                period_end: versementMois > 0 ? (pStart || null) : pEnd,
+                observations: 'Régularisation antécédents import Excel',
               }, { transaction });
               overallStats.payments.totalCreated++;
             }
@@ -372,8 +445,11 @@ class ImportService {
                 apartment_id: apartment.id,
                 amount: versementMois,
                 payment_method: mapPaymentMethod(modePaiement),
-                payment_date: new Date(),
+                payment_date: currentMonthPaymentDate,
                 status: 'completed',
+                period_start: pStart,
+                period_end: pEnd,
+                observations: observations || null,
               }, { transaction });
               overallStats.payments.totalCreated++;
             }

@@ -11,18 +11,22 @@ const { logger } = require('../config/logger');
 // Situation immeuble → Excel
 router.get('/situation-immeuble/:id/excel', authenticate, authorize('super_admin', 'manager', 'dir_admin', 'gestionnaire', 'comptable'), async (req, res, next) => {
   try {
-    const data = await reportService.buildingSituation(req.params.id);
+    const month = req.query.month ? parseInt(req.query.month, 10) : null;
+    const year = req.query.year ? parseInt(req.query.year, 10) : null;
+    const data = await reportService.buildingSituation(req.params.id, req.ownerPropertyIds, month, year);
     const wb = excelService.situationImmeubleWorkbook(data);
-    await excelService.sendResponse(res, wb, `situation_${data.immeuble.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    await excelService.sendResponse(res, wb, `situation_${data.immeuble.replace(/\s+/g, '_')}_${data.periode || new Date().toISOString().slice(0, 7)}.xlsx`);
   } catch (err) { next(err); }
 });
 
 // Situation immeuble → PDF
 router.get('/situation-immeuble/:id/pdf', authenticate, authorize('super_admin', 'manager', 'dir_admin', 'gestionnaire', 'comptable'), async (req, res, next) => {
   try {
-    const data = await reportService.buildingSituation(req.params.id);
+    const month = req.query.month ? parseInt(req.query.month, 10) : null;
+    const year = req.query.year ? parseInt(req.query.year, 10) : null;
+    const data = await reportService.buildingSituation(req.params.id, req.ownerPropertyIds, month, year);
     const buffer = await pdfService.situationImmeublePdf(data);
-    await pdfService.sendResponse(res, buffer, `situation_${data.immeuble.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.pdf`);
+    await pdfService.sendResponse(res, buffer, `situation_${data.immeuble.replace(/\s+/g, '_')}_${data.periode || new Date().toISOString().slice(0, 7)}.pdf`);
   } catch (err) { next(err); }
 });
 

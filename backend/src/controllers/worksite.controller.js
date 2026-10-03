@@ -39,6 +39,14 @@ class WorksiteController {
     } catch (err) { next(err); }
   }
 
+  async bulkRemove(req, res, next) {
+    try {
+      const ids = req.body.ids || [];
+      await worksiteService.bulkRemove(ids);
+      return success(res, null, 'Chantiers sélectionnés supprimés avec succès');
+    } catch (err) { next(err); }
+  }
+
   async addTask(req, res, next) {
     try {
       const task = await worksiteService.addTask(req.params.id, req.body);

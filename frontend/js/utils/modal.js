@@ -37,4 +37,21 @@ const Modal = {
     const o = document.getElementById('app-modal');
     if (o) o.classList.remove('active');
   },
+  confirm(message, onConfirm) {
+    this.open('Confirmation', `
+      <div style="padding:10px 0;font-size:14px;color:var(--text);line-height:1.5">
+        ${message}
+      </div>
+    `, `
+      <button class="btn btn-outline" onclick="Modal.close()">Annuler</button>
+      <button class="btn btn-danger" id="modalConfirmBtn" style="font-weight:600">Confirmer</button>
+    `);
+    const btn = document.getElementById('modalConfirmBtn');
+    if (btn) {
+      btn.onclick = async () => {
+        Modal.close();
+        if (typeof onConfirm === 'function') await onConfirm();
+      };
+    }
+  },
 };

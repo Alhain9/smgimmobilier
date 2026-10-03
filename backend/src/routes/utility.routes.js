@@ -25,6 +25,7 @@ router.post('/:id/proof', upload.single('proof'), ctrl.uploadProof);
 router.post('/:id/pay', upload.single('proof'), ctrl.pay);
 router.put('/:id', manage, ctrl.update);
 router.patch('/:id/paid', manage, ctrl.setPaid);
-router.delete('/:id', authorize('super_admin', 'manager', 'comptable'), ctrl.remove);
+router.post('/bulk-delete', manage, ctrl.bulkRemove);
+router.delete('/:id', manage, ctrl.remove);
 
 module.exports = router;

@@ -13,6 +13,7 @@ const Tenant = sequelize.define('Tenant', {
   emergency_contact: { type: DataTypes.STRING(150) },
   start_date: { type: DataTypes.DATEONLY },
   end_date: { type: DataTypes.DATEONLY },
+  observations: { type: DataTypes.TEXT },
   status: { type: DataTypes.ENUM('active', 'inactive', 'terminated'), defaultValue: 'active' },
 }, { tableName: 'tenants', timestamps: true, paranoid: true });
 

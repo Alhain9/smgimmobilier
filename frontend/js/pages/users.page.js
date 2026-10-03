@@ -621,15 +621,39 @@ const PageUsers = {
             <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px">
               <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
                 <input type="checkbox" id="u_can_manage_users" ${u.can_manage_users ? 'checked' : ''} />
-                <span>Gérer les comptes utilisateurs</span>
+                <span>👥 Gérer les comptes utilisateurs</span>
               </label>
               <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
                 <input type="checkbox" id="u_can_view_all_calendars" ${u.can_view_all_calendars ? 'checked' : ''} />
-                <span>Voir tous les calendriers</span>
+                <span>📅 Voir tous les calendriers</span>
               </label>
               <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
                 <input type="checkbox" id="u_can_manage_utilities" ${u.can_manage_utilities ? 'checked' : ''} />
-                <span>Gérer les charges (eau/élec)</span>
+                <span>⚡ Gérer les charges (eau/élec)</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+                <input type="checkbox" id="u_can_manage_worksites" ${u.can_manage_worksites ? 'checked' : ''} />
+                <span>🏗️ Gérer & suivre les chantiers</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+                <input type="checkbox" id="u_can_delete_worksites" ${u.can_delete_worksites ? 'checked' : ''} />
+                <span>🗑️ Supprimer les chantiers</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+                <input type="checkbox" id="u_can_manage_stock" ${u.can_manage_stock ? 'checked' : ''} />
+                <span>📦 Gérer le stock & équipements</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+                <input type="checkbox" id="u_can_delete_stock" ${u.can_delete_stock ? 'checked' : ''} />
+                <span>🗑️ Supprimer le stock & outillage</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+                <input type="checkbox" id="u_can_manage_documents" ${u.can_manage_documents ? 'checked' : ''} />
+                <span>📂 Gérer & supprimer les documents</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+                <input type="checkbox" id="u_can_manage_expenses" ${u.can_manage_expenses ? 'checked' : ''} />
+                <span>💰 Gérer & supprimer les dépenses</span>
               </label>
             </div>
           </div>
@@ -694,6 +718,18 @@ const PageUsers = {
     data.can_view_all_calendars = isBailleur ? false : (chkCal ? chkCal.checked : false);
     const chkUtil = document.getElementById('u_can_manage_utilities');
     data.can_manage_utilities = isBailleur ? false : (chkUtil ? chkUtil.checked : false);
+    const chkWorksites = document.getElementById('u_can_manage_worksites');
+    data.can_manage_worksites = isBailleur ? false : (chkWorksites ? chkWorksites.checked : false);
+    const chkDelWorksites = document.getElementById('u_can_delete_worksites');
+    data.can_delete_worksites = isBailleur ? false : (chkDelWorksites ? chkDelWorksites.checked : false);
+    const chkStock = document.getElementById('u_can_manage_stock');
+    data.can_manage_stock = isBailleur ? false : (chkStock ? chkStock.checked : false);
+    const chkDelStock = document.getElementById('u_can_delete_stock');
+    data.can_delete_stock = isBailleur ? false : (chkDelStock ? chkDelStock.checked : false);
+    const chkDocs = document.getElementById('u_can_manage_documents');
+    data.can_manage_documents = isBailleur ? false : (chkDocs ? chkDocs.checked : false);
+    const chkExp = document.getElementById('u_can_manage_expenses');
+    data.can_manage_expenses = isBailleur ? false : (chkExp ? chkExp.checked : false);
 
     try {
       if (userId) {

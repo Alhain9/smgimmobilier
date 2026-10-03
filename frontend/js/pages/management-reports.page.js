@@ -7,8 +7,11 @@ const PageManagementReports = {
   async render() {
     Layout.setTitle('Rapports de gestion');
     const today = new Date();
-    const firstDay = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
-    const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().slice(0, 10);
+    const y = today.getFullYear();
+    const m = String(today.getMonth() + 1).padStart(2, '0');
+    const lastDayNum = new Date(y, today.getMonth() + 1, 0).getDate();
+    const firstDay = `${y}-${m}-01`;
+    const lastDay = `${y}-${m}-${String(lastDayNum).padStart(2, '0')}`;
 
     const isBailleur = Auth.getRole() === 'bailleur';
 
@@ -101,6 +104,256 @@ const PageManagementReports = {
     }
   },
 
+  // ===== GESTION DES CASES À COCHER ET SUPPRESSION (12 COLONNES) =====
+  toggleSelectAll(checked) {
+    document.querySelectorAll('.row-mr-chk:not(:disabled)').forEach((chk) => { chk.checked = checked; });
+    this.updateSelection();
+  },
+
+  updateSelection() {
+    const checked = Array.from(document.querySelectorAll('.row-mr-chk:checked'));
+    const btn = document.getElementById('bulkDelBtn_mr');
+    const numEl = document.getElementById('selNum_mr');
+    if (btn) btn.style.display = checked.length > 0 ? 'inline-flex' : 'none';
+    if (numEl) numEl.textContent = String(checked.length);
+  },
+
+  async deleteSelected() {
+    const checked = Array.from(document.querySelectorAll('.row-mr-chk:checked'));
+    const tenantIds = checked.map((c) => parseInt(c.value, 10)).filter(Boolean);
+    if (!tenantIds.length) { Toast.warning('Aucun locataire sélectionné.'); return; }
+
+    if (!confirm(`Confirmez-vous la suppression définitive des ${tenantIds.length} locataire(s) sélectionné(s) ?`)) return;
+
+    try {
+      await API.post('/tenants/bulk-delete', { ids: tenantIds });
+      Toast.success(`${tenantIds.length} locataire(s) supprimé(s) avec succès 🗑✅`);
+      this.generateReport();
+    } catch (e) {
+      Toast.error(e.message || 'Erreur lors de la suppression groupée');
+    }
+  },
+
+  async deleteSingle(tenantId, apartmentId) {
+    if (tenantId) {
+      if (!confirm('Êtes-vous sûr de vouloir supprimer définitivement ce locataire ?')) return;
+      try {
+        await API.delete('/tenants/' + tenantId);
+        Toast.success('Locataire supprimé avec succès 🗑✅');
+        this.generateReport();
+      } catch (e) {
+        Toast.error(e.message || 'Erreur lors de la suppression');
+      }
+    } else if (apartmentId) {
+      if (!confirm('Ce logement est actuellement libre. Confirmez-vous la suppression du logement ?')) return;
+      try {
+        await API.delete('/apartments/' + apartmentId);
+        Toast.success('Logement supprimé avec succès');
+        this.generateReport();
+      } catch (e) {
+        Toast.error(e.message);
+      }
+    }
+  },
+
+  editRow(apartmentId, tenantId) {
+    if (!this._currentReport) return;
+    const r = this._currentReport;
+    const sitLignes = (r.building_situation && r.building_situation.lignes) || r.rental_situation.apartments || [];
+    const line = sitLignes.find((l) => (apartmentId && l.apartment_id === apartmentId) || (tenantId && l.tenant_id === tenantId));
+    if (!line) {
+      Toast.warning('Ligne de situation introuvable');
+      return;
+    }
+
+    const effAptId = line.apartment_id || apartmentId || null;
+    const effTenantId = line.tenant_id || tenantId || null;
+    const effPropId = r.property?.id || null;
+    const effPeriodYm = r.period?.start ? r.period.start.slice(0, 7) : new Date().toISOString().slice(0, 7);
+
+    const safeNum = Helpers.escapeHtml(line.numero_chambre || line.apartment_number || '');
+    const safeName = Helpers.escapeHtml(line.nom_locataire === '—' ? '' : (line.nom_locataire || line.tenant_name || ''));
+    const safePhone = Helpers.escapeHtml(line.telephone === '—' ? '' : (line.telephone || line.tenant_phone || ''));
+    const safeRent = Number(line.montant_loyer != null ? line.montant_loyer : line.rent_amount) || 0;
+    const safeDesc = Helpers.escapeHtml(line.description_logement === 'vide' || line.description_logement === '—' ? '' : (line.description_logement || line.description || ''));
+    const safeArriere = Number(line.arriere_loyer) || 0;
+    const safeAnticip = Number(line.anticipation) || 0;
+    const safeVersement = Number(line.versement_mois) || 0;
+    const safePeriode = Helpers.escapeHtml(line.periode_paiement === '—' ? '' : (line.periode_paiement || ''));
+    const safeMode = (line.mode_paiement === '—' ? '' : (line.mode_paiement || '')).toLowerCase();
+    const safeCaution = Number(line.caution) || 0;
+    const safeObs = Helpers.escapeHtml(line.observations === '—' ? '' : (line.observations || ''));
+
+    Modal.open({
+      title: `✏️ Modifier les 12 colonnes — Logement ${safeNum}`,
+      content: `
+        <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:12px;background:#f8fafc;padding:10px 14px;border-radius:8px;border-left:4px solid var(--primary)">
+          <b>✏️ Mise à jour directe de la situation et du rapport :</b><br/>
+          Vous pouvez ajuster librement les 12 colonnes (loyer, arriérés réels, avance, versement du mois, période concrète, etc.).
+          Ces données mettront à jour immédiatement le rapport de gestion, les encaissements, les KPI et le document PDF officiel.
+        </div>
+
+        <!-- BLOC 1 : LOGEMENT & LOCATAIRE (COLONNES 1 À 5) -->
+        <div style="background:var(--bg-surface-2);padding:10px 12px;border-radius:8px;margin-bottom:12px;border:1px solid var(--border)">
+          <div style="font-weight:700;color:var(--primary);margin-bottom:8px;font-size:12.5px">🏠 1. INFORMATIONS DU LOGEMENT & DU LOCATAIRE</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+            <div class="form-group">
+              <label style="font-size:11.5px;font-weight:600;display:block;margin-bottom:3px">1. N° Logement / Chambre *</label>
+              <input type="text" id="edit_col_num_mr" class="form-control" value="${safeNum}" required placeholder="ex: 703, 602..." />
+            </div>
+            <div class="form-group">
+              <label style="font-size:11.5px;font-weight:600;display:block;margin-bottom:3px">2. Noms & Prénoms Locataire</label>
+              <input type="text" id="edit_col_name_mr" class="form-control" value="${safeName}" placeholder="ex: Nom du locataire" />
+            </div>
+            <div class="form-group">
+              <label style="font-size:11.5px;font-weight:600;display:block;margin-bottom:3px">3. Contact / Téléphone</label>
+              <input type="text" id="edit_col_phone_mr" class="form-control" value="${safePhone}" placeholder="ex: 699000000" />
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1.5fr 1fr;gap:10px;margin-top:8px">
+            <div class="form-group">
+              <label style="font-size:11.5px;font-weight:600;display:block;margin-bottom:3px">5. Description du logement</label>
+              <input type="text" id="edit_col_desc_mr" class="form-control" value="${safeDesc}" placeholder="ex: Appartement 3 pièces, Studio..." />
+            </div>
+            <div class="form-group">
+              <label style="font-size:11.5px;font-weight:600;display:block;margin-bottom:3px">4. Montant du loyer mensuel (FCFA) *</label>
+              <input type="number" id="edit_col_rent_mr" class="form-control" value="${safeRent}" min="0" required />
+            </div>
+          </div>
+        </div>
+
+        <!-- BLOC 2 : FINANCES & PAIEMENTS (COLONNES 6 À 11) -->
+        <div style="background:var(--bg-surface-2);padding:10px 12px;border-radius:8px;margin-bottom:12px;border:1px solid var(--border)">
+          <div style="font-weight:700;color:var(--primary);margin-bottom:8px;font-size:12.5px">💰 2. FINANCES & PAIEMENTS (CORRECTION DES CHIFFRES)</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+            <div class="form-group">
+              <label style="font-size:11.5px;font-weight:600;display:block;margin-bottom:3px;color:var(--danger)">6. Arriéré de loyer (Dette FCFA)</label>
+              <input type="number" id="edit_col_arriere_mr" class="form-control" value="${safeArriere}" min="0" placeholder="0" />
+            </div>
+            <div class="form-group">
+              <label style="font-size:11.5px;font-weight:600;display:block;margin-bottom:3px;color:var(--success)">7. Loyer par anticipation (Avance FCFA)</label>
+              <input type="number" id="edit_col_anticip_mr" class="form-control" value="${safeAnticip}" min="0" placeholder="0" />
+            </div>
+            <div class="form-group">
+              <label style="font-size:11.5px;font-weight:600;display:block;margin-bottom:3px;color:var(--primary)">8. Versement au cours du mois (FCFA)</label>
+              <input type="number" id="edit_col_versement_mr" class="form-control" value="${safeVersement}" min="0" placeholder="0" />
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:10px;margin-top:8px">
+            <div class="form-group">
+              <label style="font-size:11.5px;font-weight:600;display:block;margin-bottom:3px">9. Période correspondant au paiement</label>
+              <input type="text" id="edit_col_periode_mr" class="form-control" value="${safePeriode}" placeholder="ex: 01/06/2026 au 01/08/2026" />
+            </div>
+            <div class="form-group">
+              <label style="font-size:11.5px;font-weight:600;display:block;margin-bottom:3px">10. Mode de paiement</label>
+              <select id="edit_col_mode_mr" class="form-control">
+                <option value="Espèces" ${safeMode.includes('esp') || safeMode === 'cash' ? 'selected' : ''}>Espèces</option>
+                <option value="Virement bancaire" ${safeMode.includes('vir') || safeMode === 'bank_transfer' ? 'selected' : ''}>Virement bancaire</option>
+                <option value="Chèque" ${safeMode.includes('chè') || safeMode.includes('che') || safeMode === 'check' ? 'selected' : ''}>Chèque</option>
+                <option value="Mobile Money" ${safeMode.includes('momo') || safeMode.includes('om') || safeMode.includes('mobile') ? 'selected' : ''}>Mobile Money</option>
+                <option value="Autre" ${!safeMode || safeMode === '—' ? 'selected' : ''}>— Non spécifié —</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label style="font-size:11.5px;font-weight:600;display:block;margin-bottom:3px">11. Caution (FCFA)</label>
+              <input type="number" id="edit_col_caution_mr" class="form-control" value="${safeCaution}" min="0" placeholder="0" />
+            </div>
+          </div>
+        </div>
+
+        <!-- BLOC 3 : OBSERVATIONS & VALIDATION (COLONNE 12) -->
+        <div style="background:var(--bg-surface-2);padding:10px 12px;border-radius:8px;margin-bottom:6px;border:1px solid var(--border)">
+          <div style="font-weight:700;color:var(--primary);margin-bottom:8px;font-size:12.5px">📝 3. OBSERVATION & PÉRIODE D'APPLICATION</div>
+          <div class="form-group" style="margin-bottom:8px">
+            <label style="font-size:11.5px;font-weight:600;display:block;margin-bottom:3px">12. Observation (gestion des loyers / litiges / promesses) :</label>
+            <input type="text" id="edit_col_obs_mr" class="form-control" value="${safeObs}" placeholder="ex: À jour, promesse de paiement..." />
+          </div>
+          <div style="font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:8px">
+            <label style="display:flex;align-items:center;gap:5px;cursor:pointer">
+              <input type="checkbox" id="edit_col_apply_month_mr" checked />
+              <span>Associer cette correction spécifiquement au mois sélectionné (<b>${effPeriodYm}</b>)</span>
+            </label>
+          </div>
+        </div>
+      `,
+      footer: `
+        <div class="flex justify-between items-center w-100" style="width:100%">
+          <div>
+            ${line.is_overridden ? `
+              <button class="btn btn-sm btn-outline" style="color:var(--danger);border-color:var(--danger)" onclick="PageManagementReports.resetRowOverride(${effAptId}, ${effPropId}, '${effPeriodYm}')" title="Annuler les corrections manuelles et restaurer le calcul automatique">
+                🔄 Restaurer calcul auto
+              </button>
+            ` : ''}
+          </div>
+          <div class="flex gap-2">
+            <button class="btn btn-outline" onclick="Modal.close()">Annuler</button>
+            <button class="btn btn-primary" onclick="PageManagementReports.saveRow(${effAptId || 'null'}, ${effTenantId || 'null'}, ${effPropId || 'null'}, '${effPeriodYm}')">💾 Enregistrer les 12 colonnes</button>
+          </div>
+        </div>
+      `,
+      size: 'large',
+    });
+  },
+
+  async saveRow(apartmentId, tenantId, propertyId, defaultPeriodYm) {
+    const aptNum = document.getElementById('edit_col_num_mr')?.value.trim();
+    const name = document.getElementById('edit_col_name_mr')?.value.trim();
+    const phone = document.getElementById('edit_col_phone_mr')?.value.trim();
+    const desc = document.getElementById('edit_col_desc_mr')?.value.trim();
+    const rent = parseFloat(document.getElementById('edit_col_rent_mr')?.value) || 0;
+    const arriere = parseFloat(document.getElementById('edit_col_arriere_mr')?.value) || 0;
+    const anticip = parseFloat(document.getElementById('edit_col_anticip_mr')?.value) || 0;
+    const versement = parseFloat(document.getElementById('edit_col_versement_mr')?.value) || 0;
+    const periode = document.getElementById('edit_col_periode_mr')?.value.trim();
+    const mode = document.getElementById('edit_col_mode_mr')?.value;
+    const caution = parseFloat(document.getElementById('edit_col_caution_mr')?.value) || 0;
+    const obs = document.getElementById('edit_col_obs_mr')?.value.trim();
+    const applyMonth = document.getElementById('edit_col_apply_month_mr')?.checked;
+
+    if (!aptNum) { Toast.warning('Le numéro de logement est requis'); return; }
+
+    const periodYm = applyMonth ? defaultPeriodYm : null;
+
+    try {
+      await API.put('/reports/building-situation/line', {
+        apartment_id: apartmentId,
+        tenant_id: tenantId || null,
+        property_id: propertyId || null,
+        period_ym: periodYm,
+        numero_chambre: aptNum,
+        nom_locataire: name,
+        telephone: phone,
+        description_logement: desc,
+        montant_loyer: rent,
+        arriere_loyer: arriere,
+        anticipation: anticip,
+        versement_mois: versement,
+        periode_paiement: periode,
+        mode_paiement: mode,
+        caution: caution,
+        observations: obs,
+      });
+
+      Toast.success('Ligne modifiée et chiffres synchronisés avec succès ✅');
+      Modal.close();
+      this.generateReport();
+    } catch (err) {
+      Toast.error(err.message || 'Erreur lors de l\'enregistrement de la ligne');
+    }
+  },
+
+  async resetRowOverride(apartmentId, propertyId, periodYm) {
+    if (!confirm('Confirmez-vous la réinitialisation de cette ligne au calcul automatique ?')) return;
+    try {
+      await API.delete(`/reports/building-situation/override?apartment_id=${apartmentId}&property_id=${propertyId || ''}&period_ym=${periodYm || ''}`);
+      Toast.success('Ligne réinitialisée au calcul automatique ✅');
+      Modal.close();
+      this.generateReport();
+    } catch (err) {
+      Toast.error(err.message || 'Erreur lors de la réinitialisation');
+    }
+  },
+
   renderReport(r) {
     const s = r.summary;
     const p = r.property;
@@ -109,6 +362,63 @@ const PageManagementReports = {
 
     const netResultColor = s.net_result >= 0 ? 'var(--success)' : 'var(--danger)';
     const netResultSign = s.net_result >= 0 ? '+' : '';
+
+    // Situation locative standardisée complète SMG (12 colonnes)
+    const sitLignes = (r.building_situation && r.building_situation.lignes) || r.rental_situation.apartments || [];
+    const sum = (k) => sitLignes.reduce((acc, l) => acc + (Number(l[k]) || 0), 0);
+    const sitTotal = (r.building_situation && r.building_situation.total) || {
+      montant_loyer: sum('montant_loyer'),
+      arriere_loyer: sum('arriere_loyer'),
+      anticipation: sum('anticipation'),
+      versement_mois: sum('versement_mois'),
+      caution: sum('caution'),
+    };
+
+    const sitTableRows = sitLignes.map((l) => {
+      const canCheck = !!l.tenant_id;
+      return `
+        <tr>
+          <td class="no-print" style="text-align:center">
+            <input type="checkbox" class="row-mr-chk" value="${l.tenant_id || ''}" data-apt="${l.apartment_id || ''}" onchange="PageManagementReports.updateSelection()" ${!canCheck ? 'disabled title="Aucun locataire associé"' : ''} />
+          </td>
+          <td><b>${l.numero_chambre || l.apartment_number || '—'}</b></td>
+          <td><b>${l.nom_locataire || l.tenant_name || '—'}</b></td>
+          <td>${(l.telephone || l.tenant_phone) && (l.telephone || l.tenant_phone) !== '—' ? `<a href="tel:${l.telephone || l.tenant_phone}">${l.telephone || l.tenant_phone}</a>` : '—'}</td>
+          <td>${fmt(l.montant_loyer != null ? l.montant_loyer : l.rent_amount)}</td>
+          <td>${l.description_logement || l.description || l.apartment_type || '—'}</td>
+          <td style="${Number(l.arriere_loyer) > 0 ? 'color:var(--danger);font-weight:700' : ''}">${fmt(l.arriere_loyer)}</td>
+          <td style="${Number(l.anticipation) > 0 ? 'color:var(--success);font-weight:700' : ''}">${fmt(l.anticipation)}</td>
+          <td style="${Number(l.versement_mois) > 0 ? 'color:var(--primary);font-weight:700' : ''}">${fmt(l.versement_mois)}</td>
+          <td>${l.periode_paiement || '—'}</td>
+          <td>${Helpers.methodLabel(l.mode_paiement)}</td>
+          <td>${fmt(l.caution)}</td>
+          <td style="font-size:12px">${l.observations || '—'}</td>
+          <td class="no-print" style="text-align:center;white-space:nowrap">
+            <button class="btn btn-sm btn-primary" style="padding:2px 7px;margin-right:4px;" title="Modifier les 12 colonnes" onclick="PageManagementReports.editRow(${l.apartment_id || 'null'}, ${l.tenant_id || 'null'})">✏️</button>
+            <button class="btn btn-sm btn-danger" style="padding:2px 7px;" title="Supprimer individuellement" onclick="PageManagementReports.deleteSingle(${l.tenant_id || 'null'}, ${l.apartment_id || 'null'})">🗑</button>
+          </td>
+        </tr>
+      `;
+    }).join('') || `<tr><td colspan="14" class="text-center text-muted">Aucun logement répertorié</td></tr>`;
+
+    const sitTotalRow = `
+      <tr style="font-weight:700;background:var(--bg-surface-2);border-top:2px solid var(--border)">
+        <td class="no-print"></td>
+        <td>TOTAL</td>
+        <td></td>
+        <td></td>
+        <td><b>${fmt(sitTotal.montant_loyer)}</b></td>
+        <td></td>
+        <td style="color:var(--danger)"><b>${fmt(sitTotal.arriere_loyer)}</b></td>
+        <td style="color:var(--success)"><b>${fmt(sitTotal.anticipation)}</b></td>
+        <td style="color:var(--primary);font-weight:800"><b>${fmt(sitTotal.versement_mois)}</b></td>
+        <td></td>
+        <td></td>
+        <td><b>${fmt(sitTotal.caution)}</b></td>
+        <td></td>
+        <td class="no-print"></td>
+      </tr>
+    `;
 
     area.innerHTML = `
       <!-- EN-TÊTE DU RAPPORT -->
@@ -169,34 +479,43 @@ const PageManagementReports = {
         </div>
       </div>
 
-      <!-- 2. SITUATION LOCATIVE -->
+      <!-- 2. SITUATION LOCATIVE CONFORME 12 COLONNES -->
       <div class="card" style="margin-bottom:16px">
-        <h4 style="font-size:15px;font-weight:700;margin-bottom:12px">🏠 2. Situation Locative par Logement (${r.rental_situation.occupied_apartments}/${r.rental_situation.total_apartments} occupés)</h4>
-        <div class="table-responsive">
-          <table class="table">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+          <div>
+            <h4 style="font-size:15px;font-weight:700;margin:0">🏠 2. Situation Locative Complète de l'Immeuble (${r.rental_situation.occupied_apartments}/${r.rental_situation.total_apartments} occupés)</h4>
+            <small class="text-muted">Modèle officiel SMG à 12 colonnes standardisées avec suivi des cautions, arriérés et observations.</small>
+          </div>
+          <button class="btn btn-sm btn-danger" id="bulkDelBtn_mr" style="display:none;font-weight:600" onclick="PageManagementReports.deleteSelected()">
+            🗑 Supprimer la sélection (<span id="selNum_mr">0</span>)
+          </button>
+        </div>
+
+        <div class="table-wrap" style="overflow-x:auto">
+          <table class="table table-bordered">
             <thead>
               <tr>
-                <th>Logement</th>
-                <th>Type / Description</th>
-                <th>Loyer</th>
-                <th>Statut</th>
-                <th>Locataire</th>
-                <th>Téléphone</th>
-                <th>Fin de bail</th>
+                <th class="no-print" style="width:36px;text-align:center">
+                  <input type="checkbox" id="chkAll_mr" onchange="PageManagementReports.toggleSelectAll(this.checked)" title="Tout sélectionner" />
+                </th>
+                <th>Num du logement</th>
+                <th>Noms locataires</th>
+                <th>Numéro de téléphone</th>
+                <th>Montant loyers</th>
+                <th>Description du logement</th>
+                <th>ARRIERE DE LOYER</th>
+                <th>LOYER PAR ANTICIPATION</th>
+                <th>VERSEMENT AU COUR DU MOIS</th>
+                <th>PÉRIODE CORRESPONDANT AU PAIEMENT</th>
+                <th>MODE DE PAIEMENT</th>
+                <th>CAUTION</th>
+                <th>Observation</th>
+                <th class="no-print" style="text-align:center;width:75px">Actions</th>
               </tr>
             </thead>
             <tbody>
-              ${(r.rental_situation.apartments || []).map((a) => `
-                <tr>
-                  <td><b>${a.apartment_number}</b></td>
-                  <td>${a.description || a.apartment_type || '—'}</td>
-                  <td><b>${fmt(a.rent_amount)}</b></td>
-                  <td><span class="badge badge-${a.status === 'occupied' ? 'success' : 'warning'}">${a.status === 'occupied' ? 'Occupé' : 'Libre'}</span></td>
-                  <td>${a.tenant_name || '—'}</td>
-                  <td><small>${a.tenant_phone || '—'}</small></td>
-                  <td><small>${a.lease_end ? new Date(a.lease_end).toLocaleDateString('fr-FR') : '—'}</small></td>
-                </tr>
-              `).join('')}
+              ${sitTableRows}
+              ${sitTotalRow}
             </tbody>
           </table>
         </div>
@@ -215,7 +534,7 @@ const PageManagementReports = {
                 <tr>
                   <th>Logement</th>
                   <th>Locataire</th>
-                  <th>Période / Nature du règlement</th>
+                  <th>PERIODE CORRESPONDANT AU PAYEMENT</th>
                   <th>Mode(s)</th>
                   <th>N° Reçus</th>
                   <th style="text-align:right">Total Encaissé</th>
@@ -227,9 +546,9 @@ const PageManagementReports = {
                     <td><b>${c.apartment_number}</b></td>
                     <td><b>${c.tenant_name}</b></td>
                     <td>
-                      <span style="font-weight:600">${c.nature}</span>
+                      <span style="font-weight:600">${c.periode_paiement || c.nature}</span>
                       ${c.transaction_count > 1 ? `<span class="badge badge-info" style="margin-left:6px;font-size:10px">${c.transaction_count} versements</span>` : ''}
-                      <br><small style="color:var(--text-muted)">Période : ${c.date_range}</small>
+                      ${c.date_range && c.date_range !== '—' && c.date_range !== (c.periode_paiement || c.nature) ? `<br><small style="color:var(--text-muted)">Date encaissement : ${c.date_range}</small>` : ''}
                     </td>
                     <td><small>${c.methods}</small></td>
                     <td>${(c.receipt_numbers || '—').split(/,\n|, /).map(rn => `<span class="badge badge-outline" style="display:inline-block;margin:2px 0;font-size:10.5px;font-weight:600;color:var(--primary)">${rn.trim()}</span>`).join('<br>')}</td>

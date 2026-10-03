@@ -9,6 +9,9 @@ const Property = sequelize.define('Property', {
   address: { type: DataTypes.STRING(255), allowNull: false },
   city: { type: DataTypes.STRING(100), allowNull: false },
   district: { type: DataTypes.STRING(100) },
+  caretaker_name: { type: DataTypes.STRING(150), allowNull: true },
+  caretaker_phone: { type: DataTypes.STRING(50), allowNull: true },
+  caretaker_salary: { type: DataTypes.DECIMAL(12, 2), allowNull: false, defaultValue: 0 },
   latitude: { type: DataTypes.DECIMAL(10, 7) },
   longitude: { type: DataTypes.DECIMAL(10, 7) },
   // Redistribution des charges (électricité/eau) — activable par immeuble + valeurs par défaut

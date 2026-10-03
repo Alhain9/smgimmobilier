@@ -70,12 +70,12 @@ function fmtDate(d) {
 
 /**
  * Calcule avec exactitude la période de loyer couverte par un montant payé
- * Ex : 100 000 FCFA avec un loyer de 25 000 FCFA => 4 mois (du 03/09/2026 au 03/01/2027)
+ * Détecte automatiquement si le locataire est impayé/en retard par rapport à la date du jour
  */
 function calculateRentCoverage({ amount, rentAmount, paymentDate, periodStart, periodEnd, remainingBalance, debtAmount }) {
   const paid = parseFloat(amount) || 0;
   const rent = parseFloat(rentAmount) || 0;
-  const remaining = Math.round(parseFloat(remainingBalance) || 0);
+  let remaining = Math.round(parseFloat(remainingBalance) || 0);
   const debt = Math.round(parseFloat(debtAmount) || 0);
 
   let months = rent > 0 ? Math.floor(paid / rent) : 1;
@@ -87,24 +87,90 @@ function calculateRentCoverage({ amount, rentAmount, paymentDate, periodStart, p
   let end;
   if (periodEnd) {
     end = new Date(periodEnd);
+    if (!isNaN(end.getTime()) && !isNaN(start.getTime())) {
+      const diffMonths = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
+      if (diffMonths > 0) months = diffMonths;
+    }
   } else {
     end = new Date(start);
     end.setMonth(end.getMonth() + months);
   }
 
+  const effectiveRent = rent > 0 && rent <= paid ? rent : (months > 0 ? Math.round(paid / months) : paid);
   const startFormatted = fmtDate(start);
   const endFormatted = fmtDate(end);
-
-  let label = '';
   const monthText = `${months} mois`;
 
-  if (debt > 0 && remaining > 0) {
-    label = `Paiement couvrant ${monthText} d'arriérés (du ${startFormatted} au ${endFormatted}) — Reste dû : ${fmtMoney(remaining)}`;
-  } else if (debt > 0 && remaining === 0) {
-    label = `Paiement couvrant ${monthText} (du ${startFormatted} au ${endFormatted}) — Dette totalement soldée`;
-  } else if (remaining > 0) {
-    label = `Paiement partiel couvrant ${monthText} (du ${startFormatted} au ${endFormatted}) — Reste dû : ${fmtMoney(remaining)}`;
+  const MONTH_NAMES_FR = [
+    'janvier', 'février', 'mars', 'avril', 'mai', 'juin',
+    'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'
+  ];
+
+  // Date de référence : mois courant ou date de paiement
+  const ref = paymentDate ? new Date(paymentDate) : new Date();
+  const now = new Date();
+  const activeRef = ref > now ? ref : now;
+  const refYear = activeRef.getFullYear();
+  const refMonth = activeRef.getMonth(); // 0..11
+
+  const endYear = end.getFullYear();
+  const endMonth = end.getMonth(); // 0..11
+  const endDay = end.getDate();
+
+  let unpaidFromMonthIndex = endMonth;
+  let unpaidFromYear = endYear;
+
+  if (endDay <= 5) {
+    unpaidFromMonthIndex = endMonth;
+  } else if (endDay >= 25) {
+    const nextM = new Date(endYear, endMonth + 1, 1);
+    unpaidFromMonthIndex = nextM.getMonth();
+    unpaidFromYear = nextM.getFullYear();
+  }
+
+  let monthsGap = (refYear - unpaidFromYear) * 12 + (refMonth - unpaidFromMonthIndex);
+  let isOverdue = false;
+  let overdueMonths = 0;
+
+  if (monthsGap > 0) {
+    isOverdue = true;
+    overdueMonths = monthsGap;
+  } else if (monthsGap === 0 && endDay <= 5) {
+    isOverdue = true;
+    overdueMonths = 1;
+  }
+
+  const overdueMonthName = MONTH_NAMES_FR[unpaidFromMonthIndex];
+  let effectiveRemaining = remaining;
+  let hasDebt = remaining > 0;
+
+  if (isOverdue) {
+    hasDebt = true;
+    const autoDebt = Math.round(overdueMonths * effectiveRent);
+    if (autoDebt > effectiveRemaining) {
+      effectiveRemaining = autoDebt;
+    }
+  }
+
+  let label = '';
+  let statusText = '';
+  let statusBadge = '';
+
+  if (isOverdue) {
+    statusText = `Impayé à partir du mois de ${overdueMonthName} ${unpaidFromYear}`;
+    statusBadge = `Impayé dès ${overdueMonthName} ${unpaidFromYear}`;
+    label = `Paiement couvrant ${monthText} (du ${startFormatted} au ${endFormatted})`;
+  } else if (effectiveRemaining > 0) {
+    statusText = 'Dette restante';
+    statusBadge = 'Dette restante';
+    label = `Paiement couvrant ${monthText} (du ${startFormatted} au ${endFormatted})`;
+  } else if (monthsGap < 0) {
+    statusText = 'Locataire à jour de ses paiements';
+    statusBadge = 'À jour (Avance)';
+    label = `Paiement par anticipation couvrant ${monthText} (du ${startFormatted} au ${endFormatted})`;
   } else {
+    statusText = 'Locataire à jour de ses paiements';
+    statusBadge = 'À jour';
     label = `Paiement couvrant ${monthText} de loyer (du ${startFormatted} au ${endFormatted})`;
   }
 
@@ -115,7 +181,14 @@ function calculateRentCoverage({ amount, rentAmount, paymentDate, periodStart, p
     startDateFormatted: startFormatted,
     endDateFormatted: endFormatted,
     label,
-    remaining,
+    remaining: effectiveRemaining,
+    hasDebt,
+    isOverdue,
+    overdueFromMonth: overdueMonthName,
+    overdueFromYear: unpaidFromYear,
+    overdueMonths,
+    statusText,
+    statusBadge,
   };
 }
 

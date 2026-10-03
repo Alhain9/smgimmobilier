@@ -57,6 +57,7 @@ class EquipmentService {
   async remove(id) {
     const e = await Equipment.findByPk(id);
     if (!e) throw Object.assign(new Error('Équipement introuvable'), { status: 404 });
+    await EquipmentAllocation.destroy({ where: { equipment_id: id } });
     await e.destroy();
     return true;
   }

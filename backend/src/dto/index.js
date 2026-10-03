@@ -27,6 +27,12 @@ const userDTO = (user) => {
     can_manage_users: !!u.can_manage_users,
     can_view_all_calendars: !!u.can_view_all_calendars,
     can_manage_utilities: !!u.can_manage_utilities,
+    can_manage_worksites: !!u.can_manage_worksites,
+    can_delete_worksites: !!u.can_delete_worksites,
+    can_manage_stock: !!u.can_manage_stock,
+    can_delete_stock: !!u.can_delete_stock,
+    can_manage_documents: !!u.can_manage_documents,
+    can_manage_expenses: !!u.can_manage_expenses,
     created_at: u.created_at || u.createdAt,
     updated_at: u.updated_at || u.updatedAt,
   };

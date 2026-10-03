@@ -65,30 +65,99 @@ class LedgerService {
     const lease = (o.leases || []).find((l) => l.status === 'active') || (o.leases || [])[0] || null;
     const monthlyRent = lease ? num(lease.monthly_rent) : (o.apartment ? num(o.apartment.rent_amount) : 0);
     const startDate = lease ? lease.start_date : o.start_date;
-    const months = monthlyRent > 0 ? monthsElapsed(startDate) : 0;
+    const payments = o.payments || [];
+
+    // Déterminer la date de début effective (la plus ancienne entre bail/profil et premier paiement)
+    let effectiveStartDate = startDate;
+    let latestPeriodEnd = null;
+
+    payments.forEach((p) => {
+      if (p.period_start) {
+        if (!effectiveStartDate || new Date(p.period_start) < new Date(effectiveStartDate)) {
+          effectiveStartDate = p.period_start;
+        }
+      }
+      if (p.period_end && p.status === 'completed') {
+        if (!latestPeriodEnd || new Date(p.period_end) > new Date(latestPeriodEnd)) {
+          latestPeriodEnd = p.period_end;
+        }
+      }
+    });
+
+    const months = monthlyRent > 0 ? monthsElapsed(effectiveStartDate) : 0;
     const totalDue = months * monthlyRent;
 
-    const payments = o.payments || [];
     const totalValide = payments.filter((p) => p.status === 'completed').reduce((s, p) => s + num(p.amount), 0);
     const enAttentePreuve = payments.filter((p) => p.status === 'awaiting_confirmation').reduce((s, p) => s + num(p.amount), 0);
     const totalPaye = payments.filter((p) => ['completed', 'awaiting_confirmation'].includes(p.status)).reduce((s, p) => s + num(p.amount), 0);
 
-    const solde = totalDue - totalValide;            // règle métier : dû − validés
-    let statut = 'a_jour';
-    if (solde > 0) statut = totalValide > 0 ? 'partiel' : 'retard';
+    let solde = totalDue - totalValide;            // règle métier : dû − validés
 
-    const dueInfo = computeDueInfo(startDate, monthlyRent, totalValide);
+    // Détection automatique des impayés selon la fin de période couverte
+    const now = new Date();
+    let isOverdueFromPeriod = false;
+    let overdueMonthsFromPeriod = 0;
+    let overdueMessage = '';
+    let autoArrears = 0;
+
+    if (latestPeriodEnd && monthlyRent > 0) {
+      const pEnd = new Date(latestPeriodEnd);
+      const endYear = pEnd.getFullYear();
+      const endMonth = pEnd.getMonth();
+      const endDay = pEnd.getDate();
+
+      let unpaidM = endMonth;
+      let unpaidY = endYear;
+      if (endDay <= 5) {
+        unpaidM = endMonth;
+      } else if (endDay >= 25) {
+        const nextM = new Date(endYear, endMonth + 1, 1);
+        unpaidM = nextM.getMonth();
+        unpaidY = nextM.getFullYear();
+      }
+
+      const MONTH_NAMES_FR = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+      const gap = (now.getFullYear() - unpaidY) * 12 + (now.getMonth() - unpaidM);
+
+      if (gap > 0) {
+        isOverdueFromPeriod = true;
+        overdueMonthsFromPeriod = gap;
+      } else if (gap === 0 && endDay <= 5) {
+        isOverdueFromPeriod = true;
+        overdueMonthsFromPeriod = 1;
+      }
+
+      if (isOverdueFromPeriod) {
+        autoArrears = overdueMonthsFromPeriod * monthlyRent;
+        overdueMessage = `Impayé à partir du mois de ${MONTH_NAMES_FR[unpaidM]} ${unpaidY}`;
+        if (autoArrears > solde) {
+          solde = autoArrears;
+        }
+      }
+    }
+
+    let statut = 'a_jour';
+    if (solde > 0 || isOverdueFromPeriod) statut = totalValide > 0 ? 'partiel' : 'retard';
+
+    const dueInfo = computeDueInfo(effectiveStartDate, monthlyRent, totalValide);
+
+    if (isOverdueFromPeriod) {
+      dueInfo.statut_echeance = 'retard';
+      dueInfo.echeance_message = overdueMessage;
+      dueInfo.prochaine_echeance = latestPeriodEnd;
+      dueInfo.mois_dus = overdueMonthsFromPeriod;
+    }
 
     return {
       loyer_mensuel: monthlyRent,
-      mois_dus: months,
+      mois_dus: isOverdueFromPeriod ? overdueMonthsFromPeriod : months,
       total_du: totalDue,
       total_paye: totalPaye,
       total_valide: totalValide,
       en_attente_preuve: enAttentePreuve,
       solde,
       statut, // a_jour | partiel | retard
-      debut: startDate || null,
+      debut: effectiveStartDate || null,
       ...dueInfo,
     };
   }
@@ -102,7 +171,7 @@ class LedgerService {
         { model: Lease, as: 'leases', attributes: ['id', 'status', 'start_date', 'end_date', 'monthly_rent'], include: [{ model: Apartment, as: 'apartment', attributes: ['id', 'apartment_number'], include: [{ model: Property, as: 'property', attributes: ['id', 'property_name'] }] }] },
         {
           model: Payment, as: 'payments',
-          attributes: ['id', 'amount', 'payment_method', 'payment_date', 'status', 'payment_proof', 'created_at'],
+          attributes: ['id', 'amount', 'payment_method', 'payment_date', 'period_start', 'period_end', 'observations', 'status', 'payment_proof', 'created_at'],
           include: [{ model: PaymentHistory, as: 'history', include: [{ model: User, as: 'changedBy', attributes: ['id', 'full_name'] }] }],
         },
       ],

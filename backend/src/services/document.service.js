@@ -37,5 +37,19 @@ class DocumentService {
     await u.destroy();
     return true;
   }
+
+  async bulkRemove(ids) {
+    if (!Array.isArray(ids) || !ids.length) return 0;
+    const { Op } = require('sequelize');
+    const docs = await Upload.findAll({ where: { id: { [Op.in]: ids } } });
+    for (const u of docs) {
+      try {
+        const abs = path.join(__dirname, '..', u.file_path.replace('/uploads', 'uploads'));
+        if (fs.existsSync(abs)) fs.unlinkSync(abs);
+      } catch (_) {}
+    }
+    const count = await Upload.destroy({ where: { id: { [Op.in]: ids } } });
+    return count;
+  }
 }
 module.exports = new DocumentService();

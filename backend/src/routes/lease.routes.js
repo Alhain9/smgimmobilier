@@ -12,10 +12,10 @@ router.get('/', ctrl.getAll);
 router.get('/:id', ctrl.getById);
 router.get('/:id/docx', ctrl.downloadDocx);
 router.post('/', managers, ctrl.create);
-router.post('/bulk-delete', authorize('manager', 'dir_admin'), ctrl.bulkRemove);
+router.post('/bulk-delete', authorize('manager', 'dir_admin', 'comptable'), ctrl.bulkRemove);
 router.put('/:id', managers, ctrl.update);
 router.post('/:id/renew', managers, ctrl.renew);
 router.post('/:id/contract', managers, upload.single('contract'), ctrl.uploadContract);
-router.delete('/:id', authorize('manager', 'dir_admin'), ctrl.remove);
+router.delete('/:id', authorize('manager', 'dir_admin', 'comptable'), ctrl.remove);
 
 module.exports = router;

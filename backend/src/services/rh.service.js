@@ -105,6 +105,11 @@ class RhService {
     return true;
   }
 
+  async bulkDeletePlannings(ids) {
+    if (!Array.isArray(ids) || !ids.length) return 0;
+    return Planning.destroy({ where: { id: { [Op.in]: ids } } });
+  }
+
   // ================= POINTAGES =================
   async listPointages(filters = {}) {
     const where = {};
@@ -228,6 +233,11 @@ class RhService {
     if (!c) throw Object.assign(new Error('Congé introuvable'), { status: 404 });
     await c.destroy();
     return true;
+  }
+
+  async bulkDeleteConges(ids) {
+    if (!Array.isArray(ids) || !ids.length) return 0;
+    return Conge.destroy({ where: { id: { [Op.in]: ids } } });
   }
 }
 

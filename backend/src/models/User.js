@@ -19,6 +19,12 @@ const User = sequelize.define('User', {
   can_manage_users: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
   can_view_all_calendars: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
   can_manage_utilities: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+  can_manage_worksites: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+  can_delete_worksites: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+  can_manage_stock: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+  can_delete_stock: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+  can_manage_documents: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+  can_manage_expenses: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
   is_present: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
   last_attendance_at: { type: DataTypes.DATE },
 }, {

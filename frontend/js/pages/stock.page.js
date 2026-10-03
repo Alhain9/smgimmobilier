@@ -160,11 +160,24 @@ const PageStock = {
           </div>
         </div>
 
+        <div id="stockBulkBar" style="display:none;background:#fef2f2;border:1px solid #fca5a5;padding:10px 16px;border-radius:8px;margin-bottom:14px;display:none;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+          <div style="font-weight:600;color:#991b1b;font-size:13px">
+            <span id="stockBulkCount">0</span> article(s) sélectionné(s)
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-sm btn-danger" onclick="PageStock.bulkDeleteItems()">🗑️ Supprimer la sélection</button>
+            <button class="btn btn-sm btn-outline" onclick="PageStock.onSelectAll(false)">❌ Désélectionner</button>
+          </div>
+        </div>
+
         <div class="card">
           <div class="table-responsive">
             <table class="table" id="stockItemsTable">
               <thead>
                 <tr>
+                  <th style="width:38px;text-align:center">
+                    <input type="checkbox" id="stockSelectAll" onchange="PageStock.onSelectAll(this.checked)" title="Tout sélectionner" />
+                  </th>
                   <th>Code</th>
                   <th>Article</th>
                   <th>Type</th>
@@ -206,7 +219,7 @@ const PageStock = {
   },
 
   _buildItemsRows(items) {
-    if (!items.length) return '<tr><td colspan="10" style="text-align:center;padding:30px;color:var(--text-muted)">Aucun article trouvé.</td></tr>';
+    if (!items.length) return '<tr><td colspan="11" style="text-align:center;padding:30px;color:var(--text-muted)">Aucun article trouvé.</td></tr>';
     const fmt = (n) => Number(n || 0).toLocaleString('fr-FR');
     const canManage = Auth.hasRole('manager', 'comptable', 'dir_technique', 'gestionnaire');
     const canDelete = Auth.hasRole('manager', 'super_admin');
@@ -219,6 +232,9 @@ const PageStock = {
 
       return `
         <tr style="${it.is_low_stock ? 'background:rgba(231,76,60,0.04)' : ''}">
+          <td style="text-align:center">
+            <input type="checkbox" class="stock-row-chk" value="${it.id}" onchange="PageStock.onRowCheck()" />
+          </td>
           <td><strong style="color:var(--primary)">${it.item_code}</strong></td>
           <td>
             <div style="display:flex;align-items:center;gap:10px">
@@ -268,6 +284,41 @@ const PageStock = {
         </tr>
       `;
     }).join('');
+  },
+
+  onSelectAll(checked) {
+    const chks = document.querySelectorAll('.stock-row-chk');
+    chks.forEach((c) => { c.checked = checked; });
+    const allBox = document.getElementById('stockSelectAll');
+    if (allBox) allBox.checked = checked;
+    this.onRowCheck();
+  },
+
+  onRowCheck() {
+    const chks = Array.from(document.querySelectorAll('.stock-row-chk:checked'));
+    const bar = document.getElementById('stockBulkBar');
+    const countEl = document.getElementById('stockBulkCount');
+    if (bar && countEl) {
+      countEl.textContent = chks.length;
+      bar.style.display = chks.length > 0 ? 'flex' : 'none';
+    }
+  },
+
+  getSelectedIds() {
+    return Array.from(document.querySelectorAll('.stock-row-chk:checked')).map((c) => parseInt(c.value, 10)).filter(Boolean);
+  },
+
+  async bulkDeleteItems() {
+    const ids = this.getSelectedIds();
+    if (!ids.length) return;
+    if (!confirm(`Voulez-vous vraiment supprimer définitivement les ${ids.length} article(s) sélectionné(s) du stock ?`)) return;
+    try {
+      await API.post('/stock/items/bulk-delete', { ids });
+      Toast.success(`${ids.length} article(s) supprimé(s) avec succès`);
+      this.loadCurrentTab();
+    } catch (err) {
+      Toast.error(err.message || 'Erreur lors de la suppression groupée');
+    }
   },
 
   async deleteItem(id, name) {

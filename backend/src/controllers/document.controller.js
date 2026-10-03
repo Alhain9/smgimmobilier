@@ -20,3 +20,10 @@ exports.remove = async (req, res, next) => {
   try { await documentService.remove(req.params.id); return success(res, null, 'Document supprimé'); }
   catch (err) { next(err); }
 };
+exports.bulkRemove = async (req, res, next) => {
+  try {
+    const ids = req.body.ids || [];
+    const count = await documentService.bulkRemove(ids);
+    return success(res, { count }, `${count} document(s) supprimé(s)`);
+  } catch (err) { next(err); }
+};

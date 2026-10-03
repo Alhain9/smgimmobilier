@@ -20,6 +20,9 @@ const PageProperties = {
       { name: 'address', label: 'Adresse', required: true },
       { name: 'district', label: 'Quartier', half: true },
       { name: 'city', label: 'Ville', required: true, default: 'Douala', half: true },
+      { name: 'caretaker_name', label: '🛡️ Gardien de l\'immeuble (Nom complet)', placeholder: 'Ex: Jean Mbarga (Optionnel)', half: true },
+      { name: 'caretaker_phone', label: 'Téléphone gardien', placeholder: 'Ex: +237 699 00 00 00', half: true },
+      { name: 'caretaker_salary', label: 'Salaire mensuel gardien (FCFA)', type: 'number', default: 0, half: true },
       { name: 'status', label: 'Statut', type: 'select',
         options: [{ value: 'active', label: 'Actif' }, { value: 'inactive', label: 'Inactif' }] },
       { name: 'utilities_enabled', label: '⚡ Redistribution des charges (électricité/eau par compteur)', type: 'checkbox' },
@@ -32,20 +35,66 @@ const PageProperties = {
   },
   // Force les champs numériques de charges en nombres (évite '' -> erreur SQL)
   cleanNums(d) {
-    ['electricity_price', 'water_price', 'garbage_fee', 'transport_fee'].forEach((k) => {
+    ['electricity_price', 'water_price', 'garbage_fee', 'transport_fee', 'caretaker_salary'].forEach((k) => {
       if (k in d) d[k] = Number(d[k]) || 0;
     });
     return d;
   },
 
+  _showAll: false,
+  toggleShowAll() {
+    this._showAll = !this._showAll;
+    this.render();
+  },
+
   async render() {
     const canEdit = Auth.hasRole('manager', 'dir_admin', 'gestionnaire', 'comptable');
+    const isRestrictedRole = Auth.hasRole('comptable', 'gestionnaire') && !Auth.hasRole('manager', 'super_admin');
+
+    // Charger la liste brute pour vérifier le statut d'affectation
+    let rawProps = [];
+    try {
+      const res = await API.get('/properties');
+      rawProps = res.data || [];
+    } catch (_) { rawProps = []; }
+
+    const assignedCount = rawProps.filter((p) => p.is_assigned).length;
+    const othersCount = rawProps.length - assignedCount;
+    const hasAssigned = assignedCount > 0;
+
+    let filterBanner = '';
+    if (isRestrictedRole && hasAssigned) {
+      if (!this._showAll) {
+        filterBanner = `
+          <div style="background:#e8f5e9;border:1px solid #c8e6c9;padding:10px 16px;border-radius:8px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+            <div style="font-size:13px;color:#1b5e20;font-weight:600">
+              🏢 <b>Affichage prioritaire :</b> Vous visualisez vos <b>${assignedCount}</b> immeuble(s) assigné(s). ${othersCount > 0 ? `(${othersCount} autre(s) immeuble(s) masqué(s))` : ''}
+            </div>
+            ${othersCount > 0 ? `
+              <button class="btn btn-sm btn-outline" style="border-color:#2e7d32;color:#1b5e20" onclick="PageProperties.toggleShowAll()">
+                👁️ Afficher tous les immeubles (démasquer)
+              </button>
+            ` : ''}
+          </div>
+        `;
+      } else {
+        filterBanner = `
+          <div style="background:#fff3cd;border:1px solid #ffeeba;padding:10px 16px;border-radius:8px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+            <div style="font-size:13px;color:#856404;font-weight:600">
+              👁️ <b>Tous les immeubles sont visibles :</b> Vos immeubles assignés sont placés en tête de liste.
+            </div>
+            <button class="btn btn-sm btn-primary" onclick="PageProperties.toggleShowAll()">
+              🔒 Masquer les autres immeubles (Afficher uniquement mes immeubles)
+            </button>
+          </div>
+        `;
+      }
+    }
+
     const toolbar = `
+      ${filterBanner}
       <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
         ${canEdit ? `<button class="btn btn-outline" onclick="PageProperties.openImportModal()">📤 Importer la situation (Excel)</button>` : ''}
-        <button class="btn btn-outline" onclick="PageProperties.downloadSampleTemplate()" style="color:var(--primary);font-weight:600">
-          <span class="btn-icon">📥</span> Télécharger Modèle Word Vierge (.docx)
-        </button>
       </div>
     `;
 
@@ -53,13 +102,17 @@ const PageProperties = {
       endpoint: '/properties', title: 'Immeubles',
       canCreate: canEdit, onCreate: 'PageProperties.create',
       toolbar,
+      mapData: (all) => {
+        if (!isRestrictedRole || !hasAssigned || this._showAll) return all;
+        return all.filter((p) => p.is_assigned);
+      },
       columns: [
         {
           label: 'Nom',
           render: (r) => {
             const assignedBadge = r.is_assigned
               ? `<span style="display:inline-block;background:#d4edda;color:#155724;font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;margin-left:6px;vertical-align:middle">★ Mon immeuble</span>`
-              : '';
+              : (isRestrictedRole && hasAssigned ? `<span style="display:inline-block;background:#f1f5f9;color:#64748b;font-size:10px;font-weight:600;padding:1px 7px;border-radius:20px;margin-left:6px;vertical-align:middle">Autre gestionnaire</span>` : '');
             return `<b>${r.property_name}</b>${assignedBadge}`;
           },
         },
@@ -67,31 +120,19 @@ const PageProperties = {
         { label: 'Localisation', render: (r) => `${r.city || '—'}${r.district ? `<br><span class="text-muted" style="font-size:12px">${r.district}</span>` : ''}` },
         { label: 'Logements', render: (r) => (r.apartments ? r.apartments.length : 0) },
         { label: 'Occupation', render: (r) => { const a = r.apartments || []; return a.length ? `${a.filter(x => x.status === 'occupied').length}/${a.length}` : '0'; } },
-        {
-          label: 'Contrat Word',
-          render: (r) => {
-            if (r.lease_template_file) {
-              const isWord = /\.docx?$/i.test(r.lease_template_file);
-              const fileUrl = Helpers.fileUrl(r.lease_template_file);
-              return `<div style="display:flex;align-items:center;gap:6px">
-                <a href="${fileUrl}" target="_blank" class="badge badge-success" style="text-decoration:none;padding:5px 8px;font-size:11px" title="Télécharger le contrat Word de l'immeuble">
-                  📄 ${isWord ? 'Word (.docx)' : 'Contrat PDF'}
-                </a>
-                ${canEdit ? `<button class="btn btn-sm btn-outline" style="padding:2px 6px" onclick="PageProperties.openContractModal(${r.id})" title="Remplacer le contrat">🔄</button>` : ''}
-              </div>`;
-            }
-            return canEdit
-              ? `<button class="btn btn-sm btn-outline" style="font-size:11px;color:var(--primary)" onclick="PageProperties.openContractModal(${r.id})">+ Ajouter Word</button>`
-              : '<span class="text-muted" style="font-size:12px">Aucun</span>';
-          },
-        },
         { label: 'Statut', render: (r) => Helpers.statusBadge(r.status) },
       ],
-      rowActions: (r) => `
-        <button class="btn btn-sm btn-outline" title="Gérer le contrat Word de l'immeuble" onclick="PageProperties.openContractModal(${r.id})" style="color:var(--primary);font-weight:600">📄 Contrat Word</button>
-        <button class="btn btn-sm btn-outline" title="Voir la fiche immeuble" onclick="PageProperties.view(${r.id})">👁</button>
-        ${canEdit ? `<button class="btn btn-sm btn-outline" title="Modifier" onclick="PageProperties.edit(${r.id})">✏️</button>` : ''}
-        ${Auth.hasRole('manager') ? `<button class="btn btn-sm btn-danger" title="Supprimer" onclick="PageProperties.remove(${r.id})">🗑</button>` : ''}`,
+      rowActions: (r) => {
+        const hasContract = !!r.lease_template_file;
+        const contractUrl = hasContract ? Helpers.fileUrl(r.lease_template_file) : '';
+        return `
+          ${hasContract ? `<a href="${contractUrl}" target="_blank" class="btn btn-sm btn-outline" style="color:var(--primary);font-weight:600" title="Télécharger le contrat de bail de l'immeuble">📥 Télécharger le contrat</a>` : ''}
+          <button class="btn btn-sm btn-outline" title="Modèle de Contrat de Bail selon l'immeuble" onclick="PageProperties.openContractModal(${r.id})">📄 Modèle Contrat</button>
+          <button class="btn btn-sm btn-outline" title="Voir la fiche immeuble" onclick="PageProperties.view(${r.id})">👁</button>
+          ${canEdit ? `<button class="btn btn-sm btn-outline" title="Modifier" onclick="PageProperties.edit(${r.id})">✏️</button>` : ''}
+          ${Auth.hasRole('manager', 'dir_admin', 'comptable') ? `<button class="btn btn-sm btn-danger" title="Supprimer" onclick="PageProperties.remove(${r.id})">🗑</button>` : ''}
+        `;
+      },
     });
     this._rows = {}; (data || []).forEach((r) => { this._rows[r.id] = r; });
   },
@@ -225,6 +266,28 @@ const PageProperties = {
       <h4 style="margin:4px 0 8px">📍 Localisation</h4>
       <div class="list-item"><div style="flex:1">Adresse</div><b>${r.address || '—'}</b></div>
       <div class="list-item"><div style="flex:1">Quartier / Ville</div><b>${r.district ? r.district + ' · ' : ''}${r.city || '—'}</b></div>
+
+      <h4 style="margin:20px 0 8px">🛡️ Gardiennage & Sécurité</h4>
+      <div class="card p-3 mb-3" style="background:var(--bg-surface-2); border:1px solid var(--border)">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+          <div>
+            ${r.caretaker_name 
+              ? `<div style="font-weight:700;font-size:14px;color:var(--primary)">👤 ${r.caretaker_name}</div>
+                 <div style="font-size:12.5px;color:var(--text-muted);margin-top:2px">
+                   📞 ${r.caretaker_phone || 'Sans contact'} · Salaire mensuel : <b style="color:var(--success)">${Helpers.formatMoney(r.caretaker_salary || 0)}</b>
+                 </div>`
+              : `<span class="badge badge-warning">Aucun gardien assigné à cet immeuble</span>
+                 <div class="text-muted" style="font-size:12px; margin-top:4px;">Vous pouvez renseigner un gardien en modifiant l'immeuble.</div>`}
+          </div>
+          <div style="display:flex; gap:6px;">
+            ${Auth.hasRole('manager','comptable','gestionnaire','super_admin','dir_admin') ? `
+              <button class="btn btn-sm btn-primary" onclick="Modal.close();PageExpenses.payCaretaker(${r.id}, '${(r.caretaker_name || '').replace(/'/g, "\\'")}', ${r.caretaker_salary || 0})">
+                💵 Payer salaire gardien
+              </button>
+            ` : ''}
+          </div>
+        </div>
+      </div>
       
       <h4 style="margin:20px 0 8px">📄 Modèle de Contrat de Bail de l'immeuble</h4>
       <div class="card p-3 mb-3" style="background:var(--bg-surface-2)">
@@ -238,7 +301,7 @@ const PageProperties = {
           </div>
           <div style="display:flex; gap:6px;">
             ${hasContract ? `<a href="${contractUrl}" target="_blank" class="btn btn-sm btn-primary">📥 Télécharger le contrat</a>` : ''}
-            ${Auth.hasRole('manager','dir_admin','gestionnaire') ? `
+            ${Auth.hasRole('manager','dir_admin','gestionnaire','comptable') ? `
               <button class="btn btn-sm btn-outline" onclick="Modal.close();PageProperties.openContractModal(${r.id})">
                 ${hasContract ? '🔄 Remplacer' : '📤 Téléverser un contrat'}
               </button>
@@ -253,7 +316,7 @@ const PageProperties = {
         ${aptTiles}
       </div>`,
       `<button class="btn btn-outline" onclick="Modal.close()">Fermer</button>
-       ${Auth.hasRole('manager','dir_admin','gestionnaire') ? `
+       ${Auth.hasRole('manager','dir_admin','gestionnaire','comptable') ? `
          <button class="btn btn-outline" onclick="Modal.close();PageProperties.edit(${r.id})">✏️ Modifier</button>
          <button class="btn btn-primary" onclick="Modal.close();Router.go('apartments')">Gérer les logements</button>
        ` : ''}`);
@@ -309,12 +372,6 @@ const PageProperties = {
             </div>
           </div>
         </form>
-
-        <div style="margin-top:14px; text-align:right">
-          <a href="http://localhost:5000/api/properties/lease-template/sample" target="_blank" style="font-size:12.5px; color:var(--primary); text-decoration:underline">
-            📥 Télécharger le modèle officiel vierge (.docx)
-          </a>
-        </div>
       </div>
     `, `
       <button class="btn btn-outline" onclick="Modal.close()">Fermer</button>
@@ -481,7 +538,7 @@ const PageProperties = {
   },
 
   async quickEditApartment(aptId, propertyId) {
-    if (!Auth.hasRole('manager', 'dir_admin', 'gestionnaire')) return;
+    if (!Auth.hasRole('manager', 'dir_admin', 'gestionnaire', 'comptable')) return;
     const apt = (await API.get('/apartments/' + aptId)).data;
     
     Modal.open(`Modifier le logement ${apt.apartment_number}`, `

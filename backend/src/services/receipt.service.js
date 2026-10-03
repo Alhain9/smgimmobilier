@@ -36,10 +36,19 @@ class ReceiptService {
   }
 
   // ===== Générer un reçu de loyer à partir d'un paiement =====
-  async generateRentReceipt(paymentId, generatedBy) {
+  async generateRentReceipt(paymentId, generatedBy, options = {}) {
     // Vérifier qu'aucun reçu n'existe déjà pour ce paiement
     const existing = await Receipt.findOne({ where: { payment_id: paymentId, receipt_type: 'rent' } });
-    if (existing) return existing;
+    if (existing) {
+      if (options.period_start || options.period_end || options.observations) {
+        await existing.update({
+          period_start: options.period_start || existing.period_start,
+          period_end: options.period_end || existing.period_end,
+          observations: options.observations || existing.observations,
+        });
+      }
+      return existing;
+    }
 
     const payment = await Payment.findByPk(paymentId, {
       include: [
@@ -66,10 +75,10 @@ class ReceiptService {
 
     // Calculer la période couverte par ce paiement
     const monthlyRent = activeLease ? num(activeLease.monthly_rent) : (apartment ? num(apartment.rent_amount) : 0);
-    let periodStart = null;
-    let periodEnd = null;
+    let periodStart = options.period_start || payment.period_start || null;
+    let periodEnd = options.period_end || payment.period_end || null;
 
-    if (monthlyRent > 0 && payment.payment_date) {
+    if (!periodStart && monthlyRent > 0 && payment.payment_date) {
       const payDate = new Date(payment.payment_date);
       // Le paiement couvre le mois de la date de paiement
       periodStart = new Date(payDate.getFullYear(), payDate.getMonth(), 1);
@@ -92,9 +101,51 @@ class ReceiptService {
       const months = (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth()) + 1;
       totalDue = Math.max(0, months) * monthlyRent;
     }
-    const remainingBalance = Math.max(0, totalDue - totalPaid);
+    let remainingBalance = Math.max(0, totalDue - totalPaid);
+
+    // Détection automatique des impayés si la période couverte est échue
+    if (periodEnd && monthlyRent > 0) {
+      const pEnd = new Date(periodEnd);
+      if (!isNaN(pEnd.getTime())) {
+        const ref = payment.payment_date ? new Date(payment.payment_date) : new Date();
+        const now = new Date();
+        const activeRef = ref > now ? ref : now;
+        const refYear = activeRef.getFullYear();
+        const refMonth = activeRef.getMonth();
+
+        const endYear = pEnd.getFullYear();
+        const endMonth = pEnd.getMonth();
+        const endDay = pEnd.getDate();
+
+        let unpaidFromMonthIndex = endMonth;
+        let unpaidFromYear = endYear;
+        if (endDay <= 5) {
+          unpaidFromMonthIndex = endMonth;
+        } else if (endDay >= 25) {
+          const nextM = new Date(endYear, endMonth + 1, 1);
+          unpaidFromMonthIndex = nextM.getMonth();
+          unpaidFromYear = nextM.getFullYear();
+        }
+
+        const monthsGap = (refYear - unpaidFromYear) * 12 + (refMonth - unpaidFromMonthIndex);
+        let overdueMonths = 0;
+        if (monthsGap > 0) overdueMonths = monthsGap;
+        else if (monthsGap === 0 && endDay <= 5) overdueMonths = 1;
+
+        if (overdueMonths > 0) {
+          const autoDebt = Math.round(overdueMonths * monthlyRent);
+          if (autoDebt > remainingBalance) {
+            remainingBalance = autoDebt;
+          }
+        }
+      }
+    }
 
     const receiptNumber = await this._nextNumber('rent');
+    const pStartStr = periodStart ? (typeof periodStart === 'string' ? periodStart.slice(0, 10) : periodStart.toISOString().slice(0, 10)) : null;
+    const pEndStr = periodEnd ? (typeof periodEnd === 'string' ? periodEnd.slice(0, 10) : periodEnd.toISOString().slice(0, 10)) : null;
+
+    const observations = options.observations || payment.observations || (remainingBalance <= 0 && totalDue > 0 ? 'Dette totalement soldée' : null);
 
     const receipt = await Receipt.create({
       receipt_number: receiptNumber,
@@ -106,9 +157,10 @@ class ReceiptService {
       amount: payment.amount,
       payment_method: payment.payment_method,
       payment_date: payment.payment_date,
-      period_start: periodStart ? periodStart.toISOString().slice(0, 10) : null,
-      period_end: periodEnd ? periodEnd.toISOString().slice(0, 10) : null,
+      period_start: pStartStr,
+      period_end: pEndStr,
       remaining_balance: remainingBalance,
+      observations: observations,
       generated_by: generatedBy || null,
       status: 'issued',
     });
@@ -253,6 +305,34 @@ class ReceiptService {
     await receipt.save();
     logger.info('📄 Reçu annulé', { receipt_number: receipt.receipt_number });
     return receipt;
+  }
+
+  // ===== Supprimer définitivement un reçu =====
+  async remove(id) {
+    const receipt = await Receipt.findByPk(id);
+    if (!receipt) throw Object.assign(new Error('Reçu introuvable'), { status: 404 });
+    const numReceipt = receipt.receipt_number;
+    if (receipt.receipt_type === 'utility') {
+      await UtilityBill.update({ receipt_number: null }, { where: { receipt_number: numReceipt } });
+    }
+    await receipt.destroy();
+    logger.info('🗑️ Reçu supprimé définitivement', { receipt_number: numReceipt, id });
+    return { id, receipt_number: numReceipt };
+  }
+
+  // ===== Supprimer définitivement plusieurs reçus =====
+  async bulkRemove(ids) {
+    if (!Array.isArray(ids) || ids.length === 0) {
+      throw Object.assign(new Error('Aucun reçu sélectionné'), { status: 400 });
+    }
+    const receipts = await Receipt.findAll({ where: { id: { [Op.in]: ids } } });
+    const numbers = receipts.map((r) => r.receipt_number);
+    if (numbers.length > 0) {
+      await UtilityBill.update({ receipt_number: null }, { where: { receipt_number: { [Op.in]: numbers } } });
+    }
+    const count = await Receipt.destroy({ where: { id: { [Op.in]: ids } } });
+    logger.info('🗑️ Reçus supprimés en masse', { count, ids });
+    return { deletedCount: count };
   }
 
   // ===== Générer les reçus pour tous les paiements passés (Archives) =====

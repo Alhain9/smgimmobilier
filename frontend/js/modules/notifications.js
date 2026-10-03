@@ -148,7 +148,7 @@ const Notifications = {
   },
 
   async deleteAll() {
-    Modal.confirm('Voulez-vous vraiment supprimer toutes les notifications ?', async () => {
+    const doClear = async () => {
       try {
         await API.delete('/notifications/clear');
         this.load();
@@ -156,7 +156,16 @@ const Notifications = {
       } catch (err) {
         Toast.error('Erreur lors de la suppression des notifications');
       }
-    });
+    };
+
+    const dd = document.getElementById('notifDropdown');
+    if (dd) dd.classList.remove('open');
+
+    if (window.Modal && typeof Modal.confirm === 'function') {
+      Modal.confirm('Voulez-vous vraiment supprimer définitivement toutes vos notifications ?', doClear);
+    } else if (window.confirm('Voulez-vous vraiment supprimer définitivement toutes vos notifications ?')) {
+      await doClear();
+    }
   },
 
   start() {

@@ -35,6 +35,33 @@ const connectDB = async () => {
       await sequelize.query("ALTER TABLE expenses ADD COLUMN property_id BIGINT UNSIGNED NULL AFTER maintenance_id;");
     } catch (_) {}
     try {
+      await sequelize.query("ALTER TABLE properties ADD COLUMN caretaker_name VARCHAR(150) NULL AFTER district;");
+    } catch (_) {}
+    try {
+      await sequelize.query("ALTER TABLE properties ADD COLUMN caretaker_phone VARCHAR(50) NULL AFTER caretaker_name;");
+    } catch (_) {}
+    try {
+      await sequelize.query("ALTER TABLE properties ADD COLUMN caretaker_salary DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER caretaker_phone;");
+    } catch (_) {}
+    try {
+      await sequelize.query("ALTER TABLE expenses MODIFY COLUMN expense_type ENUM('maintenance','utility','administrative','renovation','gardiennage','other') DEFAULT 'maintenance';");
+    } catch (_) {}
+    try {
+      await sequelize.query("ALTER TABLE expenses ADD COLUMN caretaker_name VARCHAR(150) NULL AFTER item_name;");
+    } catch (_) {}
+    try {
+      await sequelize.query("ALTER TABLE expenses ADD COLUMN period_month VARCHAR(50) NULL AFTER caretaker_name;");
+    } catch (_) {}
+    try {
+      await sequelize.query("ALTER TABLE expenses ADD COLUMN payment_date DATE NULL AFTER period_month;");
+    } catch (_) {}
+    try {
+      await sequelize.query("ALTER TABLE expenses ADD COLUMN payment_method VARCHAR(50) DEFAULT 'Espèces' AFTER payment_date;");
+    } catch (_) {}
+    try {
+      await sequelize.query("ALTER TABLE expenses ADD COLUMN is_landlord_expense TINYINT(1) NOT NULL DEFAULT 0;");
+    } catch (_) {}
+        try {
       await sequelize.query("ALTER TABLE utility_bills ADD COLUMN impayer DECIMAL(10,2) NOT NULL DEFAULT 0 AFTER transport_fee;");
     } catch (_) {}
     try {
@@ -63,6 +90,48 @@ const connectDB = async () => {
     } catch (_) {}
     try {
       await sequelize.query("ALTER TABLE tenants ADD COLUMN cni_delivery_place VARCHAR(100) NULL AFTER cni_delivery_date;");
+    } catch (_) {}
+    try {
+      await sequelize.query("ALTER TABLE users ADD COLUMN can_manage_worksites TINYINT(1) NOT NULL DEFAULT 0;");
+    } catch (_) {}
+    try {
+      await sequelize.query("ALTER TABLE users ADD COLUMN can_delete_worksites TINYINT(1) NOT NULL DEFAULT 0;");
+    } catch (_) {}
+    try {
+      await sequelize.query("ALTER TABLE users ADD COLUMN can_manage_stock TINYINT(1) NOT NULL DEFAULT 0;");
+    } catch (_) {}
+    try {
+      await sequelize.query("ALTER TABLE users ADD COLUMN can_delete_stock TINYINT(1) NOT NULL DEFAULT 0;");
+    } catch (_) {}
+    try {
+      await sequelize.query("ALTER TABLE users ADD COLUMN can_manage_documents TINYINT(1) NOT NULL DEFAULT 0;");
+    } catch (_) {}
+    try {
+      await sequelize.query("ALTER TABLE users ADD COLUMN can_manage_expenses TINYINT(1) NOT NULL DEFAULT 0;");
+    } catch (_) {}
+    try {
+      await sequelize.query("ALTER TABLE tasks ADD COLUMN priority VARCHAR(50) DEFAULT 'Normal';");
+    } catch (_) {}
+    try {
+      await sequelize.query("ALTER TABLE tasks ADD COLUMN property_id BIGINT UNSIGNED NULL AFTER maintenance_id;");
+    } catch (_) {}
+    try {
+      await sequelize.query("ALTER TABLE tasks ADD COLUMN apartment_id BIGINT UNSIGNED NULL AFTER property_id;");
+    } catch (_) {}
+    try {
+      await sequelize.query("ALTER TABLE tasks ADD COLUMN location_zone VARCHAR(150) NULL AFTER apartment_id;");
+    } catch (_) {}
+    try {
+      await sequelize.query("ALTER TABLE tasks ADD COLUMN nature_probleme VARCHAR(255) NULL AFTER title;");
+    } catch (_) {}
+    try {
+      await sequelize.query("ALTER TABLE tasks ADD COLUMN observation TEXT NULL AFTER completion_note;");
+    } catch (_) {}
+    try {
+      await sequelize.query("ALTER TABLE tasks ADD COLUMN period_start DATE NULL AFTER end_date;");
+    } catch (_) {}
+    try {
+      await sequelize.query("ALTER TABLE tasks ADD COLUMN period_end DATE NULL AFTER period_start;");
     } catch (_) {}
     try {
       await sequelize.query("ALTER TABLE receipts MODIFY COLUMN receipt_type ENUM('rent', 'deposit', 'advance', 'other_income', 'expense_report', 'utility') NOT NULL DEFAULT 'rent';");

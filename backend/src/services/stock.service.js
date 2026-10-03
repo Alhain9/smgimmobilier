@@ -49,7 +49,11 @@ class StockService {
     if (filters.category) where.category = filters.category;
     if (filters.item_type) where.item_type = filters.item_type;
     if (filters.warehouse_id) where.warehouse_id = filters.warehouse_id;
-    if (filters.is_active != null) where.is_active = filters.is_active;
+    if (filters.is_active != null) {
+      where.is_active = filters.is_active === 'true' || filters.is_active === true;
+    } else if (!filters.all && !filters.include_inactive) {
+      where.is_active = true;
+    }
     if (filters.search) {
       where[Op.or] = [
         { name: { [Op.like]: `%${filters.search}%` } },
@@ -134,7 +138,30 @@ class StockService {
   async removeItem(id) {
     const item = await StockItem.findByPk(id);
     if (!item) throw Object.assign(new Error('Article de stock introuvable'), { status: 404 });
-    await item.update({ is_active: false });
+    const { StockMovement, WorksiteMaterial, WorksiteEquipmentLoan } = require('../models');
+    try {
+      if (StockMovement) await StockMovement.destroy({ where: { stock_item_id: id } });
+      if (WorksiteMaterial) await WorksiteMaterial.destroy({ where: { stock_item_id: id } });
+      if (WorksiteEquipmentLoan) await WorksiteEquipmentLoan.destroy({ where: { stock_item_id: id } });
+      await item.destroy();
+    } catch (e) {
+      await item.update({ is_active: false });
+    }
+    return true;
+  }
+
+  // ===== Suppression groupée d'articles =====
+  async bulkRemoveItems(ids) {
+    if (!Array.isArray(ids) || !ids.length) return true;
+    const { StockMovement, WorksiteMaterial, WorksiteEquipmentLoan } = require('../models');
+    try {
+      if (StockMovement) await StockMovement.destroy({ where: { stock_item_id: { [Op.in]: ids } } });
+      if (WorksiteMaterial) await WorksiteMaterial.destroy({ where: { stock_item_id: { [Op.in]: ids } } });
+      if (WorksiteEquipmentLoan) await WorksiteEquipmentLoan.destroy({ where: { stock_item_id: { [Op.in]: ids } } });
+      await StockItem.destroy({ where: { id: { [Op.in]: ids } } });
+    } catch (e) {
+      await StockItem.update({ is_active: false }, { where: { id: { [Op.in]: ids } } });
+    }
     return true;
   }
 

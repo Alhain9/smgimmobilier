@@ -56,7 +56,11 @@ class PaymentService {
     if (p.status === 'completed') {
       try {
         const receiptService = require('./receipt.service');
-        await receiptService.generateRentReceipt(p.id, user?.id);
+        await receiptService.generateRentReceipt(p.id, user?.id, {
+          period_start: p.period_start,
+          period_end: p.period_end,
+          observations: p.observations,
+        });
       } catch (err) { logger.warn('Auto-génération reçu échouée:', { error: err.message }); }
     }
     // Temps réel : notifier les dashboards
@@ -83,7 +87,11 @@ class PaymentService {
     if (data.status === 'completed' && !wasCompleted) {
       try {
         const receiptService = require('./receipt.service');
-        await receiptService.generateRentReceipt(p.id, user?.id);
+        await receiptService.generateRentReceipt(p.id, user?.id, {
+          period_start: p.period_start,
+          period_end: p.period_end,
+          observations: p.observations,
+        });
       } catch (err) { logger.warn('Auto-génération reçu échouée:', { error: err.message }); }
     }
     const full = await this.getById(id);

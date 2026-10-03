@@ -35,10 +35,22 @@ router.post('/custom',
 // Télécharger le PDF d'un reçu
 router.get('/:id/pdf', ctrl.downloadPdf);
 
-// Annuler un reçu (gestionnaire+)
-router.delete('/:id',
-  authorize('super_admin', 'manager', 'dir_admin', 'gestionnaire'),
+// Suppression multiple de reçus (gestionnaire, comptable, manager, admin)
+router.post('/bulk-delete',
+  authorize('super_admin', 'manager', 'dir_admin', 'gestionnaire', 'comptable'),
+  ctrl.bulkRemove
+);
+
+// Annuler un reçu
+router.put('/:id/cancel',
+  authorize('super_admin', 'manager', 'dir_admin', 'gestionnaire', 'comptable'),
   ctrl.cancel
+);
+
+// Supprimer définitivement un reçu
+router.delete('/:id',
+  authorize('super_admin', 'manager', 'dir_admin', 'gestionnaire', 'comptable'),
+  ctrl.remove
 );
 
 module.exports = router;

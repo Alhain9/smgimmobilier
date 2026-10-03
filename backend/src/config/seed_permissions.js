@@ -55,7 +55,8 @@ const rolePermissionsMapping = {
     'manage_tasks', 'manage_calendar', 'manage_documents'
   ],
   comptable: [
-    'view_dashboard', 'manage_payments', 'validate_payments', 'manage_expenses',
+    'view_dashboard', 'manage_properties', 'manage_apartments', 'manage_tenants',
+    'manage_leases', 'manage_payments', 'validate_payments', 'manage_expenses',
     'manage_salaries', 'manage_utilities', 'manage_equipment', 'view_reports',
     'export_data', 'manage_calendar', 'manage_documents'
   ],

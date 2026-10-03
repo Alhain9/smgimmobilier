@@ -160,9 +160,10 @@ const PagePayments = {
       ...(this._apartments || []).map(a => {
         const propName = a.property?.property_name || 'Immeuble';
         const city = a.property?.city ? ` (${a.property.city})` : '';
-        const rentInfo = a.rent_amount > 0 ? ` · ${Helpers.formatMoney(a.rent_amount)}/m` : '';
+        const assignedPfx = a.is_assigned ? '★ ' : '';
         const isSelected = String(a.id) === String(selectedAptId) ? 'selected' : '';
-        return `<option value="${a.id}" ${isSelected}>Logement ${Helpers.escapeHtml(a.apartment_number)} — ${Helpers.escapeHtml(propName)}${city}${rentInfo}</option>`;
+        const rentInfo = a.rent_amount ? ` [${Number(a.rent_amount).toLocaleString('fr-FR')} FCFA]` : '';
+        return `<option value="${a.id}" ${isSelected}>${assignedPfx}Logement ${Helpers.escapeHtml(a.apartment_number)} — ${Helpers.escapeHtml(propName)}${city}${rentInfo}</option>`;
       })
     ].join('');
 
@@ -193,6 +194,7 @@ const PagePayments = {
         
         <!-- 1. SÉLECTEUR DE LOCATAIRE INTELLIGENT (RECHERCHE + DÉFILEMENT) -->
         ${tenantSelectorHtml}
+        <div id="pay_debt_info_box" style="display:none;margin-top:-6px;margin-bottom:8px;padding:8px 12px;border-radius:6px;font-size:12px;line-height:1.4"></div>
 
         <!-- 2. LOGEMENT ASSOCIÉ (SÉLECTION AUTOMATIQUE) -->
         <div class="form-group" style="position:relative;">
@@ -222,6 +224,18 @@ const PagePayments = {
           </div>
         </div>
 
+        <!-- PÉRIODE COUVERTE PAR LE PAIEMENT -->
+        <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div class="form-group">
+            <label for="pay_period_start" style="font-weight:600;">Période début (Couverture)</label>
+            <input type="date" id="pay_period_start" class="form-control" value="${values.period_start ? values.period_start.slice(0,10) : ''}" />
+          </div>
+          <div class="form-group">
+            <label for="pay_period_end" style="font-weight:600;">Période fin (Couverture)</label>
+            <input type="date" id="pay_period_end" class="form-control" value="${values.period_end ? values.period_end.slice(0,10) : ''}" />
+          </div>
+        </div>
+
         <!-- 4. MÉTHODE & STATUT -->
         <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
           <div class="form-group">
@@ -246,7 +260,13 @@ const PagePayments = {
           </div>
         </div>
 
-        <!-- 5. JUSTIFICATIF OPTIONNEL -->
+        <!-- 5. OBSERVATIONS ARCHIVAGE & JUSTIFICATIF -->
+        <div class="form-group">
+          <label for="pay_observations" style="font-weight:600;">Observation libre & Modalités (Archivage)</label>
+          <textarea id="pay_observations" class="form-control" rows="2" placeholder="ex: Solde partiel dette, accord paiement complément fin de mois...">${Helpers.escapeHtml(values.observations || '')}</textarea>
+          <small class="text-muted" style="font-size:11px">Très important pour archiver l'historique et faire figurer les observations sur le reçu officiel.</small>
+        </div>
+
         <div class="form-group">
           <label for="pay_proof" style="font-weight:600;">Justificatif / Reçu (Optionnel)</label>
           <input type="file" id="pay_proof" class="form-control" accept="image/*,application/pdf" />
@@ -269,6 +289,35 @@ const PagePayments = {
       size: 'medium'
     });
 
+    const checkTenantDebt = async (tenantId) => {
+      const debtBox = document.getElementById('pay_debt_info_box');
+      if (!debtBox || !tenantId) return;
+      try {
+        const res = await API.get('/tenants/' + tenantId);
+        const t = res.data;
+        if (t && t.due_info) {
+          const solde = t.due_info.solde || 0;
+          const months = t.due_info.mois_dus || 0;
+          debtBox.style.display = 'block';
+          if (solde > 0) {
+            debtBox.style.background = '#fef2f2';
+            debtBox.style.border = '1px solid #fecaca';
+            debtBox.style.color = '#991b1b';
+            debtBox.innerHTML = `⚠️ <b>Attention dette en cours :</b> Ce locataire a un arriéré de <b>${Helpers.formatMoney(solde)}</b> (${months} mois impayé(s)). Le versement sera imputé sur cette dette.`;
+          } else {
+            debtBox.style.background = '#f0fdf4';
+            debtBox.style.border = '1px solid #bbf7d0';
+            debtBox.style.color = '#166534';
+            debtBox.innerHTML = `✅ <b>Situation saine :</b> Locataire à jour de ses loyers. Aucun arriéré constaté.`;
+          }
+          const pStart = document.getElementById('pay_period_start');
+          if (pStart && !pStart.value && t.due_info.prochaine_echeance) {
+            pStart.value = t.due_info.prochaine_echeance.slice(0, 10);
+          }
+        }
+      } catch (_) {}
+    };
+
     // Initialiser TenantPicker avec l'auto-liaison du logement et du montant
     if (tp && typeof tp.init === 'function') {
       tp.init({
@@ -282,6 +331,7 @@ const PagePayments = {
           if (hintEl && meta.hasApartment) {
             hintEl.innerHTML = `<span style="color:#16a34a;font-weight:600;">✓ Logement attribué à ${Helpers.escapeHtml(meta.name)} : ${Helpers.escapeHtml(meta.propertyName)} (${Helpers.escapeHtml(meta.apartmentNumber)})</span>`;
           }
+          if (tenant && tenant.id) checkTenantDebt(tenant.id);
         }
       });
     } else {
@@ -296,9 +346,14 @@ const PagePayments = {
               const aptSelect = document.getElementById('pay_apartment_id');
               if (aptSelect) aptSelect.value = String(aptId);
             }
+            checkTenantDebt(tenant.id);
           }
         });
       }
+    }
+
+    if (values.tenant_id || (values.tenant && values.tenant.id)) {
+      checkTenantDebt(values.tenant_id || values.tenant.id);
     }
 
     // Soumission du formulaire
@@ -309,6 +364,9 @@ const PagePayments = {
       const paymentDate = document.getElementById('pay_date')?.value;
       const paymentMethod = document.getElementById('pay_method')?.value;
       const status = document.getElementById('pay_status')?.value;
+      const period_start = document.getElementById('pay_period_start')?.value || null;
+      const period_end = document.getElementById('pay_period_end')?.value || null;
+      const observations = document.getElementById('pay_observations')?.value.trim() || null;
       const proofFile = document.getElementById('pay_proof')?.files[0];
 
       if (!tenantId) {
@@ -332,6 +390,9 @@ const PagePayments = {
         payment_date: paymentDate,
         payment_method: paymentMethod,
         status: status,
+        period_start: period_start,
+        period_end: period_end,
+        observations: observations,
       };
       if (apartmentId) {
         payload.apartment_id = parseInt(apartmentId, 10);

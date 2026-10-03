@@ -15,12 +15,26 @@ const PageUtilities = {
   typeLabel(t) { return t === 'water' ? '💧 Eau' : '⚡ Électricité'; },
   conso(b) { return parseFloat((Math.max(0, Number(b.current_index || 0) - Number(b.previous_index || 0))).toFixed(2)); },
 
+  _showAll: false,
+  toggleShowAll() {
+    this._showAll = !this._showAll;
+    this.render();
+  },
+
   // Logements des immeubles où la redistribution est activée
   async loadBillable() {
     try {
       const props = (await API.get('/properties')).data || [];
+      const isRestrictedRole = Auth.hasRole('comptable', 'gestionnaire') && !Auth.hasRole('manager', 'super_admin');
+      const hasAssigned = props.some((p) => p.is_assigned);
+
+      let targetProps = props;
+      if (isRestrictedRole && hasAssigned && !this._showAll) {
+        targetProps = props.filter((p) => p.is_assigned);
+      }
+
       this._apts = [];
-      props.forEach((p) => {
+      targetProps.forEach((p) => {
         (p.apartments || []).forEach((a) => {
           this._apts.push({
             id: a.id,
@@ -47,6 +61,8 @@ const PageUtilities = {
     Layout.setTitle('Charges & Factures d\'Électricité');
     await this.loadBillable();
 
+    const isRestrictedRole = Auth.hasRole('comptable', 'gestionnaire') && !Auth.hasRole('manager', 'super_admin');
+
     // Charger les stats et factures en parallèle
     let stats = { total_logements: this._apts.length, total_factures: 0, total_collecte: 0, total_impaye: 0, nb_impayes: 0 };
     let bills = [];
@@ -57,6 +73,13 @@ const PageUtilities = {
       ]);
       if (resStats && resStats.data) stats = resStats.data;
       bills = resBills.data || [];
+
+      // Si le gestionnaire/comptable a des immeubles affectés et qu'on ne montre pas tout
+      if (isRestrictedRole && !this._showAll && this._apts.length > 0) {
+        const myAptIds = new Set(this._apts.map((a) => a.id));
+        bills = bills.filter((b) => myAptIds.has(b.apartment_id));
+      }
+
       this._allBills = bills;
       this._rows = {};
       bills.forEach((b) => { this._rows[b.id] = b; });
@@ -66,7 +89,41 @@ const PageUtilities = {
 
     const canEdit = Auth.hasRole('super_admin', 'manager', 'comptable', 'dir_admin', 'gestionnaire');
 
+    let filterBanner = '';
+    if (isRestrictedRole) {
+      if (this._apts.length === 0 && !this._showAll) {
+        filterBanner = `
+          <div style="background:#f8fafc;border:1px solid #cbd5e1;padding:16px 20px;border-radius:10px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+            <div>
+              <div style="font-weight:700;color:#334155;font-size:14px">⚡ Aucune charge divisionnaire sur vos immeubles assignés</div>
+              <div style="font-size:12.5px;color:#64748b;margin-top:2px">Les immeubles que vous gérez ne comportent pas de compteurs divisionnaires configurés (l'eau et l'électricité sont réglées directement par les locataires ou via les dépenses générales).</div>
+            </div>
+            <button class="btn btn-sm btn-primary" onclick="PageUtilities.toggleShowAll()">👁️ Afficher les charges des autres immeubles (démasquer)</button>
+          </div>
+        `;
+      } else if (!this._showAll) {
+        filterBanner = `
+          <div style="background:#e8f5e9;border:1px solid #c8e6c9;padding:10px 16px;border-radius:8px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+            <div style="font-size:13px;color:#1b5e20;font-weight:600">
+              ⚡ <b>Affichage prioritaire :</b> Charges de vos immeubles assignés uniquement (${this._apts.length} logement(s)).
+            </div>
+            <button class="btn btn-sm btn-outline" style="border-color:#2e7d32;color:#1b5e20" onclick="PageUtilities.toggleShowAll()">👁️ Afficher toutes les charges (démasquer)</button>
+          </div>
+        `;
+      } else {
+        filterBanner = `
+          <div style="background:#fff3cd;border:1px solid #ffeeba;padding:10px 16px;border-radius:8px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+            <div style="font-size:13px;color:#856404;font-weight:600">
+              👁️ <b>Toutes les charges sont affichées :</b> Visualisation globale de tous les immeubles.
+            </div>
+            <button class="btn btn-sm btn-primary" onclick="PageUtilities.toggleShowAll()">🔒 Masquer les autres charges</button>
+          </div>
+        `;
+      }
+    }
+
     const content = `
+      ${filterBanner}
       <div class="page-head" style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;margin-bottom:20px">
         <div>
           <h2>⚡ Factures d'Électricité & Charges</h2>
@@ -175,6 +232,11 @@ const PageUtilities = {
 
       return `
         <tr>
+          ${canEdit ? `
+            <td style="text-align:center">
+              <input type="checkbox" class="util-row-chk" value="${b.id}" onchange="PageUtilities.onRowSelectChange()" />
+            </td>
+          ` : ''}
           <td>
             <b>${aptNum}</b>
             ${propName ? `<br><span class="text-muted" style="font-size:0.75rem">${propName}</span>` : ''}
@@ -218,11 +280,26 @@ const PageUtilities = {
         <input type="search" id="utilitySearchInput" class="form-control search" placeholder="🔎 Rechercher par logement, immeuble, locataire, mois..." style="max-width:360px" oninput="PageUtilities.filterFactures(this.value)" />
         <div style="font-size:12.5px;color:var(--text-muted)" id="utilityFacturesCount">${bills.length} facture(s)</div>
       </div>
+
+      <!-- Barre d'action groupée pour suppression -->
+      ${canEdit ? `
+        <div id="utilBulkBar" style="display:none;background:#fee2e2;border:1px solid #fca5a5;padding:10px 16px;border-radius:8px;margin-bottom:12px;display:none;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+          <div style="font-size:13px;color:#991b1b;font-weight:600">
+            <span id="utilSelectedCount">0</span> facture(s) sélectionnée(s)
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-sm btn-outline" style="border-color:#f87171;color:#991b1b" onclick="PageUtilities.clearSelection()">Annuler</button>
+            <button class="btn btn-sm btn-danger" onclick="PageUtilities.bulkDelete()">🗑️ Tout supprimer la sélection</button>
+          </div>
+        </div>
+      ` : ''}
+
       <div class="card">
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
+                ${canEdit ? `<th style="width:36px;text-align:center"><input type="checkbox" id="utilSelectAll" title="Tout sélectionner" onchange="PageUtilities.toggleSelectAll(this.checked)" /></th>` : ''}
                 <th>Logement</th>
                 <th>Locataire</th>
                 <th>Type</th>
@@ -235,7 +312,7 @@ const PageUtilities = {
               </tr>
             </thead>
             <tbody id="utilityFacturesTbody">
-              ${rows.length ? rows : '<tr><td colspan="9" class="text-center text-muted p-4">Aucune facture enregistrée pour le moment.</td></tr>'}
+              ${rows.length ? rows : `<tr><td colspan="${canEdit ? 10 : 9}" class="text-center text-muted p-4">Aucune facture enregistrée pour le moment.</td></tr>`}
             </tbody>
           </table>
         </div>
@@ -263,7 +340,7 @@ const PageUtilities = {
     if (!tbody) return;
 
     if (!filtered.length) {
-      tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted p-4">Aucune facture ne correspond à votre recherche.</td></tr>';
+      tbody.innerHTML = `<tr><td colspan="${canEdit ? 10 : 9}" class="text-center text-muted p-4">Aucune facture ne correspond à votre recherche.</td></tr>`;
       return;
     }
 
@@ -278,6 +355,11 @@ const PageUtilities = {
 
       return `
         <tr>
+          ${canEdit ? `
+            <td style="text-align:center">
+              <input type="checkbox" class="util-row-chk" value="${b.id}" onchange="PageUtilities.onRowSelectChange()" />
+            </td>
+          ` : ''}
           <td>
             <b>${aptNum}</b>
             ${propName ? `<br><span class="text-muted" style="font-size:0.75rem">${propName}</span>` : ''}
@@ -315,6 +397,49 @@ const PageUtilities = {
         </tr>
       `;
     }).join('');
+  },
+
+  toggleSelectAll(checked) {
+    document.querySelectorAll('.util-row-chk').forEach((chk) => { chk.checked = checked; });
+    this.onRowSelectChange();
+  },
+
+  onRowSelectChange() {
+    const checked = document.querySelectorAll('.util-row-chk:checked');
+    const bar = document.getElementById('utilBulkBar');
+    const cnt = document.getElementById('utilSelectedCount');
+    const allChk = document.getElementById('utilSelectAll');
+    const total = document.querySelectorAll('.util-row-chk').length;
+    if (cnt) cnt.textContent = checked.length;
+    if (bar) bar.style.display = checked.length > 0 ? 'flex' : 'none';
+    if (allChk) allChk.checked = total > 0 && checked.length === total;
+  },
+
+  clearSelection() {
+    document.querySelectorAll('.util-row-chk').forEach((chk) => { chk.checked = false; });
+    const allChk = document.getElementById('utilSelectAll');
+    if (allChk) allChk.checked = false;
+    this.onRowSelectChange();
+  },
+
+  async bulkDelete() {
+    const checked = Array.from(document.querySelectorAll('.util-row-chk:checked')).map((c) => Number(c.value));
+    if (!checked.length) {
+      Toast.warning('Aucune facture sélectionnée');
+      return;
+    }
+    if (!confirm(`Confirmez-vous la suppression groupée de ces ${checked.length} facture(s) de charges ? Cette action est irréversible.`)) {
+      return;
+    }
+    try {
+      Toast.info('Suppression groupée en cours...');
+      const res = await API.post('/utility-bills/bulk-delete', { ids: checked });
+      Toast.success(res.message || `${checked.length} facture(s) supprimée(s) avec succès`);
+      this.clearSelection();
+      this.render();
+    } catch (e) {
+      Toast.error(e.message || 'Erreur lors de la suppression groupée');
+    }
   },
 
   // ============================================================

@@ -22,4 +22,29 @@ module.exports = {
   reschedule: async (req, res, next) => {
     try { return success(res, await service.reschedule(req.params.id, req.body.start_date, req.body.reason, req.user), 'Tâche reportée'); } catch (e) { next(e); }
   },
+  // Téléchargement du Plan de Travail Urgent en PDF
+  downloadWorkPlanPdf: async (req, res, next) => {
+    try {
+      const buffer = await service.generateWorkPlanPdf(req.query);
+      const filename = `Plan_de_travail_${new Date().toISOString().slice(0, 10)}.pdf`;
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      return res.send(buffer);
+    } catch (e) { next(e); }
+  },
+  // Alimenter avec les exemples types demandés
+  seedSample: async (req, res, next) => {
+    try {
+      const result = await service.seedWorkPlanSample(req.user);
+      return success(res, result, `${result.count} tâches du plan de travail injectées avec succès`);
+    } catch (e) { next(e); }
+  },
+  // Suppression groupée
+  bulkRemove: async (req, res, next) => {
+    try {
+      const ids = req.body.ids || [];
+      const count = await service.bulkRemove(ids);
+      return success(res, { count }, `${count} tâche(s) supprimée(s)`);
+    } catch (e) { next(e); }
+  },
 };

@@ -1,8 +1,17 @@
 const { User, Role, Property } = require('../models');
 const { shapeUser } = require('../utils/shapeUser');
 
-// Champs réservés au manager / super_admin (délégation de permissions)
-const PRIVILEGED_FIELDS = ['can_manage_users', 'can_view_all_calendars', 'can_manage_utilities'];
+const PRIVILEGED_FIELDS = [
+  'can_manage_users',
+  'can_view_all_calendars',
+  'can_manage_utilities',
+  'can_manage_worksites',
+  'can_delete_worksites',
+  'can_manage_stock',
+  'can_delete_stock',
+  'can_manage_documents',
+  'can_manage_expenses',
+];
 const stripPrivilegedFields = (data, requesterRole) => {
   const payload = { ...data };
   if (!['manager', 'super_admin'].includes(requesterRole)) {

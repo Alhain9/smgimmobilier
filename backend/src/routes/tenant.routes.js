@@ -16,8 +16,8 @@ router.get('/', viewers, ctrl.getAll);
 router.get('/:id', viewers, ctrl.getById);
 router.get('/:id/docx', viewers, ctrl.downloadDocx);
 router.post('/', managers, upload.single('photo'), ctrl.create);
-router.post('/bulk-delete', authorize('manager', 'dir_admin'), ctrl.bulkRemove);
+router.post('/bulk-delete', authorize('manager', 'dir_admin', 'comptable'), ctrl.bulkRemove);
 router.put('/:id', managers, upload.single('photo'), ctrl.update);
-router.delete('/:id', authorize('manager', 'dir_admin'), ctrl.remove);
+router.delete('/:id', authorize('manager', 'dir_admin', 'comptable'), ctrl.remove);
 
 module.exports = router;

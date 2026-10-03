@@ -2,14 +2,14 @@ const { Apartment, Property, Tenant, User, Lease, Payment, Maintenance, UtilityB
 const { Op } = require('sequelize');
 
 class ApartmentService {
-  getAll(filters = {}, ownerPropertyIds = null) {
+  async getAll(filters = {}, ownerPropertyIds = null, assignedPropertyIds = null) {
     const where = {};
     if (filters.property_id) where.property_id = filters.property_id;
     if (filters.status) where.status = filters.status;
     if (Array.isArray(ownerPropertyIds)) {
       where.property_id = { [Op.in]: ownerPropertyIds };
     }
-    return Apartment.findAll({
+    const all = await Apartment.findAll({
       where,
       include: [
         { model: Property, as: 'property', attributes: ['id', 'property_name', 'city'] },
@@ -17,6 +17,16 @@ class ApartmentService {
       ],
       order: [['created_at', 'DESC']],
     });
+
+    if (Array.isArray(assignedPropertyIds) && assignedPropertyIds.length > 0) {
+      const assigned = all.filter((a) => assignedPropertyIds.includes(Number(a.property_id)));
+      const others = all.filter((a) => !assignedPropertyIds.includes(Number(a.property_id)));
+      assigned.forEach((a) => { a.dataValues.is_assigned = true; });
+      others.forEach((a) => { a.dataValues.is_assigned = false; });
+      return [...assigned, ...others];
+    }
+
+    return all;
   }
   async getById(id) {
     const a = await Apartment.findByPk(id, {

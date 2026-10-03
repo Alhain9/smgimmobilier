@@ -47,11 +47,24 @@ const PageReceipts = {
         </div>
       </div>
 
+      <div id="receiptsBulkBar" style="display:none;align-items:center;justify-content:space-between;background:#fef2f2;border:1px solid #fecaca;padding:10px 16px;border-radius:8px;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+        <div style="font-weight:600;color:#991b1b;display:flex;align-items:center;gap:12px">
+          <span>✓ <strong id="receiptSelectedCount">0</strong> reçu(s) sélectionné(s)</span>
+          <button class="btn btn-sm btn-outline" style="border-color:#fca5a5;color:#991b1b;background:#fff" onclick="PageReceipts.deselectAll()">Tout désélectionner</button>
+        </div>
+        <button class="btn btn-sm btn-danger" onclick="PageReceipts.deleteSelected()" style="font-weight:700;display:inline-flex;align-items:center;gap:6px">
+          🗑️ Supprimer les reçus sélectionnés
+        </button>
+      </div>
+
       <div class="card">
         <div class="table-responsive">
           <table class="table" id="receiptsTable">
             <thead>
               <tr>
+                <th style="width:40px;text-align:center">
+                  <input type="checkbox" id="selectAllReceipts" title="Tout sélectionner" onchange="PageReceipts.toggleSelectAll(this.checked)" style="cursor:pointer;width:16px;height:16px" />
+                </th>
                 <th>N° Reçu</th>
                 <th>Type</th>
                 <th>Locataire</th>
@@ -64,7 +77,7 @@ const PageReceipts = {
               </tr>
             </thead>
             <tbody id="receiptsTableBody">
-              <tr><td colspan="9" style="text-align:center;padding:30px"><div class="spinner"></div></td></tr>
+              <tr><td colspan="10" style="text-align:center;padding:30px"><div class="spinner"></div></td></tr>
             </tbody>
           </table>
         </div>
@@ -75,8 +88,11 @@ const PageReceipts = {
   },
 
   _receipts: [],
+  _selectedIds: new Set(),
 
   async loadReceipts() {
+    this._selectedIds.clear();
+    this.updateBulkBar();
     const type = document.getElementById('receiptTypeFilter')?.value || '';
     const start = document.getElementById('receiptStartDate')?.value || '';
     const end = document.getElementById('receiptEndDate')?.value || '';
@@ -92,14 +108,15 @@ const PageReceipts = {
       this.renderTable(this._receipts);
     } catch (err) {
       Toast.error('Erreur lors du chargement des reçus');
-      document.getElementById('receiptsTableBody').innerHTML = `<tr><td colspan="9" style="text-align:center;color:var(--danger)">Échec de chargement des reçus.</td></tr>`;
+      document.getElementById('receiptsTableBody').innerHTML = `<tr><td colspan="10" style="text-align:center;color:var(--danger)">Échec de chargement des reçus.</td></tr>`;
     }
   },
 
   renderTable(receipts) {
     const tbody = document.getElementById('receiptsTableBody');
     if (!receipts.length) {
-      tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:30px;color:var(--text-muted)">Aucun reçu trouvé.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:30px;color:var(--text-muted)">Aucun reçu trouvé.</td></tr>`;
+      this.updateSelectAllCheckbox(false);
       return;
     }
 
@@ -111,6 +128,8 @@ const PageReceipts = {
       expense_report: 'Dépense',
     };
 
+    const canDelete = Auth.hasRole('super_admin', 'manager', 'dir_admin', 'gestionnaire', 'comptable');
+
     tbody.innerHTML = receipts.map((r) => {
       const tenantName = r.tenant?.user?.full_name || '—';
       const propName = r.property?.property_name || '—';
@@ -120,9 +139,13 @@ const PageReceipts = {
       const statusBadge = r.status === 'issued'
         ? `<span class="badge badge-success">Émis</span>`
         : `<span class="badge badge-danger">Annulé</span>`;
+      const isChecked = this._selectedIds.has(r.id);
 
       return `
-        <tr>
+        <tr id="receipt-row-${r.id}" style="${isChecked ? 'background:rgba(239, 68, 68, 0.05)' : ''}">
+          <td style="text-align:center">
+            <input type="checkbox" class="receipt-select-check" data-id="${r.id}" ${isChecked ? 'checked' : ''} onchange="PageReceipts.onRowSelectChange(${r.id}, this.checked)" style="cursor:pointer;width:16px;height:16px" />
+          </td>
           <td><strong style="color:var(--primary)">${r.receipt_number}</strong></td>
           <td><span class="badge badge-info">${typeLabels[r.receipt_type] || r.receipt_type}</span></td>
           <td><b>${tenantName}</b></td>
@@ -131,13 +154,125 @@ const PageReceipts = {
           <td><small>${r.payment_method || '—'}</small></td>
           <td>${date}</td>
           <td>${statusBadge}</td>
-          <td style="text-align:right">
-            <button class="btn btn-sm btn-primary" onclick="PageReceipts.openOfficial(${r.id})" title="Voir le reçu officiel" style="font-weight:600;display:inline-flex;align-items:center;gap:4px;">👁️ Voir le reçu</button>
+          <td style="text-align:right;white-space:nowrap">
+            <button class="btn btn-sm btn-primary" onclick="PageReceipts.openOfficial(${r.id})" title="Voir le reçu officiel" style="font-weight:600;display:inline-flex;align-items:center;gap:4px;">👁️ Voir</button>
             <a class="btn btn-sm btn-outline" href="${PageReceipts.pdfUrl(r.id)}" target="_blank" rel="noopener" title="Ouvrir le PDF dans un nouvel onglet" style="display:inline-flex;align-items:center;gap:4px;text-decoration:none">📄 PDF</a>
+            ${canDelete ? `<button class="btn btn-sm btn-danger" onclick="PageReceipts.deleteSingle(${r.id}, '${r.receipt_number}')" title="Supprimer ce reçu (nettoyage test)" style="display:inline-flex;align-items:center;gap:4px">🗑️</button>` : ''}
           </td>
         </tr>
       `;
     }).join('');
+
+    this.checkIfAllVisibleSelected();
+  },
+
+  onRowSelectChange(id, checked) {
+    if (checked) {
+      this._selectedIds.add(id);
+    } else {
+      this._selectedIds.delete(id);
+    }
+    const row = document.getElementById(`receipt-row-${id}`);
+    if (row) {
+      row.style.background = checked ? 'rgba(239, 68, 68, 0.05)' : '';
+    }
+    this.checkIfAllVisibleSelected();
+    this.updateBulkBar();
+  },
+
+  toggleSelectAll(checked) {
+    const checks = document.querySelectorAll('.receipt-select-check');
+    checks.forEach((chk) => {
+      chk.checked = checked;
+      const id = Number(chk.getAttribute('data-id'));
+      if (checked) {
+        this._selectedIds.add(id);
+      } else {
+        this._selectedIds.delete(id);
+      }
+      const row = document.getElementById(`receipt-row-${id}`);
+      if (row) {
+        row.style.background = checked ? 'rgba(239, 68, 68, 0.05)' : '';
+      }
+    });
+    this.updateBulkBar();
+  },
+
+  deselectAll() {
+    this._selectedIds.clear();
+    const checks = document.querySelectorAll('.receipt-select-check');
+    checks.forEach((chk) => {
+      chk.checked = false;
+      const id = Number(chk.getAttribute('data-id'));
+      const row = document.getElementById(`receipt-row-${id}`);
+      if (row) row.style.background = '';
+    });
+    this.updateSelectAllCheckbox(false);
+    this.updateBulkBar();
+  },
+
+  checkIfAllVisibleSelected() {
+    const checks = document.querySelectorAll('.receipt-select-check');
+    if (!checks.length) {
+      this.updateSelectAllCheckbox(false);
+      return;
+    }
+    let allChecked = true;
+    for (const chk of checks) {
+      if (!chk.checked) {
+        allChecked = false;
+        break;
+      }
+    }
+    this.updateSelectAllCheckbox(allChecked);
+  },
+
+  updateSelectAllCheckbox(checked) {
+    const el = document.getElementById('selectAllReceipts');
+    if (el) el.checked = checked;
+  },
+
+  updateBulkBar() {
+    const bar = document.getElementById('receiptsBulkBar');
+    const countEl = document.getElementById('receiptSelectedCount');
+    const count = this._selectedIds.size;
+    if (countEl) countEl.textContent = count;
+    if (bar) bar.style.display = count > 0 ? 'flex' : 'none';
+  },
+
+  async deleteSingle(id, number) {
+    if (!confirm(`⚠️ Êtes-vous sûr de vouloir supprimer définitivement le reçu N° ${number} ?\n\nCette action est irréversible et permettra de nettoyer vos données de test avant le passage en réel.`)) {
+      return;
+    }
+    try {
+      await API.delete('/receipts/' + id);
+      this._selectedIds.delete(id);
+      Toast.success(`Reçu ${number} supprimé avec succès 🗑️`);
+      await this.loadReceipts();
+    } catch (err) {
+      console.error(err);
+      Toast.error(err.message || 'Erreur lors de la suppression du reçu');
+    }
+  },
+
+  async deleteSelected() {
+    const ids = Array.from(this._selectedIds);
+    if (!ids.length) {
+      Toast.info('Aucun reçu sélectionné');
+      return;
+    }
+    if (!confirm(`⚠️ Êtes-vous sûr de vouloir supprimer définitivement les ${ids.length} reçu(s) sélectionné(s) ?\n\nCette suppression est irréversible (idéal pour purger les tests avant passage en réel).`)) {
+      return;
+    }
+    try {
+      const res = await API.post('/receipts/bulk-delete', { ids });
+      this._selectedIds.clear();
+      Toast.success(`${res.data?.deletedCount || ids.length} reçu(s) supprimé(s) définitivement ! 🗑️`);
+      await this.loadReceipts();
+    } catch (err) {
+      console.error(err);
+      Toast.error(err.message || 'Erreur lors de la suppression en masse');
+    }
   },
 
   /** Construit l'URL directe du PDF avec le token JWT dans l'en-tête (via blob) ou en paramètre de requête */

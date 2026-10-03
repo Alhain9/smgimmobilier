@@ -60,6 +60,31 @@ class ManagementReportController {
       return success(res, data, 'Rapport global agence SMG IMMOBILIER');
     } catch (err) { next(err); }
   }
+
+  // Récapitulatif des entrées par immeuble (Virement, Cash, Part %, Badges, Analyses)
+  async getInflowsRecap(req, res, next) {
+    try {
+      const { start, end } = this._getDates(req);
+      const propertyIds = req.query.property_ids || req.query.property_id || null;
+      const data = await reportService.inflowsRecap(start, end, propertyIds, req.ownerPropertyIds);
+      return success(res, data, 'Récapitulatif des entrées par immeuble');
+    } catch (err) { next(err); }
+  }
+
+  // Téléchargement du PDF officiel du Récapitulatif des entrées par immeuble
+  async downloadInflowsRecapPdf(req, res, next) {
+    try {
+      const { start, end } = this._getDates(req);
+      const propertyIds = req.query.property_ids || req.query.property_id || null;
+      const data = await reportService.inflowsRecap(start, end, propertyIds, req.ownerPropertyIds);
+      const buffer = await pdfService.generateInflowsRecapPdf(data);
+      const filename = `Recapitulatif_Entrees_${start}_${end}.pdf`;
+
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(buffer);
+    } catch (err) { next(err); }
+  }
 }
 
 module.exports = new ManagementReportController();

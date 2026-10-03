@@ -24,6 +24,7 @@ router.delete('/equipes/:id', authorize('super_admin', 'manager', 'dir_admin'), 
 
 // --- PLANNINGS ---
 router.get('/plannings', ctrl.listPlannings);
+router.post('/plannings/bulk-delete', authorize('super_admin', 'manager', 'dir_admin'), ctrl.bulkDeletePlannings);
 router.post('/plannings', authorize('super_admin', 'manager', 'dir_admin'), validate(schemas.createPlanning), ctrl.createPlanning);
 router.put('/plannings/:id', authorize('super_admin', 'manager', 'dir_admin'), validate(schemas.updatePlanning), ctrl.updatePlanning);
 router.delete('/plannings/:id', authorize('super_admin', 'manager', 'dir_admin'), ctrl.deletePlanning);
@@ -35,6 +36,7 @@ router.post('/pointages/sortie', ctrl.pointageSortie);
 
 // --- CONGES ---
 router.get('/conges', ctrl.listConges);
+router.post('/conges/bulk-delete', authorize('super_admin', 'manager', 'comptable', 'dir_admin'), ctrl.bulkDeleteConges);
 router.post('/conges', validate(schemas.createConge), ctrl.createConge);
 router.put('/conges/:id', authorize('super_admin', 'manager', 'comptable'), validate(schemas.updateConge), ctrl.updateConge);
 router.delete('/conges/:id', ctrl.deleteConge);

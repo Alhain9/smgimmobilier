@@ -5,12 +5,21 @@ const PageTasks = {
     try { this._users = (await API.get('/users')).data; } catch { this._users = []; }
     try { this._maintenances = (await API.get('/maintenance')).data; } catch { this._maintenances = []; }
     return [
+      { name: 'priority', label: 'Priorité', type: 'select', half: true, options: [
+        { value: 'Urgent', label: '🔴 Urgent' },
+        { value: 'Maintenance', label: '🟠 Maintenance' },
+        { value: 'Rénovation complète', label: '🟣 Rénovation complète' },
+        { value: 'Normal', label: '⚪ Normal' }
+      ]},
+      { name: 'location_zone', label: 'Appartement / Zone (ex: 408, 517, Immeuble l\'AGAPE)', half: true },
+      { name: 'nature_probleme', label: 'Nature du problème (ex: Siphon douche, Toit défectueux...)' },
       { name: 'title', label: 'Titre de la tâche', required: true },
       { name: 'assigned_to', label: 'Assignée à', type: 'select', options: [{ value: '', label: '— Non assignée —' }].concat(this._users.map((u) => ({ value: u.id, label: u.full_name }))) },
       { name: 'maintenance_id', label: 'Chantier lié (optionnel)', type: 'select', options: [{ value: '', label: '— Aucun —' }].concat(this._maintenances.map((m) => ({ value: m.id, label: m.title }))) },
       { name: 'start_date', label: 'Heure planifiée', type: 'datetime-local', half: true },
       { name: 'end_date', label: 'Échéance (fin)', type: 'datetime-local', half: true },
       { name: 'description', label: 'Description (ce qui doit être fait)', type: 'textarea' },
+      { name: 'observation', label: 'Observation / État d\'avancement (ex: Lui fixer une date, FAIT...)', type: 'textarea' },
     ];
   },
   async render() {
@@ -18,7 +27,10 @@ const PageTasks = {
       endpoint: '/tasks', title: 'Tâches',
       canCreate: true, onCreate: 'PageTasks.create',
       columns: [
-        { label: 'Tâche', render: (r) => `<b>${r.title}</b>${r.description ? `<br><span class="text-muted" style="font-size:12px">${String(r.description).slice(0, 60)}</span>` : ''}` },
+        { label: 'Priorité', render: (r) => `<span class="badge ${r.priority === 'Urgent' ? 'badge-danger' : r.priority === 'Maintenance' ? 'badge-warning' : r.priority === 'Rénovation complète' ? 'badge-primary' : 'badge-info'}">${r.priority || 'Normal'}</span>` },
+        { label: 'Zone / Appt', render: (r) => `<b>${r.location_zone || '—'}</b>` },
+        { label: 'Problème / Tâche', render: (r) => `<b>${r.nature_probleme || r.title}</b>${r.description ? `<br><span class="text-muted" style="font-size:12px">${String(r.description).slice(0, 60)}</span>` : ''}` },
+        { label: 'Observation', render: (r) => r.observation ? `<span class="text-info">${r.observation}</span>` : '—' },
         { label: 'Assignée à', render: (r) => r.assignee ? r.assignee.full_name : '<span class="text-muted">—</span>' },
         { label: 'Heure planifiée', render: (r) => r.start_date ? Helpers.formatDateTime(r.start_date) : '—' },
         { label: 'Statut', render: (r) => Helpers.taskStatus(r.status) + (r.completion_note ? `<br><span class="text-muted" style="font-size:11px">${String(r.completion_note).slice(0, 50)}</span>` : '') },

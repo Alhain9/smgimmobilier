@@ -636,8 +636,9 @@ class ManagementReportService {
     const pctCash = grandTotal > 0 ? Math.round((grandTotalCash / grandTotal) * 1000) / 10 : 0;
 
     // Constats et observations automatiques
+    const fmtVal = (val) => String(Math.round(val || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
     const observations = [];
-    observations.push(`Sur la période du ${start} au ${end}, le volume total des entrées s'élève à ${grandTotal.toLocaleString('fr-FR')} FCFA réparti sur ${items.length} immeuble(s).`);
+    observations.push(`Sur la période du ${start} au ${end}, le volume total des entrées s'élève à ${fmtVal(grandTotal)} FCFA réparti sur ${items.length} immeuble(s).`);
     if (pctCash >= 60) {
       observations.push(`Forte prédominance des encaissements en Cash / Espèces (${pctCash}% contre ${pctVirement}% en Virement bancaire). Recommandation : encourager les virements bancaires pour sécuriser la trésorerie et renforcer la traçabilité.`);
     } else if (pctVirement >= 50) {

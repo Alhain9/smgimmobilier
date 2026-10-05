@@ -4,6 +4,17 @@ const PageManagementReports = {
     Router.register('management-reports', () => this.render());
   },
 
+  _currentTab: 'building',
+  _properties: [],
+  _selectedInflowPropertyIds: [],
+  _currentReport: null,
+  _currentInflowsData: null,
+
+  switchTab(tab) {
+    this._currentTab = tab;
+    this.render();
+  },
+
   async render() {
     Layout.setTitle('Rapports de gestion');
     const today = new Date();
@@ -13,15 +24,49 @@ const PageManagementReports = {
     const firstDay = `${y}-${m}-01`;
     const lastDay = `${y}-${m}-${String(lastDayNum).padStart(2, '0')}`;
 
-    const isBailleur = Auth.getRole() === 'bailleur';
+    if (!this._properties || !this._properties.length) {
+      await this.loadProperties();
+    }
 
     const appContent = document.getElementById('appContent');
+    const isBuildingTab = this._currentTab !== 'inflows';
+
     appContent.innerHTML = `
+      <!-- ONGLETS DE NAVIGATION DU MODULE RAPPORTS -->
+      <div style="display:flex;gap:10px;margin-bottom:16px;border-bottom:2px solid var(--border);padding-bottom:10px;flex-wrap:wrap">
+        <button class="btn ${isBuildingTab ? 'btn-primary' : 'btn-outline'}" onclick="PageManagementReports.switchTab('building')" style="font-weight:700">
+          🏢 Bilan Détaillé par Immeuble
+        </button>
+        <button class="btn ${!isBuildingTab ? 'btn-primary' : 'btn-outline'}" onclick="PageManagementReports.switchTab('inflows')" style="font-weight:700">
+          📑 Récapitulatif des Entrées par Immeuble (Virement & Cash)
+        </button>
+      </div>
+
+      <div id="mReportTabContainer">
+        ${isBuildingTab ? this._renderBuildingTab(firstDay, lastDay) : this._renderInflowsTab(firstDay, lastDay)}
+      </div>
+    `;
+
+    if (isBuildingTab) {
+      this.populatePropertySelect();
+      if (this._currentReport) {
+        this.renderReport(this._currentReport);
+      }
+    } else {
+      this.renderInflowsPropertyChips();
+      if (this._currentInflowsData) {
+        this.renderInflowsRecap(this._currentInflowsData);
+      }
+    }
+  },
+
+  _renderBuildingTab(firstDay, lastDay) {
+    return `
       <div class="card" style="margin-bottom:16px">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
           <div>
-            <h2 style="font-size:18px;font-weight:700;color:var(--text)">📊 Rapports Périodiques de Gestion</h2>
-            <p style="font-size:13px;color:var(--text-muted);margin-top:2px">Sélectionnez une période libre et un bien immobilier pour générer un bilan complet (revenus, dépenses, travaux, résultat net).</p>
+            <h2 style="font-size:18px;font-weight:700;color:var(--text)">🏢 Bilan Périodique de Gestion</h2>
+            <p style="font-size:13px;color:var(--text-muted);margin-top:2px">Sélectionnez une période libre et un bien immobilier pour générer un bilan complet (situation 12 colonnes, revenus, dépenses, travaux, résultat net).</p>
           </div>
         </div>
 
@@ -44,7 +89,7 @@ const PageManagementReports = {
             <button class="btn btn-primary" style="flex:1" onclick="PageManagementReports.generateReport()">
               <span class="btn-icon">⚡</span> Analyser & Afficher
             </button>
-            <button class="btn btn-success" id="mReportPdfBtn" style="display:none" onclick="PageManagementReports.downloadPdf()">
+            <button class="btn btn-success" id="mReportPdfBtn" style="${this._currentReport ? 'display:inline-flex' : 'display:none'}" onclick="PageManagementReports.downloadPdf()">
               <span class="btn-icon">📄</span> Exporter PDF
             </button>
           </div>
@@ -58,26 +103,100 @@ const PageManagementReports = {
         </div>
       </div>
     `;
+  },
 
-    await this.loadProperties();
+  _renderInflowsTab(firstDay, lastDay) {
+    const totalProps = (this._properties || []).length;
+    const selectedCount = this._selectedInflowPropertyIds.length;
+    const selText = selectedCount === 0 || selectedCount === totalProps 
+      ? `Tous les immeubles (${totalProps})` 
+      : `${selectedCount} immeuble(s) sélectionné(s)`;
+
+    return `
+      <div class="card" style="margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+          <div>
+            <h2 style="font-size:18px;font-weight:700;color:var(--text)">📑 Récapitulatif des Entrées par Immeuble</h2>
+            <p style="font-size:13px;color:var(--text-muted);margin-top:2px">
+              Consolidez et comparez les encaissements (Virements bancaires vs Cash / Espèces), la part de chaque immeuble, les constats et l'analyse globale de gestion.
+            </p>
+          </div>
+        </div>
+
+        <!-- FILTRES DE DATES -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:16px">
+          <div>
+            <label style="font-size:12px;font-weight:600;color:var(--text-muted)">Date de début 📅</label>
+            <input type="date" id="mReportInflowsStart" class="form-control" value="${firstDay}" />
+          </div>
+          <div>
+            <label style="font-size:12px;font-weight:600;color:var(--text-muted)">Date de fin 📅</label>
+            <input type="date" id="mReportInflowsEnd" class="form-control" value="${lastDay}" />
+          </div>
+          <div style="display:flex;align-items:flex-end;gap:8px">
+            <button class="btn btn-primary" style="flex:1" onclick="PageManagementReports.generateInflowsRecap()">
+              <span class="btn-icon">⚡</span> Analyser & Afficher
+            </button>
+            <button class="btn btn-success" id="mReportInflowsPdfBtn" style="${this._currentInflowsData ? 'display:inline-flex' : 'display:none'}" onclick="PageManagementReports.downloadInflowsRecapPdf()">
+              <span class="btn-icon">📄</span> Exporter PDF Officiel
+            </button>
+          </div>
+        </div>
+
+        <!-- SÉLECTION CIBLÉE MULTI-IMMEUBLES -->
+        <div style="margin-top:16px;padding-top:14px;border-top:1px dashed var(--border)">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+            <div style="font-size:12.5px;font-weight:700;color:var(--text)">
+              🏢 Immeubles ciblés : <span id="inflowSelectedBadge" class="badge badge-info" style="font-size:11px">${selText}</span>
+            </div>
+            <div style="display:flex;gap:6px">
+              <button class="btn btn-sm btn-outline" style="font-size:11px;padding:3px 8px" onclick="PageManagementReports.selectAllInflowProperties(true)">
+                ✓ Tout sélectionner
+              </button>
+              <button class="btn btn-sm btn-outline" style="font-size:11px;padding:3px 8px" onclick="PageManagementReports.selectAllInflowProperties(false)">
+                ✗ Tout désélectionner
+              </button>
+            </div>
+          </div>
+          <div id="inflowPropertiesChipsContainer" style="display:flex;flex-wrap:wrap;gap:8px;max-height:160px;overflow-y:auto;padding:8px;background:var(--secondary-bg,#f8fafc);border:1px solid var(--border);border-radius:8px">
+            <!-- Rendu dynamique des chips -->
+          </div>
+        </div>
+      </div>
+
+      <div id="mReportInflowsResultArea">
+        <div class="card" style="text-align:center;padding:40px;color:var(--text-muted)">
+          <span style="font-size:40px">📑</span>
+          <p style="margin-top:12px;font-size:14px">
+            Sélectionnez les immeubles à analyser et cliquez sur <b>« Analyser & Afficher »</b> pour générer le récapitulatif des entrées.
+          </p>
+        </div>
+      </div>
+    `;
   },
 
   async loadProperties() {
     try {
       const res = await API.get('/properties');
-      const props = res.data || [];
-      const select = document.getElementById('mReportPropertySelect');
-      if (!props.length) {
-        select.innerHTML = '<option value="">Aucun immeuble disponible</option>';
-        return;
+      this._properties = res.data || [];
+      if (!this._selectedInflowPropertyIds.length && this._properties.length) {
+        this._selectedInflowPropertyIds = this._properties.map((p) => Number(p.id));
       }
-      select.innerHTML = props.map((p) => `<option value="${p.id}">${p.property_name} (${p.city || '—'})</option>`).join('');
     } catch (err) {
       Toast.error('Impossible de charger les immeubles');
     }
   },
 
-  _currentReport: null,
+  populatePropertySelect() {
+    const select = document.getElementById('mReportPropertySelect');
+    if (!select) return;
+    const props = this._properties || [];
+    if (!props.length) {
+      select.innerHTML = '<option value="">Aucun immeuble disponible</option>';
+      return;
+    }
+    select.innerHTML = props.map((p) => `<option value="${p.id}">${Helpers.escapeHtml(p.property_name)} (${p.city || '—'})</option>`).join('');
+  },
 
   async generateReport() {
     const propertyId = document.getElementById('mReportPropertySelect')?.value;
@@ -96,7 +215,8 @@ const PageManagementReports = {
       const data = res.data;
       this._currentReport = data;
 
-      document.getElementById('mReportPdfBtn').style.display = 'inline-flex';
+      const pdfBtn = document.getElementById('mReportPdfBtn');
+      if (pdfBtn) pdfBtn.style.display = 'inline-flex';
       this.renderReport(data);
     } catch (err) {
       Toast.error('Erreur lors de la génération du rapport');
@@ -712,6 +832,294 @@ const PageManagementReports = {
     } catch (err) {
       console.error('Erreur PDF:', err);
       Toast.error(err.message || 'Impossible de télécharger le rapport PDF');
+    }
+  },
+
+  // ===== GESTION DU RÉCAPITULATIF DES ENTRÉES PAR IMMEUBLE =====
+  renderInflowsPropertyChips() {
+    const container = document.getElementById('inflowPropertiesChipsContainer');
+    if (!container) return;
+    const props = this._properties || [];
+    if (!props.length) {
+      container.innerHTML = '<span style="font-size:12px;color:var(--text-muted)">Aucun immeuble disponible</span>';
+      return;
+    }
+
+    container.innerHTML = props.map((p) => {
+      const isChecked = this._selectedInflowPropertyIds.includes(Number(p.id));
+      return `
+        <label style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:20px;background:${isChecked ? 'var(--primary, #1a3a5c)' : 'var(--bg-surface, #fff)'};color:${isChecked ? '#fff' : 'var(--text)'};border:1px solid ${isChecked ? 'var(--primary)' : 'var(--border)'};font-size:12px;cursor:pointer;user-select:none;transition:all 0.2s">
+          <input type="checkbox" value="${p.id}" ${isChecked ? 'checked' : ''} onchange="PageManagementReports.toggleInflowProperty(${p.id}, this.checked)" style="accent-color:var(--primary);cursor:pointer" />
+          <span><b>${Helpers.escapeHtml(p.property_name)}</b> <small style="opacity:0.85">(${Helpers.escapeHtml(p.city || '—')})</small></span>
+        </label>
+      `;
+    }).join('');
+
+    const badge = document.getElementById('inflowSelectedBadge');
+    if (badge) {
+      const totalProps = props.length;
+      const count = this._selectedInflowPropertyIds.length;
+      badge.textContent = count === 0 || count === totalProps 
+        ? `Tous les immeubles (${totalProps})` 
+        : `${count} immeuble(s) sélectionné(s)`;
+    }
+  },
+
+  toggleInflowProperty(id, checked) {
+    const numId = Number(id);
+    const idx = this._selectedInflowPropertyIds.indexOf(numId);
+    if (checked && idx < 0) {
+      this._selectedInflowPropertyIds.push(numId);
+    } else if (!checked && idx >= 0) {
+      this._selectedInflowPropertyIds.splice(idx, 1);
+    }
+    this.renderInflowsPropertyChips();
+  },
+
+  selectAllInflowProperties(selectAll) {
+    if (selectAll) {
+      this._selectedInflowPropertyIds = (this._properties || []).map((p) => Number(p.id));
+    } else {
+      this._selectedInflowPropertyIds = [];
+    }
+    this.renderInflowsPropertyChips();
+  },
+
+  async generateInflowsRecap() {
+    const start = document.getElementById('mReportInflowsStart')?.value;
+    const end = document.getElementById('mReportInflowsEnd')?.value;
+
+    if (!start || !end) { Toast.warning('Veuillez renseigner les dates'); return; }
+    if (start > end) { Toast.error('La date de début ne peut pas être après la date de fin'); return; }
+
+    const propIds = this._selectedInflowPropertyIds;
+    let url = `/management-reports/inflows-recap?start=${start}&end=${end}`;
+    if (propIds && propIds.length > 0 && propIds.length < (this._properties || []).length) {
+      url += `&property_ids=${propIds.join(',')}`;
+    }
+
+    const area = document.getElementById('mReportInflowsResultArea');
+    area.innerHTML = '<div class="card" style="text-align:center;padding:40px"><div class="spinner"></div><p style="margin-top:12px;color:var(--text-muted)">Analyse et consolidation des entrées par immeuble en cours...</p></div>';
+
+    try {
+      const res = await API.get(url);
+      const data = res.data;
+      this._currentInflowsData = data;
+
+      const pdfBtn = document.getElementById('mReportInflowsPdfBtn');
+      if (pdfBtn) pdfBtn.style.display = 'inline-flex';
+      this.renderInflowsRecap(data);
+    } catch (err) {
+      Toast.error(err.message || 'Erreur lors de la génération du récapitulatif');
+      area.innerHTML = `<div class="card" style="text-align:center;padding:30px;color:var(--danger)">Échec de génération du récapitulatif.</div>`;
+    }
+  },
+
+  renderInflowsRecap(data) {
+    const s = data.summary || {};
+    const items = data.items || [];
+    const obs = data.observations || [];
+    const p = data.period || {};
+    const fmt = (n) => Number(n || 0).toLocaleString('fr-FR') + ' FCFA';
+    const area = document.getElementById('mReportInflowsResultArea');
+    if (!area) return;
+
+    const totalEntrees = s.total_entrees || 0;
+    const totalVirement = s.total_virement || 0;
+    const totalCash = s.total_cash || 0;
+    const pctVirement = s.percent_virement || 0;
+    const pctCash = s.percent_cash || 0;
+
+    const tableRows = items.map((it) => {
+      let badgeStyle = 'background:var(--secondary-bg);color:var(--text-muted);border:1px solid var(--border)';
+      if (it.dominance_class === 'badge-danger') badgeStyle = 'background:#fee2e2;color:#991b1b;border:1px solid #f87171';
+      else if (it.dominance_class === 'badge-warning') badgeStyle = 'background:#fef3c7;color:#92400e;border:1px solid #fcd34d';
+      else if (it.dominance_class === 'badge-success') badgeStyle = 'background:#dcfce7;color:#166534;border:1px solid #86efac';
+      else if (it.dominance_class === 'badge-info') badgeStyle = 'background:#e0f2fe;color:#075985;border:1px solid #7dd3fc';
+      else if (it.dominance_class === 'badge-primary') badgeStyle = 'background:#e0e7ff;color:#3730a3;border:1px solid #a5b4fc';
+
+      return `
+        <tr>
+          <td>
+            <b>${Helpers.escapeHtml(it.property_name || '—')}</b>
+            ${it.city ? `<br><small style="color:var(--text-muted)">📍 ${Helpers.escapeHtml(it.city)}</small>` : ''}
+          </td>
+          <td style="text-align:right">
+            <span style="font-weight:600;color:var(--primary)">${fmt(it.virement)}</span>
+          </td>
+          <td style="text-align:right">
+            <span style="font-weight:600;color:var(--warning, #b45309)">${fmt(it.cash)}</span>
+          </td>
+          <td style="text-align:right">
+            <b style="font-size:13.5px;color:var(--success, #15803d)">${fmt(it.total)}</b>
+          </td>
+          <td style="text-align:center">
+            <span class="badge badge-outline" style="font-weight:700">${it.share || 0}%</span>
+          </td>
+          <td style="text-align:center">
+            <span class="badge" style="font-size:11px;font-weight:700;padding:3px 8px;border-radius:12px;${badgeStyle}">
+              ${it.dominance_badge || '—'}
+            </span>
+          </td>
+        </tr>
+      `;
+    }).join('') || `<tr><td colspan="6" class="text-center text-muted" style="padding:20px">Aucun encaissement sur la période sélectionnée</td></tr>`;
+
+    area.innerHTML = `
+      <!-- EN-TÊTE DU RÉCAPITULATIF -->
+      <div class="card" style="margin-bottom:16px;border-left:4px solid var(--primary)">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+          <div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span class="badge badge-primary" style="font-size:12px">📑 Récapitulatif Consolidé</span>
+              <span class="badge badge-outline" style="font-size:12px">${items.length} immeuble(s) analysé(s)</span>
+            </div>
+            <h3 style="font-size:16px;font-weight:700;margin-top:6px">
+              Répartition des Entrées du ${Helpers.formatDate(p.start)} au ${Helpers.formatDate(p.end)}
+            </h3>
+            <p style="font-size:12px;color:var(--text-muted);margin:0">
+              Ventilation officielle des flux financiers par bien immobilier (Virement vs Cash / Mobile Money)
+            </p>
+          </div>
+          <button class="btn btn-success" onclick="PageManagementReports.downloadInflowsRecapPdf()">
+            <span class="btn-icon">📄</span> Télécharger le Récapitulatif PDF
+          </button>
+        </div>
+      </div>
+
+      <!-- 1. 4 KPI CARDS -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:16px">
+        <div class="card stat-card" style="border-top:3px solid var(--success)">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted)">Total Entrées de la période</div>
+          <div style="font-size:22px;font-weight:900;color:var(--success);margin-top:4px">${fmt(totalEntrees)}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">100% des encaissements enregistrés</div>
+        </div>
+
+        <div class="card stat-card" style="border-top:3px solid var(--primary)">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted)">Virements Bancaires</div>
+          <div style="font-size:20px;font-weight:800;color:var(--primary);margin-top:4px">${fmt(totalVirement)}</div>
+          <div style="font-size:11px;color:var(--primary);font-weight:700;margin-top:2px">${pctVirement}% du total global</div>
+        </div>
+
+        <div class="card stat-card" style="border-top:3px solid var(--warning, #b45309)">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted)">Cash / Espèces & Mobile</div>
+          <div style="font-size:20px;font-weight:800;color:var(--warning, #b45309);margin-top:4px">${fmt(totalCash)}</div>
+          <div style="font-size:11px;color:var(--warning, #b45309);font-weight:700;margin-top:2px">${pctCash}% du total global</div>
+        </div>
+
+        <div class="card stat-card" style="border-top:3px solid var(--text-muted)">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted)">Immeubles Couverts</div>
+          <div style="font-size:20px;font-weight:800;color:var(--text);margin-top:4px">${items.filter(it => it.total > 0).length} / ${items.length}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${items.filter(it => it.total > 0).length} bien(s) avec entrées</div>
+        </div>
+      </div>
+
+      <!-- 2. TABLEAU DE VENTILATION DES ENTRÉES PAR IMMEUBLE -->
+      <div class="card" style="margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+          <h4 style="font-size:15px;font-weight:700;margin:0">
+            📊 Ventilation des Encaissements par Immeuble
+          </h4>
+          <span style="font-size:12px;color:var(--text-muted)">Trier par volume d'entrées décroissant</span>
+        </div>
+        <div class="table-responsive">
+          <table class="table">
+            <thead>
+              <tr style="background:var(--secondary-bg, #f8fafc)">
+                <th>Immeuble & Ville</th>
+                <th style="text-align:right">Virement</th>
+                <th style="text-align:right">Cash / Espèces</th>
+                <th style="text-align:right">Total Encaissé</th>
+                <th style="text-align:center">Part (%)</th>
+                <th style="text-align:center">Ventilation des flux</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${tableRows}
+              <tr style="font-weight:800;background:var(--secondary-bg, #f0f4f8);border-top:2px solid var(--border);font-size:13.5px">
+                <td>TOTAL GÉNÉRAL CONSOLIDÉ</td>
+                <td style="text-align:right;color:var(--primary)">${fmt(totalVirement)}</td>
+                <td style="text-align:right;color:var(--warning, #b45309)">${fmt(totalCash)}</td>
+                <td style="text-align:right;color:var(--success, #15803d);font-size:14px">${fmt(totalEntrees)}</td>
+                <td style="text-align:center">100%</td>
+                <td style="text-align:center"><span class="badge badge-primary">Consolidé</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 3. CONSTATS ET ANALYSES DE GESTION -->
+      <div class="card" style="margin-bottom:16px;background:var(--secondary-bg, #f9fafb);border:1px solid var(--border);border-left:4px solid var(--primary)">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+          <span style="font-size:18px">💡</span>
+          <h4 style="font-size:15px;font-weight:700;color:var(--primary);margin:0">
+            3. Constats et Analyses de Gestion
+          </h4>
+        </div>
+        ${obs.length ? `
+          <ul style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:8px">
+            ${obs.map(o => `
+              <li style="font-size:13px;line-height:1.5;color:var(--text)">
+                ${Helpers.escapeHtml(o)}
+              </li>
+            `).join('')}
+          </ul>
+        ` : `
+          <p style="font-size:13px;color:var(--text-muted);margin:0">Aucun constat automatique généré pour cette période.</p>
+        `}
+      </div>
+
+      <!-- 4. CADRE DE VALIDATION & VISA -->
+      <div class="card" style="margin-bottom:16px">
+        <h4 style="font-size:14px;font-weight:700;color:var(--text-muted);margin-bottom:12px;text-transform:uppercase">
+          ✍️ Validation & Visas Officiels
+        </h4>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+          <div style="border:1px dashed var(--border);padding:14px;border-radius:8px;min-height:90px">
+            <div style="font-size:12px;font-weight:700;color:var(--primary)">POUR LA DIRECTION SMG IMMOBILIER</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Visa & Cachet autorisés</div>
+          </div>
+          <div style="border:1px dashed var(--border);padding:14px;border-radius:8px;min-height:90px">
+            <div style="font-size:12px;font-weight:700;color:var(--primary)">LE RESPONSABLE ADMINISTRATIF & FINANCIER</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Vérification de la comptabilité</div>
+          </div>
+        </div>
+      </div>
+    `;
+  },
+
+  async downloadInflowsRecapPdf() {
+    const start = document.getElementById('mReportInflowsStart')?.value || this._currentInflowsData?.period?.start;
+    const end = document.getElementById('mReportInflowsEnd')?.value || this._currentInflowsData?.period?.end;
+
+    if (!start || !end) {
+      Toast.warning('Veuillez renseigner les dates');
+      return;
+    }
+
+    const propIds = this._selectedInflowPropertyIds;
+    const allCount = (this._properties || []).length;
+    let url = `/management-reports/inflows-recap/pdf?start=${start}&end=${end}`;
+    if (propIds && propIds.length > 0 && propIds.length < allCount) {
+      url += `&property_ids=${propIds.join(',')}`;
+    }
+
+    Toast.info('Génération du récapitulatif PDF en cours...');
+    try {
+      const blob = await API.downloadBlob(url);
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      a.download = `Recapitulatif_Entrees_${start}_${end}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(downloadUrl);
+      Toast.success('Récapitulatif des entrées PDF téléchargé avec succès ✅');
+    } catch (err) {
+      console.error('Erreur PDF Récapitulatif:', err);
+      Toast.error(err.message || 'Impossible de télécharger le PDF du récapitulatif');
     }
   },
 };

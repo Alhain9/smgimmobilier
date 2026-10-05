@@ -57,8 +57,29 @@ if (process.env.NODE_ENV === 'development') {
 // Fichiers uploadés (statique)
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Servir l'application Frontend complète & PWA (manifest, sw, assets, pages)
-app.use(express.static(path.join(__dirname, '../../frontend')));
+// Servir l'application Frontend complète & PWA avec vérification immédiate du cache (Zero Stale Cache)
+app.use(express.static(path.join(__dirname, '../../frontend'), {
+  etag: true,
+  lastModified: true,
+  setHeaders: (res, filePath) => {
+    // Les fichiers de code (HTML, JS, CSS, JSON, sw.js) ne doivent JAMAIS être bloqués par le cache local du navigateur ou de la PWA
+    // Dès qu'un fichier change sur le serveur, le navigateur le télécharge IMMÉDIATEMENT sans aucune action manuelle
+    if (
+      filePath.endsWith('.html') ||
+      filePath.endsWith('.js') ||
+      filePath.endsWith('.css') ||
+      filePath.endsWith('.json') ||
+      filePath.endsWith('sw.js')
+    ) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    } else {
+      // Images, polices et icônes : cache 24h
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+    }
+  }
+}));
 
 // Middleware d'audit (capture les actions sur toutes les routes)
 app.use(auditMiddleware);

@@ -2,34 +2,74 @@
 const PWA = {
   deferredPrompt: null,
   isInstalled: false,
+  swRegistration: null,
 
   init() {
-    // 1. Détection si déjà lancé en mode application autonome (standalone)
+    // 1. Détection si déjà lancé en mode application autonome (standalone / mobile app)
     if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true) {
       this.isInstalled = true;
       document.body.classList.add('pwa-standalone');
       console.log('[SMG PWA] Application lancée en mode autonome (Mobile App).');
     }
 
-    // 2. Enregistrement du Service Worker
+    // 2. Enregistrement du Service Worker avec vérification réseau prioritaire (Zero Cache Bloqué)
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        // Détecter si on est dans /pages/ ou à la racine
         const swPath = window.location.pathname.includes('/pages/') ? '../sw.js' : './sw.js';
-        navigator.serviceWorker.register(swPath)
+        
+        // updateViaCache: 'none' empêche le navigateur de garder une vieille version du sw.js
+        navigator.serviceWorker.register(swPath, { updateViaCache: 'none' })
           .then((reg) => {
-            console.log('[SMG PWA] Service Worker actif, scope:', reg.scope);
+            this.swRegistration = reg;
+            console.log('[SMG PWA] Service Worker actif (Zero Stale Cache), scope:', reg.scope);
+
+            // Vérification immédiate d'une nouvelle version sur le serveur
             reg.update();
+
+            // Détection automatique si une nouvelle version de l'application est disponible
+            reg.addEventListener('updatefound', () => {
+              const newWorker = reg.installing;
+              if (!newWorker) return;
+              newWorker.addEventListener('statechange', () => {
+                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                  console.log('[SMG PWA] Nouvelle version logicielle détectée ! Activation transparente...');
+                  newWorker.postMessage('SKIP_WAITING');
+                }
+              });
+            });
           })
           .catch((err) => {
-            console.warn('[SMG PWA] Échec enregistrement Service Worker:', err);
+            console.warn('[SMG PWA] Avertissement enregistrement Service Worker:', err);
           });
+
+        // Rechargement transparent dès que le nouveau Service Worker a pris le relais
+        let refreshing = false;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (!refreshing) {
+            refreshing = true;
+            console.log('[SMG PWA] Mise à jour logicielle appliquée en direct.');
+            window.location.reload();
+          }
+        });
+
+        // Dès que l'utilisateur revient sur l'application (changement d'onglet ou retour sur smartphone), vérifier les mises à jour
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'visible' && this.swRegistration) {
+            this.swRegistration.update().catch(() => {});
+          }
+        });
+
+        // Vérification périodique toutes les 3 minutes en arrière-plan
+        setInterval(() => {
+          if (this.swRegistration) {
+            this.swRegistration.update().catch(() => {});
+          }
+        }, 3 * 60 * 1000);
       });
     }
 
     // 3. Capture de l'événement d'installation mobile (Android / Chrome)
     window.addEventListener('beforeinstallprompt', (e) => {
-      // Empêcher l'affichage de la mini-barre par défaut
       e.preventDefault();
       this.deferredPrompt = e;
       console.log('[SMG PWA] Événement d’installation mobile capturé.');
@@ -53,7 +93,6 @@ const PWA = {
   showInstallButton() {
     let btn = document.getElementById('pwaInstallBtn');
     if (!btn) {
-      // Tenter d'insérer dans la sidebar sous le profil ou en haut de la page
       const sidebarBottom = document.querySelector('.sidebar-footer') || document.querySelector('.sidebar');
       if (sidebarBottom) {
         btn = document.createElement('button');
@@ -64,7 +103,6 @@ const PWA = {
         btn.onclick = () => this.install();
         sidebarBottom.appendChild(btn);
 
-        // Animation d'attention discrète
         if (!document.getElementById('pwa_keyframes')) {
           const style = document.createElement('style');
           style.id = 'pwa_keyframes';

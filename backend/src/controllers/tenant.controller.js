@@ -51,4 +51,16 @@ module.exports = {
       return res.send(buffer);
     } catch (err) { next(err); }
   },
+  vacate: async (req, res, next) => {
+    try {
+      const data = await tenantService.vacate(req.params.id, req.body);
+      return success(res, data, 'Départ du locataire enregistré et logement libéré avec succès');
+    } catch (err) { next(err); }
+  },
+  settleDebt: async (req, res, next) => {
+    try {
+      const data = await tenantService.settleDebt(req.params.id, req.body, req.user);
+      return success(res, data, 'Règlement de dette enregistré avec succès');
+    } catch (err) { next(err); }
+  },
 };

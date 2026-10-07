@@ -16,6 +16,8 @@ router.get('/', viewers, ctrl.getAll);
 router.get('/:id', viewers, ctrl.getById);
 router.get('/:id/docx', viewers, ctrl.downloadDocx);
 router.post('/', managers, upload.single('photo'), ctrl.create);
+router.post('/:id/vacate', managers, ctrl.vacate);
+router.post('/:id/settle-debt', managers, ctrl.settleDebt);
 router.post('/bulk-delete', authorize('manager', 'dir_admin', 'comptable'), ctrl.bulkRemove);
 router.put('/:id', managers, upload.single('photo'), ctrl.update);
 router.delete('/:id', authorize('manager', 'dir_admin', 'comptable'), ctrl.remove);

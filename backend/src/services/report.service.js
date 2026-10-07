@@ -221,13 +221,8 @@ class ReportService {
       const monthly = (lease && num(lease.monthly_rent)) || num(a.rent_amount);
       const start = (lease && lease.start_date) || t.start_date;
 
-      // Fusionner les paiements du locataire et ceux rattachés directement au logement
-      const tenantPayments = t.payments || [];
-      const aptPayments = a.payments || [];
-      const paymentMap = new Map();
-      tenantPayments.forEach((p) => paymentMap.set(p.id, p));
-      aptPayments.forEach((p) => paymentMap.set(p.id, p));
-      const payments = Array.from(paymentMap.values());
+      // Seuls les paiements appartenant à CE locataire actif sont pris en compte (isolation totale avec les anciens occupants)
+      const payments = (t.payments || []).filter((p) => !p.tenant_id || Number(p.tenant_id) === Number(t.id));
 
       const completedPayments = payments.filter((p) => p.status === 'completed');
       const valide = completedPayments.reduce((s, p) => s + num(p.amount), 0);

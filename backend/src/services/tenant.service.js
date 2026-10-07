@@ -11,6 +11,27 @@ const flatten = (t) => {
     const lease = o.leases.find((l) => l.status === 'active' && l.apartment) || o.leases.find((l) => l.apartment);
     if (lease) apt = lease.apartment;
   }
+
+  const debtAcknowledged = parseFloat(o.debt_acknowledged) || 0;
+  const isDeparted = ['inactive', 'terminated'].includes(o.status);
+
+  let totalRepaid = 0;
+  let debtRemaining = debtAcknowledged;
+  if (Array.isArray(o.payments)) {
+    const payments = o.payments.filter((p) => !p.tenant_id || Number(p.tenant_id) === Number(o.id));
+    if (isDeparted && debtAcknowledged > 0) {
+      const departureDate = o.end_date;
+      const repaymentPayments = payments.filter((p) => {
+        if (p.status !== 'completed') return false;
+        if (departureDate && p.payment_date && String(p.payment_date).slice(0, 10) >= departureDate) return true;
+        if (p.observations && (p.observations.toLowerCase().includes('dette') || p.observations.toLowerCase().includes('apurement') || p.observations.toLowerCase().includes('reconnaissance'))) return true;
+        return false;
+      });
+      totalRepaid = repaymentPayments.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
+      debtRemaining = Math.max(0, debtAcknowledged - totalRepaid);
+    }
+  }
+
   return {
     ...o,
     apartment: apt || null,
@@ -26,6 +47,13 @@ const flatten = (t) => {
     apartment_label: apt
       ? `${apt.apartment_number}${apt.apartment_type ? ' · ' + apt.apartment_type : ''}`
       : null,
+    is_departed: isDeparted,
+    departure_reason: o.departure_reason || null,
+    debt_acknowledged: debtAcknowledged,
+    debt_due_date: o.debt_due_date || null,
+    debt_repaid: totalRepaid,
+    debt_remaining: debtRemaining,
+    is_debt_settled: isDeparted ? (debtAcknowledged > 0 ? debtRemaining <= 0 : !!o.is_debt_settled) : false,
   };
 };
 
@@ -43,12 +71,21 @@ class TenantService {
       { model: User, as: 'user', attributes: ['id', 'full_name', 'email', 'phone', 'status'] },
       this._apartmentInclude(['id', 'apartment_number', 'apartment_type', 'floor']),
       // Bail (séparé pour éviter la multiplication de lignes) → logement effectif si non attribué directement
-      { model: Lease, as: 'leases', separate: true, attributes: ['id', 'apartment_id', 'status', 'monthly_rent', 'start_date'], include: [this._apartmentInclude(['id', 'apartment_number', 'apartment_type', 'floor'])] },
+      { model: Lease, as: 'leases', separate: true, attributes: ['id', 'apartment_id', 'status', 'monthly_rent', 'start_date', 'end_date'], include: [this._apartmentInclude(['id', 'apartment_number', 'apartment_type', 'floor'])] },
+      { model: Payment, as: 'payments', separate: true, attributes: ['id', 'amount', 'status', 'payment_date', 'observations', 'tenant_id'] },
     ];
   }
   async getAll(filters = {}, ownerPropertyIds = null, assignedPropertyIds = null) {
-    const list = await Tenant.findAll({ include: this._includeList(), order: [['created_at', 'DESC']] });
+    const where = {};
+    if (filters.status) where.status = filters.status;
+    const list = await Tenant.findAll({ where, include: this._includeList(), order: [['created_at', 'DESC']] });
     let mapped = list.map(flatten);
+
+    if (filters.debtors === 'true' || filters.debtors === true) {
+      // Filtrer les anciens locataires ayant une dette reconnue non soldée ou un solde débiteur
+      mapped = mapped.filter((t) => t.is_departed && ((t.debt_acknowledged > 0 && !t.is_debt_settled) || t.debt_remaining > 0));
+    }
+
     if (Array.isArray(ownerPropertyIds)) {
       mapped = mapped.filter((t) => {
         const propId = t.apartment && t.apartment.property ? t.apartment.property.id : (t.apartment ? t.apartment.property_id : null);
@@ -282,6 +319,121 @@ class TenantService {
         mois_dus: led.mois_dus,
         total_valide: led.total_valide,
       },
+    };
+  }
+
+  async vacate(id, data = {}) {
+    const t = await Tenant.findByPk(id, {
+      include: [
+        { model: Apartment, as: 'apartment' },
+        { model: Lease, as: 'leases', where: { status: 'active' }, required: false },
+        { model: Payment, as: 'payments' },
+      ],
+    });
+    if (!t) throw Object.assign(new Error('Locataire introuvable'), { status: 404 });
+
+    const departureDate = data.departure_date || new Date().toISOString().slice(0, 10);
+    const departureReason = data.departure_reason || 'Départ / Fin de contrat';
+    const debtAcknowledged = data.debt_acknowledged !== undefined ? parseFloat(data.debt_acknowledged) : 0;
+    const debtDueDate = data.debt_due_date || null;
+    const notes = data.observations ? String(data.observations).trim() : '';
+
+    // Clôturer les baux actifs de ce locataire
+    const leases = t.leases || [];
+    for (const l of leases) {
+      await l.update({ status: 'terminated', end_date: departureDate });
+    }
+
+    let obs = t.observations || '';
+    const debtText = debtAcknowledged > 0 
+      ? ` Reconnaissance de dette signée : ${Math.round(debtAcknowledged).toLocaleString('fr-FR')} FCFA${debtDueDate ? ` (Échéance: ${debtDueDate})` : ''}.` 
+      : '';
+    const departureLog = `[Sortie le ${departureDate} - Motif : ${departureReason}]${debtText}${notes ? ` Note: ${notes}` : ''}`;
+    obs = obs ? `${obs}\n${departureLog}` : departureLog;
+
+    await t.update({
+      status: 'inactive',
+      end_date: departureDate,
+      departure_reason: departureReason,
+      debt_acknowledged: debtAcknowledged,
+      debt_due_date: debtDueDate,
+      is_debt_settled: debtAcknowledged <= 0,
+      observations: obs,
+    });
+
+    // Libérer le logement s'il n'y a plus d'autre locataire actif
+    if (t.apartment_id) {
+      const remaining = await Tenant.count({
+        where: { apartment_id: t.apartment_id, status: 'active', id: { [Op.ne]: id } },
+      });
+      if (remaining === 0) {
+        await Apartment.update({ status: 'free' }, { where: { id: t.apartment_id } });
+      }
+    }
+
+    return this.getById(id);
+  }
+
+  async settleDebt(id, data = {}, user = null) {
+    const t = await Tenant.findByPk(id, {
+      include: [
+        { model: Apartment, as: 'apartment' },
+        { model: User, as: 'user' },
+        { model: Payment, as: 'payments' },
+      ],
+    });
+    if (!t) throw Object.assign(new Error('Locataire introuvable'), { status: 404 });
+
+    const amount = parseFloat(data.amount);
+    if (!amount || amount <= 0) {
+      throw Object.assign(new Error('Montant du versement invalide'), { status: 400 });
+    }
+
+    const paymentDate = data.payment_date || new Date().toISOString().slice(0, 10);
+    const paymentMethod = data.payment_method || 'cash';
+    const note = data.observations ? String(data.observations).trim() : 'Règlement reconnaissance de dette';
+
+    // Créer le paiement d'apurement
+    const paymentService = require('./payment.service');
+    const payment = await paymentService.create({
+      tenant_id: t.id,
+      apartment_id: t.apartment_id || null,
+      amount,
+      payment_date: paymentDate,
+      payment_method: paymentMethod,
+      status: 'completed',
+      observations: note,
+    }, user);
+
+    // Mettre à jour l'observation du locataire
+    let obs = t.observations || '';
+    obs = `${obs}\n[Règlement dette du ${paymentDate}] Versement de ${Math.round(amount).toLocaleString('fr-FR')} FCFA (${paymentMethod}). ${note}`;
+
+    // Vérifier si la dette reconnue est désormais totalement soldée
+    const allPayments = await Payment.findAll({
+      where: { tenant_id: t.id, status: 'completed' },
+    });
+    const departureDate = t.end_date;
+    const debtAck = parseFloat(t.debt_acknowledged) || 0;
+    const repaymentPayments = allPayments.filter((p) => {
+      if (departureDate && p.payment_date && String(p.payment_date).slice(0, 10) >= departureDate) return true;
+      if (p.observations && (p.observations.toLowerCase().includes('dette') || p.observations.toLowerCase().includes('apurement') || p.observations.toLowerCase().includes('reconnaissance'))) return true;
+      return false;
+    });
+    const totalRepaid = repaymentPayments.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
+    const isSettled = debtAck > 0 ? (totalRepaid >= debtAck) : true;
+
+    await t.update({
+      observations: obs,
+      is_debt_settled: isSettled,
+    });
+
+    return {
+      tenant: await this.getById(id),
+      payment,
+      is_settled: isSettled,
+      total_repaid: totalRepaid,
+      remaining_debt: Math.max(0, debtAck - totalRepaid),
     };
   }
 }

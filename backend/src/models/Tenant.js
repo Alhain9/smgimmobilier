@@ -15,6 +15,10 @@ const Tenant = sequelize.define('Tenant', {
   end_date: { type: DataTypes.DATEONLY },
   observations: { type: DataTypes.TEXT },
   status: { type: DataTypes.ENUM('active', 'inactive', 'terminated'), defaultValue: 'active' },
+  departure_reason: { type: DataTypes.STRING(150) },
+  debt_acknowledged: { type: DataTypes.DECIMAL(12, 2), defaultValue: 0 },
+  debt_due_date: { type: DataTypes.DATEONLY },
+  is_debt_settled: { type: DataTypes.BOOLEAN, defaultValue: false },
 }, { tableName: 'tenants', timestamps: true, paranoid: true });
 
 module.exports = Tenant;

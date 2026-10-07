@@ -23,4 +23,11 @@ controller.getById = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+controller.vacate = async (req, res, next) => {
+  try {
+    const data = await service.vacate(req.params.id, req.body);
+    return success(res, data, 'Logement libéré avec succès');
+  } catch (err) { next(err); }
+};
+
 module.exports = controller;

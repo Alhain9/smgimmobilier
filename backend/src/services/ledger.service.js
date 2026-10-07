@@ -2,11 +2,11 @@ const { Tenant, User, Apartment, Property, Lease, Payment, PaymentHistory } = re
 
 const num = (v) => parseFloat(v) || 0;
 
-// Nombre de mois de loyer dus depuis une date de début (mois courant inclus)
-function monthsElapsed(startDate) {
+// Nombre de mois de loyer dus depuis une date de début (mois courant inclus ou jusqu'à la date de fin)
+function monthsElapsed(startDate, endDate = null) {
   if (!startDate) return 0;
   const s = new Date(startDate);
-  const n = new Date();
+  const n = endDate ? new Date(endDate) : new Date();
   if (isNaN(s) || s > n) return 0;
   return (n.getFullYear() - s.getFullYear()) * 12 + (n.getMonth() - s.getMonth()) + 1;
 }
@@ -74,11 +74,16 @@ class LedgerService {
   // Calcule le solde à partir d'un locataire chargé (avec leases + payments + receipts + apartment)
   computeFromTenant(tenant) {
     const o = tenant.toJSON ? tenant.toJSON() : tenant;
+    const isDeparted = ['inactive', 'terminated'].includes(o.status);
     const lease = (o.leases || []).find((l) => l.status === 'active') || (o.leases || [])[0] || null;
     const monthlyRent = lease ? num(lease.monthly_rent) : (o.apartment ? num(o.apartment.rent_amount) : 0);
     const startDate = lease ? lease.start_date : o.start_date;
-    const payments = o.payments || [];
-    const receipts = o.receipts || [];
+    const departureDate = o.end_date || (lease ? lease.end_date : null);
+    const refDate = (isDeparted && departureDate) ? new Date(departureDate) : new Date();
+
+    // Paiements strictement rattachés à ce locataire
+    const payments = (o.payments || []).filter(p => !p.tenant_id || Number(p.tenant_id) === Number(o.id));
+    const receipts = (o.receipts || []).filter(r => !r.tenant_id || Number(r.tenant_id) === Number(o.id));
 
     // Déterminer la date de début effective et la fin de période la plus récente
     let effectiveStartDate = startDate;
@@ -107,7 +112,7 @@ class LedgerService {
       }
     });
 
-    const months = monthlyRent > 0 ? monthsElapsed(effectiveStartDate) : 0;
+    const months = monthlyRent > 0 ? monthsElapsed(effectiveStartDate, (isDeparted && departureDate) ? departureDate : null) : 0;
     const totalDue = months * monthlyRent;
 
     const totalValide = payments.filter((p) => p.status === 'completed').reduce((s, p) => s + num(p.amount), 0);
@@ -118,9 +123,28 @@ class LedgerService {
     let isOverdueFromPeriod = false;
     let overdueMonthsFromPeriod = 0;
     let overdueMessage = '';
-    const now = new Date();
 
-    if (latestPeriodEnd && monthlyRent > 0) {
+    // Gestion spécifique si une reconnaissance de dette a été formellement enregistrée
+    const debtAcknowledged = num(o.debt_acknowledged);
+    if (isDeparted && debtAcknowledged > 0) {
+      // Paiements effectués pour apurer la dette (après la date de départ ou mentionnant dette/reconnaissance)
+      const repaymentPayments = payments.filter((p) => {
+        if (p.status !== 'completed') return false;
+        if (departureDate && p.payment_date && String(p.payment_date).slice(0, 10) >= departureDate) return true;
+        if (p.observations && (p.observations.toLowerCase().includes('dette') || p.observations.toLowerCase().includes('apurement') || p.observations.toLowerCase().includes('reconnaissance'))) return true;
+        return false;
+      });
+      const totalRepaid = repaymentPayments.reduce((s, p) => s + num(p.amount), 0);
+      const remainingDebt = Math.max(0, debtAcknowledged - totalRepaid);
+      solde = remainingDebt;
+      isOverdueFromPeriod = remainingDebt > 0;
+      overdueMonthsFromPeriod = monthlyRent > 0 ? Math.ceil(remainingDebt / monthlyRent) : 0;
+      if (remainingDebt <= 0) {
+        overdueMessage = 'Dette intégralement apurée / soldée ✅';
+      } else {
+        overdueMessage = `Reconnaissance de dette : reste dû ${Math.round(remainingDebt).toLocaleString('fr-FR')} FCFA sur ${Math.round(debtAcknowledged).toLocaleString('fr-FR')} FCFA`;
+      }
+    } else if (latestPeriodEnd && monthlyRent > 0) {
       const pEnd = new Date(latestPeriodEnd);
       const endYear = pEnd.getFullYear();
       const endMonth = pEnd.getMonth();
@@ -137,20 +161,23 @@ class LedgerService {
       }
 
       const MONTH_NAMES_FR = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
-      const gap = (now.getFullYear() - unpaidY) * 12 + (now.getMonth() - unpaidM);
+      const gap = (refDate.getFullYear() - unpaidY) * 12 + (refDate.getMonth() - unpaidM);
 
       if (gap > 0) {
         isOverdueFromPeriod = true;
         overdueMonthsFromPeriod = gap;
         solde = overdueMonthsFromPeriod * monthlyRent;
-        overdueMessage = `Impayé à partir du mois de ${MONTH_NAMES_FR[unpaidM]} ${unpaidY}`;
+        overdueMessage = isDeparted
+          ? `Impayé à la sortie (${gap} mois) à partir du mois de ${MONTH_NAMES_FR[unpaidM]} ${unpaidY}`
+          : `Impayé à partir du mois de ${MONTH_NAMES_FR[unpaidM]} ${unpaidY}`;
       } else if (gap === 0 && endDay <= 5) {
         isOverdueFromPeriod = true;
         overdueMonthsFromPeriod = 1;
         solde = 1 * monthlyRent;
-        overdueMessage = `Impayé à partir du mois de ${MONTH_NAMES_FR[unpaidM]} ${unpaidY}`;
+        overdueMessage = isDeparted
+          ? `Impayé à la sortie (1 mois) à partir du mois de ${MONTH_NAMES_FR[unpaidM]} ${unpaidY}`
+          : `Impayé à partir du mois de ${MONTH_NAMES_FR[unpaidM]} ${unpaidY}`;
       } else {
-        // La couverture s'étend jusqu'à aujourd'hui ou dans le futur : le locataire est strictement à jour
         isOverdueFromPeriod = false;
         overdueMonthsFromPeriod = 0;
         solde = 0;
@@ -161,7 +188,9 @@ class LedgerService {
     }
 
     let statut = 'a_jour';
-    if (solde > 0 || isOverdueFromPeriod) {
+    if (isDeparted) {
+      statut = solde <= 0 ? 'solde' : 'debiteur_sorti';
+    } else if (solde > 0 || isOverdueFromPeriod) {
       statut = totalValide > 0 ? 'partiel' : 'retard';
     }
 
@@ -177,6 +206,17 @@ class LedgerService {
       dueInfo.mois_dus = 0;
     }
 
+    if (isDeparted) {
+      dueInfo.is_departed = true;
+      dueInfo.departure_date = departureDate;
+      dueInfo.debt_acknowledged = debtAcknowledged;
+      dueInfo.is_debt_settled = solde <= 0;
+      if (solde <= 0) {
+        dueInfo.statut_echeance = 'ok';
+        dueInfo.echeance_message = 'Ancien locataire — Compte soldé';
+      }
+    }
+
     return {
       loyer_mensuel: monthlyRent,
       mois_dus: isOverdueFromPeriod ? overdueMonthsFromPeriod : (latestPeriodEnd ? 0 : months),
@@ -185,8 +225,12 @@ class LedgerService {
       total_valide: totalValide,
       en_attente_preuve: enAttentePreuve,
       solde,
-      statut, // a_jour | partiel | retard
+      statut, // a_jour | partiel | retard | solde | debiteur_sorti
       debut: effectiveStartDate || null,
+      is_departed: isDeparted,
+      departure_date: departureDate,
+      debt_acknowledged: debtAcknowledged,
+      is_debt_settled: isDeparted ? solde <= 0 : false,
       ...dueInfo,
     };
   }

@@ -243,7 +243,12 @@ const PageSituation = {
           <td class="no-print" style="text-align:center;white-space:nowrap">
             ${l.tenant_id ? `
               <button class="btn btn-sm btn-success" style="padding:2px 6px;margin-right:2px;" title="Enregistrement d'un paiement" onclick="PageSituation.payTenant(${l.tenant_id}, ${l.apartment_id || 'null'}, ${l.montant_loyer || 0})">💳</button>
-            ` : ''}
+              <button class="btn btn-sm btn-warning" style="padding:2px 6px;margin-right:2px;" title="Libérer le logement (départ locataire & reconnaissance de dette)" onclick="PageSituation.vacateRow(${l.apartment_id || 'null'}, ${l.tenant_id})">🚪</button>
+            ` : `
+              ${l.apartment_id ? `
+                <button class="btn btn-sm btn-success" style="padding:2px 6px;margin-right:2px;" title="Attribuer à un nouveau locataire (Relouer)" onclick="PageApartments.installTenant(${l.apartment_id}, ${propertyId})">👤</button>
+              ` : ''}
+            `}
             <button class="btn btn-sm btn-primary" style="padding:2px 6px;margin-right:2px;" title="Modifier les 12 colonnes de cette ligne (chiffres & libellés)" onclick="PageSituation.editRow(${l.apartment_id || 'null'}, ${l.tenant_id || 'null'}, ${propertyId || 'null'}, '${periodYm || ''}')">✏️</button>
             ${l.tenant_id ? `
               <button class="btn btn-sm btn-outline" style="padding:2px 6px;margin-right:2px;" title="Modifier l'observation" onclick="PageSituation.editObservation(${l.tenant_id}, '${Helpers.escapeHtml(l.observations || '')}')">💬</button>
@@ -319,6 +324,14 @@ const PageSituation = {
       this.refreshAfterDelete();
     } catch (e) {
       Toast.error(e.message || 'Erreur lors de la suppression groupée.');
+    }
+  },
+
+  vacateRow(apartmentId, tenantId) {
+    if (apartmentId && window.PageApartments) {
+      PageApartments.openVacateModal(apartmentId);
+    } else if (tenantId && window.PageTenants) {
+      PageTenants.openVacateModal(tenantId);
     }
   },
 

@@ -4,6 +4,12 @@ const PageTenants = {
   _rows: {},
   _properties: [],
   _apartments: [],
+  _currentTab: 'all', // 'all', 'active', 'debtors', 'departed'
+
+  switchTab(tab) {
+    this._currentTab = tab;
+    this.render();
+  },
 
   ctxOf(t) {
     return {
@@ -53,6 +59,11 @@ const PageTenants = {
     const othersCount = rawTenants.length - assignedCount;
     const hasAssigned = assignedCount > 0;
 
+    const allCount = rawTenants.length;
+    const activeCount = rawTenants.filter((t) => !t.is_departed && t.status === 'active').length;
+    const debtorsCount = rawTenants.filter((t) => t.is_departed && ((t.debt_acknowledged > 0 && !t.is_debt_settled) || t.debt_remaining > 0)).length;
+    const departedCount = rawTenants.filter((t) => t.is_departed).length;
+
     let filterBanner = '';
     if (isRestrictedRole && hasAssigned) {
       if (!this._showAll) {
@@ -82,15 +93,42 @@ const PageTenants = {
       }
     }
 
+    const tabsHtml = `
+      <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+        <button class="btn btn-sm ${this._currentTab === 'all' ? 'btn-primary' : 'btn-outline'}" onclick="PageTenants.switchTab('all')">
+          👥 Tous (${allCount})
+        </button>
+        <button class="btn btn-sm ${this._currentTab === 'active' ? 'btn-primary' : 'btn-outline'}" onclick="PageTenants.switchTab('active')">
+          🏠 En place / Actifs (${activeCount})
+        </button>
+        <button class="btn btn-sm" style="${this._currentTab === 'debtors' ? 'background:#d32f2f;color:#fff;border:none' : 'border:1px solid #d32f2f;color:#d32f2f'}" onclick="PageTenants.switchTab('debtors')">
+          ⚠️ Débiteurs sortis / Dettes (${debtorsCount})
+        </button>
+        <button class="btn btn-sm ${this._currentTab === 'departed' ? 'btn-primary' : 'btn-outline'}" onclick="PageTenants.switchTab('departed')">
+          🚪 Anciens locataires sortis (${departedCount})
+        </button>
+      </div>
+    `;
+
     const data = await CrudPage.list({
       endpoint: '/tenants',
       title: 'Locataires & Affectations',
       canCreate: true,
       onCreate: 'PageTenants.openTenantModal',
-      toolbar: filterBanner,
+      toolbar: filterBanner + tabsHtml,
       mapData: (all) => {
-        if (!isRestrictedRole || !hasAssigned || this._showAll) return all;
-        return all.filter((t) => t.is_assigned);
+        let list = all;
+        if (isRestrictedRole && hasAssigned && !this._showAll) {
+          list = list.filter((t) => t.is_assigned);
+        }
+        if (this._currentTab === 'active') {
+          list = list.filter((t) => !t.is_departed && t.status === 'active');
+        } else if (this._currentTab === 'debtors') {
+          list = list.filter((t) => t.is_departed && ((t.debt_acknowledged > 0 && !t.is_debt_settled) || t.debt_remaining > 0));
+        } else if (this._currentTab === 'departed') {
+          list = list.filter((t) => t.is_departed);
+        }
+        return list;
       },
       columns: [
         {
@@ -100,6 +138,7 @@ const PageTenants = {
             <div>
               <b>${r.full_name}</b>
               ${r.national_id ? `<br><small style="color:var(--text-muted);font-size:11px">CNI: ${r.national_id}${r.cni_delivery_date ? ' (du ' + Helpers.formatDate(r.cni_delivery_date) + ')' : ''}</small>` : ''}
+              ${r.departure_reason ? `<br><small style="color:#d97706;font-size:11px">Motif sortie: ${r.departure_reason}</small>` : ''}
             </div>
           </div>`,
         },
@@ -109,9 +148,15 @@ const PageTenants = {
         },
         {
           label: 'Logement Occupé',
-          render: (r) => r.apartment
-            ? `<b>Logement ${r.apartment.apartment_number}</b>${r.apartment.apartment_type ? `<br><span class="badge badge-secondary" style="font-size:11px">${r.apartment.apartment_type}</span>` : ''}`
-            : '<span class="badge badge-warning">Non attribué</span>',
+          render: (r) => {
+            if (r.is_departed) {
+              const aptNum = r.apartment?.apartment_number || '—';
+              return `<span class="badge badge-secondary" style="font-size:11px">🚪 Ancien occupant</span>${r.apartment ? `<br><b>Logement ${aptNum}</b>` : ''}`;
+            }
+            return r.apartment
+              ? `<b>Logement ${r.apartment.apartment_number}</b>${r.apartment.apartment_type ? `<br><span class="badge badge-secondary" style="font-size:11px">${r.apartment.apartment_type}</span>` : ''}`
+              : '<span class="badge badge-warning">Non attribué</span>';
+          },
         },
         {
           label: 'Immeuble de Résidence',
@@ -128,6 +173,9 @@ const PageTenants = {
         {
           label: 'Bail & Validité',
           render: (r) => {
+            if (r.is_departed) {
+              return `<span class="badge badge-secondary">🚪 Sorti le ${r.end_date ? Helpers.formatDate(r.end_date) : '—'}</span>`;
+            }
             const activeLease = (r.leases || []).find((l) => l.status === 'active') || (r.leases && r.leases[0]);
             const end = activeLease ? activeLease.end_date : r.end_date;
             if (!end) return '<span class="text-muted">Aucun bail actif</span>';
@@ -142,15 +190,32 @@ const PageTenants = {
           render: (r) => r.user ? '<span class="badge badge-success">Actif</span>' : '<span class="badge badge-muted">Non créé</span>',
         },
         {
-          label: 'Statut',
-          render: (r) => Helpers.statusBadge(r.status),
+          label: 'Statut & Solde',
+          render: (r) => {
+            if (r.is_departed) {
+              if (r.debt_acknowledged > 0) {
+                if (r.is_debt_settled) {
+                  return `<span class="badge badge-success" title="Dette initiale de ${Helpers.formatMoney(r.debt_acknowledged)} intégralement soldée">✅ Dette soldée</span>`;
+                }
+                return `<span class="badge badge-danger" title="Dette reconnue: ${Helpers.formatMoney(r.debt_acknowledged)} · Déjà payé: ${Helpers.formatMoney(r.debt_repaid)}">⚠️ Reste dû: ${Helpers.formatMoney(r.debt_remaining)}</span>`;
+              }
+              return '<span class="badge badge-secondary">🚪 Sorti (Libéré)</span>';
+            }
+            return Helpers.statusBadge(r.status);
+          },
         },
       ],
       rowActions: (r) => `
         <button class="btn btn-sm btn-whatsapp" title="WhatsApp" onclick="PageTenants.whatsapp(${r.id})">🟢</button>
         <button class="btn btn-sm btn-outline" title="Appeler" onclick="PageTenants.call(${r.id})">📞</button>
         <button class="btn btn-sm btn-outline" title="Dossier complet" onclick="PageTenants.view(${r.id})">👁</button>
-        <button class="btn btn-sm btn-outline" title="Modifier" onclick="PageTenants.openTenantModal(${r.id})">✏️</button>
+        ${!r.is_departed ? `
+          <button class="btn btn-sm btn-warning" title="Libérer le logement (départ du locataire)" onclick="PageTenants.openVacateModal(${r.id})">🚪 Libérer</button>
+          <button class="btn btn-sm btn-outline" title="Modifier" onclick="PageTenants.openTenantModal(${r.id})">✏️</button>
+        ` : ''}
+        ${r.is_departed && r.debt_acknowledged > 0 && !r.is_debt_settled ? `
+          <button class="btn btn-sm btn-success" title="Enregistrer un remboursement de dette" onclick="PageTenants.openSettleDebtModal(${r.id})">💳 Encaisser dette</button>
+        ` : ''}
         <button class="btn btn-sm btn-danger" title="Supprimer" onclick="PageTenants.remove(${r.id})">🗑</button>`,
     });
 
@@ -159,7 +224,7 @@ const PageTenants = {
   },
 
   // ===== MODAL CRÉATION / ÉDITION CONNECTÉE (IMMEUBLE + LOGEMENT + BAIL) =====
-  async openTenantModal(tenantId = null) {
+  async openTenantModal(tenantId = null, preselectedAptId = null, preselectedPropId = null) {
     let t = null;
     if (tenantId) {
       try {
@@ -172,10 +237,10 @@ const PageTenants = {
       await PageTenants.loadAuxiliaryData();
     }
 
-    // Pré-sélection de l'immeuble du locataire
+    // Pré-sélection de l'immeuble et du logement
     const currentApt = t?.apartment;
-    const currentPropId = currentApt?.property?.id || currentApt?.property_id || '';
-    const currentAptId = currentApt?.id || t?.apartment_id || '';
+    const currentPropId = preselectedPropId || currentApt?.property?.id || currentApt?.property_id || '';
+    const currentAptId = preselectedAptId || currentApt?.id || t?.apartment_id || '';
 
     const propsOptions = '<option value="">-- Sélectionner un Immeuble (ex: Malika, Chalivre...) --</option>' +
       (PageTenants._properties || []).map((p) =>
@@ -640,6 +705,226 @@ const PageTenants = {
       PageTenants.view(tenantId);
     } catch (e) {
       Toast.error(e.message);
+    }
+  },
+
+  // ===== LIBÉRATION DE LOGEMENT & DÉPART DU LOCATAIRE =====
+  async openVacateModal(tenantId) {
+    try {
+      const res = await API.get('/tenants/' + tenantId);
+      const t = res.data;
+      const apt = t.apartment;
+      const today = new Date().toISOString().slice(0, 10);
+      const debtEstimate = Math.max(0, t.due_info?.solde || 0);
+      const echeanceDesc = t.due_info?.echeance_message || '';
+
+      Modal.open({
+        title: `🚪 Fin d'occupation & Libération — ${Helpers.escapeHtml(t.full_name)}`,
+        content: `
+          <div style="background:#fff3cd;border:1px solid #ffeeba;padding:12px;border-radius:8px;margin-bottom:14px;font-size:13px;color:#856404">
+            <b>⚠️ Libération du logement & Clôture de compte :</b><br>
+            • Logement concerné : <b>${apt ? `Logement ${apt.apartment_number} (${t.property_name || 'Immeuble'})` : 'Aucun'}</b><br>
+            • Le logement repassera immédiatement au statut <b>« Libre »</b> (disponible pour un nouveau locataire).<br>
+            • Les dettes éventuelles resteront sous le nom de <b>${Helpers.escapeHtml(t.full_name)}</b> et <u>ne contamineront jamais le futur occupant</u>.
+          </div>
+
+          <form id="vacateTenantForm" onsubmit="PageTenants.submitTenantVacate(event, ${tenantId})">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+              <div class="form-group">
+                <label class="form-label">Date effective de libération *</label>
+                <input type="date" id="tvac_departure_date" class="form-control" value="${today}" required />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Motif de départ *</label>
+                <select id="tvac_reason" class="form-control" required onchange="PageTenants.toggleTenantDebtField()">
+                  <option value="Fin de contrat normale">Fin de contrat normale (Non-renouvellement)</option>
+                  <option value="Déménagement">Déménagement / Départ volontaire</option>
+                  <option value="Départ avec arriérés (Reconnaissance de dette)" ${debtEstimate > 0 ? 'selected' : ''}>Départ avec arriérés (Reconnaissance de dette signée)</option>
+                  <option value="Résiliation amiable">Résiliation amiable anticipée</option>
+                  <option value="Contentieux / Expulsion">Contentieux / Litige / Expulsion</option>
+                  <option value="Autre motif">Autre motif</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- VOLET RECONNAISSANCE DE DETTE -->
+            <div style="background:var(--bg-surface-2);border:1px solid var(--border);border-radius:8px;padding:12px;margin:12px 0">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                <label style="font-weight:700;color:var(--danger);font-size:13px;display:flex;align-items:center;gap:6px;cursor:pointer;margin:0">
+                  <input type="checkbox" id="tvac_has_debt" ${debtEstimate > 0 ? 'checked' : ''} onchange="PageTenants.toggleTenantDebtField()" />
+                  📝 Reconnaissance de dette signée par le locataire
+                </label>
+                ${debtEstimate > 0 ? `<span class="badge badge-danger">Arriérés calculés : ${Helpers.formatMoney(debtEstimate)}</span>` : ''}
+              </div>
+
+              <div id="tvac_debt_section" style="${debtEstimate > 0 ? 'display:block' : 'display:none'}">
+                <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:12px;margin-top:10px">
+                  <div class="form-group">
+                    <label class="form-label">Montant de la dette reconnue (FCFA) *</label>
+                    <input type="number" id="tvac_debt_amount" class="form-control" value="${debtEstimate}" min="0" placeholder="ex: 760000" />
+                    <small class="text-muted">Montant que le locataire reconnaît devoir formellement.</small>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Date limite convenue</label>
+                    <input type="date" id="tvac_debt_due_date" class="form-control" />
+                    <small class="text-muted">Échéancier ou date limite convenue.</small>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Observations & Constat de sortie</label>
+              <textarea id="tvac_observations" class="form-control" rows="3" placeholder="État des lieux, relevé d'index, engagement écrit d'apurement...">${echeanceDesc ? Helpers.escapeHtml(echeanceDesc) : ''}</textarea>
+            </div>
+
+            <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
+              <button type="button" class="btn btn-outline" onclick="Modal.close()">Annuler</button>
+              <button type="submit" class="btn btn-danger" id="tvac_submit_btn">🚪 Confirmer la sortie & Libérer le logement</button>
+            </div>
+          </form>
+        `
+      });
+    } catch (err) {
+      Toast.error(err.message || 'Erreur lors du chargement');
+    }
+  },
+
+  toggleTenantDebtField() {
+    const chk = document.getElementById('tvac_has_debt');
+    const reason = document.getElementById('tvac_reason')?.value;
+    const sec = document.getElementById('tvac_debt_section');
+    if (!sec) return;
+    const shouldShow = (chk && chk.checked) || (reason && reason.includes('arriérés'));
+    sec.style.display = shouldShow ? 'block' : 'none';
+  },
+
+  async submitTenantVacate(e, tenantId) {
+    e.preventDefault();
+    const btn = document.getElementById('tvac_submit_btn');
+    if (btn) btn.disabled = true;
+
+    const departure_date = document.getElementById('tvac_departure_date')?.value;
+    const departure_reason = document.getElementById('tvac_reason')?.value;
+    const has_debt = document.getElementById('tvac_has_debt')?.checked;
+    const debt_acknowledged = has_debt ? (parseFloat(document.getElementById('tvac_debt_amount')?.value) || 0) : 0;
+    const debt_due_date = has_debt ? (document.getElementById('tvac_debt_due_date')?.value || null) : null;
+    const observations = document.getElementById('tvac_observations')?.value || '';
+
+    try {
+      await API.post('/tenants/' + tenantId + '/vacate', {
+        departure_date,
+        departure_reason,
+        debt_acknowledged,
+        debt_due_date,
+        observations,
+      });
+
+      Toast.success('Sortie enregistrée et logement libéré avec succès ! Le logement est désormais Libre ✅');
+      Modal.close();
+      PageTenants.render();
+    } catch (err) {
+      Toast.error(err.message || 'Erreur lors de la libération');
+      if (btn) btn.disabled = false;
+    }
+  },
+
+  // ===== REMBOURSEMENT DE DETTE POUR ANCIEN LOCATAIRE =====
+  async openSettleDebtModal(tenantId) {
+    try {
+      const res = await API.get('/tenants/' + tenantId);
+      const t = res.data;
+      const debtTotal = t.debt_acknowledged || 0;
+      const repaid = t.debt_repaid || 0;
+      const remaining = t.debt_remaining !== undefined ? t.debt_remaining : Math.max(0, debtTotal - repaid);
+      const today = new Date().toISOString().slice(0, 10);
+
+      Modal.open({
+        title: `💳 Remboursement de dette — ${Helpers.escapeHtml(t.full_name)}`,
+        content: `
+          <div style="background:#e8f5e9;border:1px solid #c8e6c9;padding:12px;border-radius:8px;margin-bottom:14px;font-size:13px;color:#1b5e20">
+            <b>📝 Reconnaissance de dette de l'ancien locataire :</b><br>
+            • Montant initial reconnu : <b>${Helpers.formatMoney(debtTotal)}</b><br>
+            • Total déjà remboursé : <b>${Helpers.formatMoney(repaid)}</b><br>
+            • <b>Reste dû actuel : <span style="color:#d32f2f;font-weight:800">${Helpers.formatMoney(remaining)}</span></b>
+          </div>
+
+          <form id="settleDebtForm" onsubmit="PageTenants.submitSettleDebt(event, ${tenantId})">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+              <div class="form-group">
+                <label class="form-label">Montant du versement (FCFA) *</label>
+                <input type="number" id="sd_amount" class="form-control" value="${remaining}" max="${remaining > 0 ? remaining : ''}" min="1" required />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Date du versement *</label>
+                <input type="date" id="sd_date" class="form-control" value="${today}" required />
+              </div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+              <div class="form-group">
+                <label class="form-label">Mode de règlement *</label>
+                <select id="sd_method" class="form-control" required>
+                  <option value="cash">Espèces</option>
+                  <option value="bank_transfer">Virement bancaire</option>
+                  <option value="orange_money">Orange Money</option>
+                  <option value="mtn_mobile_money">MTN Mobile Money</option>
+                  <option value="check">Chèque</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Référence / Reçu</label>
+                <input type="text" id="sd_ref" class="form-control" placeholder="ex: Reçu N° / Réf virement..." />
+              </div>
+            </div>
+
+            <div class="form-group" style="margin-top:12px">
+              <label class="form-label">Observations / Note comptable</label>
+              <textarea id="sd_notes" class="form-control" rows="2" placeholder="Versement partiel / solde complet de la reconnaissance de dette..."></textarea>
+            </div>
+
+            <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
+              <button type="button" class="btn btn-outline" onclick="Modal.close()">Annuler</button>
+              <button type="submit" class="btn btn-success" id="sd_submit_btn">💾 Enregistrer le remboursement</button>
+            </div>
+          </form>
+        `
+      });
+    } catch (e) {
+      Toast.error(e.message || 'Erreur lors du chargement');
+    }
+  },
+
+  async submitSettleDebt(e, tenantId) {
+    e.preventDefault();
+    const btn = document.getElementById('sd_submit_btn');
+    if (btn) btn.disabled = true;
+
+    const amount = parseFloat(document.getElementById('sd_amount')?.value) || 0;
+    const payment_date = document.getElementById('sd_date')?.value;
+    const payment_method = document.getElementById('sd_method')?.value;
+    const ref = document.getElementById('sd_ref')?.value?.trim() || '';
+    const notes = document.getElementById('sd_notes')?.value?.trim() || '';
+    const observations = `[Apurement dette] ${ref ? `Réf: ${ref} · ` : ''}${notes || 'Règlement de la reconnaissance de dette'}`;
+
+    try {
+      const res = await API.post('/tenants/' + tenantId + '/settle-debt', {
+        amount,
+        payment_date,
+        payment_method,
+        observations,
+      });
+
+      if (res.data?.is_settled) {
+        Toast.success('🎉 Dette intégralement apurée et soldée ! Bravo ✅');
+      } else {
+        Toast.success(`Paiement de ${Helpers.formatMoney(amount)} enregistré avec succès ! Reçu généré ✅`);
+      }
+      Modal.close();
+      PageTenants.render();
+    } catch (err) {
+      Toast.error(err.message || 'Erreur lors de l\'enregistrement du remboursement');
+      if (btn) btn.disabled = false;
     }
   },
 

@@ -44,6 +44,50 @@ class ApartmentService {
     if (!a) throw Object.assign(new Error('Appartement introuvable'), { status: 404 });
     await a.update(data); return this.getById(id);
   }
+  async vacate(id, data = {}) {
+    const apt = await Apartment.findByPk(id, {
+      include: [
+        { model: Tenant, as: 'tenants', where: { status: 'active' }, required: false, include: [{ model: User, as: 'user' }] },
+        { model: Lease, as: 'leases', where: { status: 'active' }, required: false },
+      ],
+    });
+    if (!apt) throw Object.assign(new Error('Appartement introuvable'), { status: 404 });
+
+    const departureDate = data.departure_date || new Date().toISOString().slice(0, 10);
+    const departureReason = data.departure_reason || 'Départ / Fin de bail';
+    const debtAcknowledged = parseFloat(data.debt_acknowledged) || 0;
+    const debtDueDate = data.debt_due_date || null;
+    const notes = data.observations ? String(data.observations).trim() : '';
+
+    await apt.update({ status: 'free' });
+
+    const leases = apt.leases || [];
+    for (const l of leases) {
+      await l.update({ status: 'terminated', end_date: departureDate });
+    }
+
+    const tenants = apt.tenants || [];
+    for (const t of tenants) {
+      let obs = t.observations || '';
+      const debtText = debtAcknowledged > 0 
+        ? ` Reconnaissance de dette signée : ${Math.round(debtAcknowledged).toLocaleString('fr-FR')} FCFA${debtDueDate ? ` (Échéance: ${debtDueDate})` : ''}.` 
+        : '';
+      const departureLog = `[Sortie le ${departureDate} - Motif : ${departureReason}]${debtText}${notes ? ` Note: ${notes}` : ''}`;
+      obs = obs ? `${obs}\n${departureLog}` : departureLog;
+
+      await t.update({
+        status: 'inactive',
+        end_date: departureDate,
+        departure_reason: departureReason,
+        debt_acknowledged: debtAcknowledged,
+        debt_due_date: debtDueDate,
+        is_debt_settled: debtAcknowledged <= 0,
+        observations: obs,
+      });
+    }
+
+    return this.getById(id);
+  }
   async remove(id) {
     const a = await Apartment.findByPk(id);
     if (!a) throw Object.assign(new Error('Appartement introuvable'), { status: 404 });

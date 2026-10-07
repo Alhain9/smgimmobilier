@@ -326,8 +326,17 @@ class ImportService {
 
             let user;
             if (activeTenant && activeTenant.user && activeTenant.user.full_name !== tenantName) {
-              await activeTenant.update({ status: 'inactive' }, { transaction });
-              await Lease.update({ status: 'terminated', end_date: new Date() }, {
+              const depDate = dateOccupation || new Date().toISOString().slice(0, 10);
+              let prevObs = activeTenant.observations || '';
+              const logNotice = `[Remplacé par le nouveau locataire ${tenantName} le ${depDate}]`;
+              prevObs = prevObs ? `${prevObs}\n${logNotice}` : logNotice;
+              await activeTenant.update({
+                status: 'inactive',
+                end_date: depDate,
+                departure_reason: `Remplacé par ${tenantName}`,
+                observations: prevObs,
+              }, { transaction });
+              await Lease.update({ status: 'terminated', end_date: depDate }, {
                 where: { tenant_id: activeTenant.id, apartment_id: apartment.id, status: 'active' },
                 transaction
               });
@@ -462,8 +471,17 @@ class ImportService {
             });
 
             for (const t of activeTenants) {
-              await t.update({ status: 'inactive' }, { transaction });
-              await Lease.update({ status: 'terminated', end_date: new Date() }, {
+              const depDate = new Date().toISOString().slice(0, 10);
+              let prevObs = t.observations || '';
+              const logNotice = `[Logement libéré / vacant lors de l'import le ${depDate}]`;
+              prevObs = prevObs ? `${prevObs}\n${logNotice}` : logNotice;
+              await t.update({
+                status: 'inactive',
+                end_date: depDate,
+                departure_reason: 'Logement libéré',
+                observations: prevObs,
+              }, { transaction });
+              await Lease.update({ status: 'terminated', end_date: depDate }, {
                 where: { tenant_id: t.id, apartment_id: apartment.id, status: 'active' },
                 transaction
               });

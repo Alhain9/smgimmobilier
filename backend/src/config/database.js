@@ -92,6 +92,18 @@ const connectDB = async () => {
       await sequelize.query("ALTER TABLE tenants ADD COLUMN cni_delivery_place VARCHAR(100) NULL AFTER cni_delivery_date;");
     } catch (_) {}
     try {
+      await sequelize.query("ALTER TABLE tenants ADD COLUMN departure_reason VARCHAR(150) NULL AFTER status;");
+    } catch (_) {}
+    try {
+      await sequelize.query("ALTER TABLE tenants ADD COLUMN debt_acknowledged DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER departure_reason;");
+    } catch (_) {}
+    try {
+      await sequelize.query("ALTER TABLE tenants ADD COLUMN debt_due_date DATE NULL AFTER debt_acknowledged;");
+    } catch (_) {}
+    try {
+      await sequelize.query("ALTER TABLE tenants ADD COLUMN is_debt_settled TINYINT(1) NOT NULL DEFAULT 0 AFTER debt_due_date;");
+    } catch (_) {}
+    try {
       await sequelize.query("ALTER TABLE users ADD COLUMN can_manage_worksites TINYINT(1) NOT NULL DEFAULT 0;");
     } catch (_) {}
     try {

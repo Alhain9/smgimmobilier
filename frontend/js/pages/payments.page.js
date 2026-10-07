@@ -235,6 +235,7 @@ const PagePayments = {
             <input type="date" id="pay_period_end" class="form-control" value="${values.period_end ? values.period_end.slice(0,10) : ''}" />
           </div>
         </div>
+        <div id="pay_coverage_hint" style="display:none;margin-top:-6px;margin-bottom:8px;font-size:12px;color:#0284c7;font-weight:600;"></div>
 
         <!-- 4. MÉTHODE & STATUT -->
         <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
@@ -289,6 +290,38 @@ const PagePayments = {
       size: 'medium'
     });
 
+    const recalculateCoverage = (monthlyRent) => {
+      const pStartInput = document.getElementById('pay_period_start');
+      const pEndInput = document.getElementById('pay_period_end');
+      const amtInput = document.getElementById('pay_amount');
+      const infoHint = document.getElementById('pay_coverage_hint');
+
+      if (!pStartInput || !pEndInput || !amtInput) return;
+      const amount = parseFloat(amtInput.value) || 0;
+      const rent = parseFloat(monthlyRent) || 0;
+      const startDateStr = pStartInput.value;
+
+      if (amount > 0 && rent > 0 && startDateStr) {
+        const months = Math.max(1, Math.round(amount / rent));
+        const sDate = new Date(startDateStr);
+        if (!isNaN(sDate.getTime())) {
+          const eDate = new Date(sDate);
+          eDate.setMonth(eDate.getMonth() + months);
+          const y = eDate.getFullYear();
+          const m = String(eDate.getMonth() + 1).padStart(2, '0');
+          const d = String(eDate.getDate()).padStart(2, '0');
+          if (!pEndInput.value || pEndInput.dataset.autoFilled === 'true') {
+            pEndInput.value = `${y}-${m}-${d}`;
+            pEndInput.dataset.autoFilled = 'true';
+          }
+          if (infoHint) {
+            infoHint.innerHTML = `💡 <b>Couverture calculée :</b> ${months} mois (du ${Helpers.formatDate(startDateStr)} au ${Helpers.formatDate(pEndInput.value)})`;
+            infoHint.style.display = 'block';
+          }
+        }
+      }
+    };
+
     const checkTenantDebt = async (tenantId) => {
       const debtBox = document.getElementById('pay_debt_info_box');
       if (!debtBox || !tenantId) return;
@@ -298,6 +331,7 @@ const PagePayments = {
         if (t && t.due_info) {
           const solde = t.due_info.solde || 0;
           const months = t.due_info.mois_dus || 0;
+          const monthlyRent = t.due_info.loyer_mensuel || (t.apartment ? t.apartment.rent_amount : 0);
           debtBox.style.display = 'block';
           if (solde > 0) {
             debtBox.style.background = '#fef2f2';
@@ -308,12 +342,14 @@ const PagePayments = {
             debtBox.style.background = '#f0fdf4';
             debtBox.style.border = '1px solid #bbf7d0';
             debtBox.style.color = '#166534';
-            debtBox.innerHTML = `✅ <b>Situation saine :</b> Locataire à jour de ses loyers. Aucun arriéré constaté.`;
+            const echText = t.due_info.prochaine_echeance ? ` (déjà couvert jusqu'au ${Helpers.formatDate(t.due_info.prochaine_echeance)})` : '';
+            debtBox.innerHTML = `✅ <b>Situation saine :</b> Locataire à jour de ses loyers${echText}. Nouveau versement enregistré pour la comptabilité du mois en cours.`;
           }
           const pStart = document.getElementById('pay_period_start');
           if (pStart && !pStart.value && t.due_info.prochaine_echeance) {
             pStart.value = t.due_info.prochaine_echeance.slice(0, 10);
           }
+          recalculateCoverage(monthlyRent);
         }
       } catch (_) {}
     };
@@ -355,6 +391,23 @@ const PagePayments = {
     if (values.tenant_id || (values.tenant && values.tenant.id)) {
       checkTenantDebt(values.tenant_id || values.tenant.id);
     }
+
+    // Réagir aux modifications de montant ou de date début pour réajuster la période fin
+    const payAmtEl = document.getElementById('pay_amount');
+    const payStartEl = document.getElementById('pay_period_start');
+    const payEndEl = document.getElementById('pay_period_end');
+    if (payEndEl) {
+      payEndEl.addEventListener('input', () => { payEndEl.dataset.autoFilled = 'false'; });
+    }
+    const triggerRecalc = () => {
+      const aptSelect = document.getElementById('pay_apartment_id');
+      const aptId = aptSelect ? aptSelect.value : null;
+      const apt = (this._apartments || []).find(a => String(a.id) === String(aptId));
+      const rent = apt ? apt.rent_amount : 0;
+      recalculateCoverage(rent);
+    };
+    if (payAmtEl) payAmtEl.addEventListener('input', triggerRecalc);
+    if (payStartEl) payStartEl.addEventListener('change', triggerRecalc);
 
     // Soumission du formulaire
     document.getElementById('btnSubmitPayment').onclick = async () => {

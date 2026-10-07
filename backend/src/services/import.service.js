@@ -49,23 +49,22 @@ const getDateVal = (cell) => {
 
 function parsePeriodDates(str) {
   if (!str) return { period_start: null, period_end: null };
-  const dates = [];
-  const parts = String(str).split(/[-–—àau]/i);
-  for (const p of parts) {
-    const trimmed = p.trim();
-    const dmy = trimmed.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})$/);
-    if (dmy) {
-      dates.push(`${dmy[3]}-${String(dmy[2]).padStart(2, '0')}-${String(dmy[1]).padStart(2, '0')}`);
-    } else {
-      const ymd = trimmed.match(/^(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})$/);
-      if (ymd) {
-        dates.push(`${ymd[1]}-${String(ymd[2]).padStart(2, '0')}-${String(ymd[3]).padStart(2, '0')}`);
-      }
+  const clean = String(str).trim();
+  const regex = /(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})/g;
+  const matches = [];
+  let m;
+  while ((m = regex.exec(clean)) !== null) {
+    let day = parseInt(m[1], 10);
+    let month = parseInt(m[2], 10);
+    let year = parseInt(m[3], 10);
+    if (year < 100) year += 2000;
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      matches.push(`${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`);
     }
   }
   return {
-    period_start: dates[0] || null,
-    period_end: dates[1] || null,
+    period_start: matches[0] || null,
+    period_end: matches[1] || null,
   };
 }
 
@@ -422,17 +421,17 @@ class ImportService {
               }
             }
 
-            if (versementMois > 0) {
+            if (versementMois > 0 || (pStart && pEnd)) {
               await Payment.create({
                 tenant_id: activeTenant.id,
                 apartment_id: apartment.id,
-                amount: versementMois,
+                amount: versementMois || 0,
                 payment_method: mapPaymentMethod(modePaiement),
                 payment_date: paymentDate,
                 status: 'completed',
                 period_start: pStart,
                 period_end: pEnd,
-                observations: observations || null,
+                observations: observations || (versementMois === 0 && pEnd ? `Situation initiale : couvert jusqu'au ${pEnd}` : null),
               }, { transaction });
               overallStats.payments.totalCreated++;
             }

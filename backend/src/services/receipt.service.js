@@ -73,37 +73,44 @@ class ReceiptService {
     const tenant = payment.tenant;
     const activeLease = tenant && tenant.leases ? tenant.leases[0] : null;
 
-    // Calculer la période couverte par ce paiement
+    // Déterminer la période couverte par ce paiement
     const monthlyRent = activeLease ? num(activeLease.monthly_rent) : (apartment ? num(apartment.rent_amount) : 0);
     let periodStart = options.period_start || payment.period_start || null;
     let periodEnd = options.period_end || payment.period_end || null;
 
-    if (!periodStart && monthlyRent > 0 && payment.payment_date) {
+    if (!periodStart && tenant) {
+      const prevPayment = await Payment.findOne({
+        where: {
+          tenant_id: tenant.id,
+          id: { [Op.ne]: payment.id },
+          status: 'completed',
+          period_end: { [Op.ne]: null },
+        },
+        order: [['period_end', 'DESC']],
+      });
+      if (prevPayment && prevPayment.period_end) {
+        periodStart = prevPayment.period_end;
+      }
+    }
+
+    if (periodStart && !periodEnd && monthlyRent > 0) {
+      const pStartObj = new Date(periodStart);
+      const monthsCovered = Math.max(1, Math.round(num(payment.amount) / monthlyRent));
+      const pEndObj = new Date(pStartObj);
+      pEndObj.setMonth(pEndObj.getMonth() + monthsCovered);
+      periodEnd = pEndObj.toISOString().slice(0, 10);
+    } else if (!periodStart && monthlyRent > 0 && payment.payment_date) {
       const payDate = new Date(payment.payment_date);
-      // Le paiement couvre le mois de la date de paiement
       periodStart = new Date(payDate.getFullYear(), payDate.getMonth(), 1);
-      const monthsCovered = Math.max(1, Math.floor(num(payment.amount) / monthlyRent));
-      periodEnd = new Date(periodStart);
-      periodEnd.setMonth(periodEnd.getMonth() + monthsCovered);
-      periodEnd.setDate(periodEnd.getDate() - 1); // dernier jour de la période
+      const monthsCovered = Math.max(1, Math.round(num(payment.amount) / monthlyRent));
+      const pEndObj = new Date(periodStart);
+      pEndObj.setMonth(pEndObj.getMonth() + monthsCovered);
+      pEndObj.setDate(pEndObj.getDate() - 1);
+      periodEnd = pEndObj.toISOString().slice(0, 10);
     }
 
-    // Calculer le solde restant (dette totale - ce paiement)
-    const allPayments = tenant
-      ? await Payment.findAll({ where: { tenant_id: tenant.id, status: 'completed' } })
-      : [];
-    const totalPaid = allPayments.reduce((s, p) => s + num(p.amount), 0);
-    const leaseStart = activeLease ? activeLease.start_date : (tenant ? tenant.start_date : null);
-    let totalDue = 0;
-    if (monthlyRent > 0 && leaseStart) {
-      const start = new Date(leaseStart);
-      const now = new Date();
-      const months = (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth()) + 1;
-      totalDue = Math.max(0, months) * monthlyRent;
-    }
-    let remainingBalance = Math.max(0, totalDue - totalPaid);
-
-    // Détection automatique des impayés si la période couverte est échue
+    // Le solde restant dépend de la période couverte par rapport à la date de référence
+    let remainingBalance = 0;
     if (periodEnd && monthlyRent > 0) {
       const pEnd = new Date(periodEnd);
       if (!isNaN(pEnd.getTime())) {
@@ -133,19 +140,22 @@ class ReceiptService {
         else if (monthsGap === 0 && endDay <= 5) overdueMonths = 1;
 
         if (overdueMonths > 0) {
-          const autoDebt = Math.round(overdueMonths * monthlyRent);
-          if (autoDebt > remainingBalance) {
-            remainingBalance = autoDebt;
-          }
+          remainingBalance = Math.round(overdueMonths * monthlyRent);
+        } else {
+          remainingBalance = 0;
         }
       }
+    } else {
+      const ledgerService = require('./ledger.service');
+      const led = ledgerService.computeFromTenant(tenant);
+      remainingBalance = Math.max(0, led.solde || 0);
     }
 
     const receiptNumber = await this._nextNumber('rent');
     const pStartStr = periodStart ? (typeof periodStart === 'string' ? periodStart.slice(0, 10) : periodStart.toISOString().slice(0, 10)) : null;
     const pEndStr = periodEnd ? (typeof periodEnd === 'string' ? periodEnd.slice(0, 10) : periodEnd.toISOString().slice(0, 10)) : null;
 
-    const observations = options.observations || payment.observations || (remainingBalance <= 0 && totalDue > 0 ? 'Dette totalement soldée' : null);
+    const observations = options.observations || payment.observations || (remainingBalance <= 0 && payment.observations ? payment.observations : null);
 
     const receipt = await Receipt.create({
       receipt_number: receiptNumber,

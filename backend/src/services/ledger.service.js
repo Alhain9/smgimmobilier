@@ -12,18 +12,29 @@ function monthsElapsed(startDate) {
 }
 
 // Calcul précis de la prochaine échéance et du décompte des jours (J-10, J-7, J-4, etc.)
-function computeDueInfo(startDate, monthlyRent, totalValide) {
-  if (!startDate || !monthlyRent || monthlyRent <= 0) {
-    return { prochaine_echeance: null, jours_restants: null, statut_echeance: 'ok', echeance_message: 'Aucun bail actif' };
-  }
-  const start = new Date(startDate);
-  if (isNaN(start.getTime())) {
-    return { prochaine_echeance: null, jours_restants: null, statut_echeance: 'ok', echeance_message: 'Date invalide' };
+function computeDueInfo(startDate, monthlyRent, totalValide, latestPeriodEnd = null) {
+  let nextDue = null;
+  let monthsPaid = 0;
+
+  if (latestPeriodEnd) {
+    const end = new Date(latestPeriodEnd);
+    if (!isNaN(end.getTime())) {
+      nextDue = end;
+    }
   }
 
-  const monthsPaid = Math.floor((totalValide || 0) / monthlyRent);
-  const nextDue = new Date(start);
-  nextDue.setMonth(nextDue.getMonth() + monthsPaid);
+  if (!nextDue) {
+    if (!startDate || !monthlyRent || monthlyRent <= 0) {
+      return { prochaine_echeance: null, jours_restants: null, statut_echeance: 'ok', echeance_message: 'Aucun bail actif' };
+    }
+    const start = new Date(startDate);
+    if (isNaN(start.getTime())) {
+      return { prochaine_echeance: null, jours_restants: null, statut_echeance: 'ok', echeance_message: 'Date invalide' };
+    }
+    monthsPaid = Math.floor((totalValide || 0) / monthlyRent);
+    nextDue = new Date(start);
+    nextDue.setMonth(nextDue.getMonth() + monthsPaid);
+  }
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -46,7 +57,8 @@ function computeDueInfo(startDate, monthlyRent, totalValide) {
     echeance_message = `Doit payer dans ${diffDays} jour(s)`;
   } else {
     statut_echeance = 'a_venir';
-    echeance_message = `Dans ${diffDays} jour(s)`;
+    const dStr = nextDue.toISOString().slice(0, 10);
+    echeance_message = `À jour jusqu'au ${dStr} (dans ${diffDays} jours)`;
   }
 
   return {
@@ -59,15 +71,16 @@ function computeDueInfo(startDate, monthlyRent, totalValide) {
 }
 
 class LedgerService {
-  // Calcule le solde à partir d'un locataire chargé (avec leases + payments + apartment)
+  // Calcule le solde à partir d'un locataire chargé (avec leases + payments + receipts + apartment)
   computeFromTenant(tenant) {
     const o = tenant.toJSON ? tenant.toJSON() : tenant;
     const lease = (o.leases || []).find((l) => l.status === 'active') || (o.leases || [])[0] || null;
     const monthlyRent = lease ? num(lease.monthly_rent) : (o.apartment ? num(o.apartment.rent_amount) : 0);
     const startDate = lease ? lease.start_date : o.start_date;
     const payments = o.payments || [];
+    const receipts = o.receipts || [];
 
-    // Déterminer la date de début effective (la plus ancienne entre bail/profil et premier paiement)
+    // Déterminer la date de début effective et la fin de période la plus récente
     let effectiveStartDate = startDate;
     let latestPeriodEnd = null;
 
@@ -77,9 +90,19 @@ class LedgerService {
           effectiveStartDate = p.period_start;
         }
       }
-      if (p.period_end && p.status === 'completed') {
-        if (!latestPeriodEnd || new Date(p.period_end) > new Date(latestPeriodEnd)) {
-          latestPeriodEnd = p.period_end;
+      if (p.period_end && ['completed', 'awaiting_confirmation'].includes(p.status)) {
+        const pEndStr = typeof p.period_end === 'string' ? p.period_end.slice(0, 10) : p.period_end.toISOString().slice(0, 10);
+        if (!latestPeriodEnd || new Date(pEndStr) > new Date(latestPeriodEnd)) {
+          latestPeriodEnd = pEndStr;
+        }
+      }
+    });
+
+    receipts.forEach((r) => {
+      if (r.period_end && r.status !== 'cancelled') {
+        const rEndStr = typeof r.period_end === 'string' ? r.period_end.slice(0, 10) : r.period_end.toISOString().slice(0, 10);
+        if (!latestPeriodEnd || new Date(rEndStr) > new Date(latestPeriodEnd)) {
+          latestPeriodEnd = rEndStr;
         }
       }
     });
@@ -91,14 +114,11 @@ class LedgerService {
     const enAttentePreuve = payments.filter((p) => p.status === 'awaiting_confirmation').reduce((s, p) => s + num(p.amount), 0);
     const totalPaye = payments.filter((p) => ['completed', 'awaiting_confirmation'].includes(p.status)).reduce((s, p) => s + num(p.amount), 0);
 
-    let solde = totalDue - totalValide;            // règle métier : dû − validés
-
-    // Détection automatique des impayés selon la fin de période couverte
-    const now = new Date();
+    let solde = 0;
     let isOverdueFromPeriod = false;
     let overdueMonthsFromPeriod = 0;
     let overdueMessage = '';
-    let autoArrears = 0;
+    const now = new Date();
 
     if (latestPeriodEnd && monthlyRent > 0) {
       const pEnd = new Date(latestPeriodEnd);
@@ -122,35 +142,44 @@ class LedgerService {
       if (gap > 0) {
         isOverdueFromPeriod = true;
         overdueMonthsFromPeriod = gap;
+        solde = overdueMonthsFromPeriod * monthlyRent;
+        overdueMessage = `Impayé à partir du mois de ${MONTH_NAMES_FR[unpaidM]} ${unpaidY}`;
       } else if (gap === 0 && endDay <= 5) {
         isOverdueFromPeriod = true;
         overdueMonthsFromPeriod = 1;
-      }
-
-      if (isOverdueFromPeriod) {
-        autoArrears = overdueMonthsFromPeriod * monthlyRent;
+        solde = 1 * monthlyRent;
         overdueMessage = `Impayé à partir du mois de ${MONTH_NAMES_FR[unpaidM]} ${unpaidY}`;
-        if (autoArrears > solde) {
-          solde = autoArrears;
-        }
+      } else {
+        // La couverture s'étend jusqu'à aujourd'hui ou dans le futur : le locataire est strictement à jour
+        isOverdueFromPeriod = false;
+        overdueMonthsFromPeriod = 0;
+        solde = 0;
+        overdueMessage = gap < 0 ? `À jour (Avance jusqu'au ${latestPeriodEnd})` : 'À jour';
       }
+    } else {
+      solde = Math.max(0, totalDue - totalValide);
     }
 
     let statut = 'a_jour';
-    if (solde > 0 || isOverdueFromPeriod) statut = totalValide > 0 ? 'partiel' : 'retard';
+    if (solde > 0 || isOverdueFromPeriod) {
+      statut = totalValide > 0 ? 'partiel' : 'retard';
+    }
 
-    const dueInfo = computeDueInfo(effectiveStartDate, monthlyRent, totalValide);
+    const dueInfo = computeDueInfo(effectiveStartDate, monthlyRent, totalValide, latestPeriodEnd);
 
     if (isOverdueFromPeriod) {
       dueInfo.statut_echeance = 'retard';
       dueInfo.echeance_message = overdueMessage;
       dueInfo.prochaine_echeance = latestPeriodEnd;
       dueInfo.mois_dus = overdueMonthsFromPeriod;
+    } else if (latestPeriodEnd) {
+      dueInfo.prochaine_echeance = latestPeriodEnd;
+      dueInfo.mois_dus = 0;
     }
 
     return {
       loyer_mensuel: monthlyRent,
-      mois_dus: isOverdueFromPeriod ? overdueMonthsFromPeriod : months,
+      mois_dus: isOverdueFromPeriod ? overdueMonthsFromPeriod : (latestPeriodEnd ? 0 : months),
       total_du: totalDue,
       total_paye: totalPaye,
       total_valide: totalValide,

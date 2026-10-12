@@ -110,11 +110,28 @@ class TenantService {
         this._apartmentInclude(),
         { model: Lease, as: 'leases', include: [this._apartmentInclude()] },
         { model: Payment, as: 'payments' },
+        { model: Receipt, as: 'receipts' },
       ],
       order: [[{ model: Payment, as: 'payments' }, 'payment_date', 'DESC']],
     });
     if (!t) throw Object.assign(new Error('Locataire introuvable'), { status: 404 });
-    return flatten(t);
+    const ledgerService = require('./ledger.service');
+    const led = ledgerService.computeFromTenant(t);
+    const flat = flatten(t);
+    return {
+      ...flat,
+      due_info: {
+        prochaine_echeance: led.prochaine_echeance,
+        jours_restants: led.jours_restants,
+        statut_echeance: led.statut_echeance,
+        echeance_message: led.echeance_message,
+        loyer_mensuel: led.loyer_mensuel,
+        solde: led.solde,
+        mois_dus: led.mois_dus,
+        total_valide: led.total_valide,
+        derniere_couverture_fin: led.prochaine_echeance,
+      },
+    };
   }
   // Crée un compte utilisateur (rôle Locataire) + fiche locataire
   async create(data) {

@@ -75,7 +75,7 @@ const PagePayments = {
     ];
   },
   async render() {
-    const canEdit = Auth.hasRole('manager', 'comptable');
+    const canEdit = Auth.hasRole('manager', 'comptable', 'dir_admin', 'gestionnaire');
     const canContact = Auth.hasRole('manager', 'comptable', 'dir_admin', 'gestionnaire');
     const data = await CrudPage.list({
       endpoint: '/payments', title: 'Paiements',
@@ -302,7 +302,8 @@ const PagePayments = {
       const startDateStr = pStartInput.value;
 
       if (amount > 0 && rent > 0 && startDateStr) {
-        const months = Math.max(1, Math.round(amount / rent));
+        const months = Math.max(1, Math.floor(amount / rent));
+        const advance = Math.max(0, amount - (months * rent));
         const sDate = new Date(startDateStr);
         if (!isNaN(sDate.getTime())) {
           const eDate = new Date(sDate);
@@ -315,40 +316,54 @@ const PagePayments = {
             pEndInput.dataset.autoFilled = 'true';
           }
           if (infoHint) {
-            infoHint.innerHTML = `💡 <b>Couverture calculée :</b> ${months} mois (du ${Helpers.formatDate(startDateStr)} au ${Helpers.formatDate(pEndInput.value)})`;
+            const advText = advance > 0 ? ` + <b>avance de ${Helpers.formatMoney(advance)}</b> sur la période suivante` : '';
+            infoHint.innerHTML = `💡 <b>Couverture calculée :</b> ${months} mois (du ${Helpers.formatDate(startDateStr)} au ${Helpers.formatDate(pEndInput.value)})${advText}`;
             infoHint.style.display = 'block';
           }
+        }
+      } else if (startDateStr && pEndInput.value) {
+        if (infoHint) {
+          infoHint.innerHTML = `💡 <b>Période de couverture :</b> du ${Helpers.formatDate(startDateStr)} au ${Helpers.formatDate(pEndInput.value)}`;
+          infoHint.style.display = 'block';
         }
       }
     };
 
     const checkTenantDebt = async (tenantId) => {
       const debtBox = document.getElementById('pay_debt_info_box');
-      if (!debtBox || !tenantId) return;
+      if (!tenantId) return;
       try {
         const res = await API.get('/tenants/' + tenantId);
         const t = res.data;
-        if (t && t.due_info) {
-          const solde = t.due_info.solde || 0;
-          const months = t.due_info.mois_dus || 0;
-          const monthlyRent = t.due_info.loyer_mensuel || (t.apartment ? t.apartment.rent_amount : 0);
-          debtBox.style.display = 'block';
-          if (solde > 0) {
-            debtBox.style.background = '#fef2f2';
-            debtBox.style.border = '1px solid #fecaca';
-            debtBox.style.color = '#991b1b';
-            debtBox.innerHTML = `⚠️ <b>Attention dette en cours :</b> Ce locataire a un arriéré de <b>${Helpers.formatMoney(solde)}</b> (${months} mois impayé(s)). Le versement sera imputé sur cette dette.`;
-          } else {
-            debtBox.style.background = '#f0fdf4';
-            debtBox.style.border = '1px solid #bbf7d0';
-            debtBox.style.color = '#166534';
-            const echText = t.due_info.prochaine_echeance ? ` (déjà couvert jusqu'au ${Helpers.formatDate(t.due_info.prochaine_echeance)})` : '';
-            debtBox.innerHTML = `✅ <b>Situation saine :</b> Locataire à jour de ses loyers${echText}. Nouveau versement enregistré pour la comptabilité du mois en cours.`;
-          }
+        if (t) {
+          const monthlyRent = t.due_info?.loyer_mensuel || (t.apartment ? t.apartment.rent_amount : (t.leases && t.leases[0] ? t.leases[0].monthly_rent : 0));
           const pStart = document.getElementById('pay_period_start');
-          if (pStart && !pStart.value && t.due_info.prochaine_echeance) {
-            pStart.value = t.due_info.prochaine_echeance.slice(0, 10);
+
+          // Chaînage automatique : La dernière date en base correspond à la première date du nouveau paiement
+          const lastCoverDate = t.due_info?.prochaine_echeance || t.due_info?.derniere_couverture_fin || (t.start_date ? t.start_date.slice(0, 10) : null);
+          if (pStart && (!pStart.value || pStart.dataset.autoFilled === 'true') && lastCoverDate) {
+            pStart.value = lastCoverDate.slice(0, 10);
+            pStart.dataset.autoFilled = 'true';
           }
+
+          if (debtBox && t.due_info) {
+            const solde = t.due_info.solde || 0;
+            const months = t.due_info.mois_dus || 0;
+            debtBox.style.display = 'block';
+            if (solde > 0) {
+              debtBox.style.background = '#fef2f2';
+              debtBox.style.border = '1px solid #fecaca';
+              debtBox.style.color = '#991b1b';
+              debtBox.innerHTML = `⚠️ <b>Attention dette / retard détecté :</b> Ce locataire a un arriéré de <b>${Helpers.formatMoney(solde)}</b> (${months} mois impayé(s)). Le paiement couvrira en priorité cette période.`;
+            } else {
+              debtBox.style.background = '#f0fdf4';
+              debtBox.style.border = '1px solid #bbf7d0';
+              debtBox.style.color = '#166534';
+              const echText = t.due_info.prochaine_echeance ? ` (déjà couvert jusqu'au ${Helpers.formatDate(t.due_info.prochaine_echeance)})` : '';
+              debtBox.innerHTML = `✅ <b>Situation saine :</b> Locataire à jour de ses loyers${echText}. Nouveau versement enregistré pour la suite de sa couverture.`;
+            }
+          }
+
           recalculateCoverage(monthlyRent);
         }
       } catch (_) {}

@@ -133,9 +133,10 @@ class DashboardService {
     this._statsCacheTime = 0;
   }
 
-  // Statistiques globales (manager / super_admin) — format inchangé pour compat. UI existante
-  async getStats() {
-    if (this._statsCache && (Date.now() - this._statsCacheTime < this.CACHE_DURATION)) {
+  // Statistiques globales ou filtrées par période (manager / super_admin)
+  async getStats(start, end) {
+    const hasCustomPeriod = Boolean(start && end);
+    if (!hasCustomPeriod && this._statsCache && (Date.now() - this._statsCacheTime < this.CACHE_DURATION)) {
       return this._statsCache;
     }
 
@@ -159,11 +160,149 @@ class DashboardService {
         salariesPaid: rh.salariesPaid, salariesPending: rh.salariesPending,
         charges: totalCharges, balance: finances.revenue - totalCharges,
       },
+      global: {
+        properties: patrimoine.properties, apartments: patrimoine.apartments, occupied: patrimoine.occupied, free: patrimoine.free,
+        occupancyRate: patrimoine.occupancyRate, tenants: patrimoine.tenants, activeLeases: patrimoine.activeLeases,
+        users, documents, equipment: technique.equipment, tasksOpen: taches.tasks.active,
+        maintenances: technique.maintenances.active,
+        finance: {
+          revenue: finances.revenue, unpaid: finances.unpaid, expenses: finances.expenses,
+          salariesPaid: rh.salariesPaid, salariesPending: rh.salariesPending,
+          charges: totalCharges, balance: finances.revenue - totalCharges,
+        }
+      },
       generatedAt: new Date().toISOString(),
     };
 
-    this._statsCache = stats;
-    this._statsCacheTime = Date.now();
+    if (hasCustomPeriod) {
+      const range = this._range(start, end);
+      const [
+        pRevenue, pUnpaid, pExpenses, pSalariesPaid, pSalariesPending,
+        pMaintenancesActive, pMaintenancesCompleted, pTasksOpen, pDocs,
+        pNewTenants, pNewLeases
+      ] = await Promise.all([
+        Payment.sum('amount', {
+          where: {
+            status: 'completed',
+            [Op.or]: [
+              { payment_date: { [Op.between]: [start, end] } },
+              { [Op.and]: [{ payment_date: null }, { created_at: { [Op.between]: range } }] }
+            ]
+          }
+        }),
+        Payment.sum('amount', {
+          where: {
+            status: { [Op.in]: ['pending', 'failed'] },
+            [Op.or]: [
+              { payment_date: { [Op.between]: [start, end] } },
+              { created_at: { [Op.between]: range } }
+            ]
+          }
+        }),
+        Expense.sum('total_price', {
+          where: {
+            [Op.or]: [
+              { payment_date: { [Op.between]: [start, end] } },
+              { created_at: { [Op.between]: range } }
+            ]
+          }
+        }),
+        Salary.sum('net_salary', {
+          where: {
+            status: 'paid',
+            [Op.or]: [
+              { paid_date: { [Op.between]: [start, end] } },
+              { created_at: { [Op.between]: range } }
+            ]
+          }
+        }),
+        Salary.sum('net_salary', {
+          where: {
+            status: { [Op.ne]: 'paid' },
+            created_at: { [Op.between]: range }
+          }
+        }),
+        Maintenance.count({
+          where: {
+            status: { [Op.in]: ['reported', 'validated', 'in_progress'] },
+            created_at: { [Op.between]: range }
+          }
+        }),
+        Maintenance.count({
+          where: {
+            status: 'completed',
+            [Op.or]: [
+              { completed_at: { [Op.between]: range } },
+              { updated_at: { [Op.between]: range } }
+            ]
+          }
+        }),
+        Task.count({
+          where: {
+            status: { [Op.in]: ['pending', 'in_progress'] },
+            created_at: { [Op.between]: range }
+          }
+        }),
+        Upload.count({
+          where: { created_at: { [Op.between]: range } }
+        }),
+        Tenant.count({
+          where: { created_at: { [Op.between]: range } }
+        }),
+        Lease.count({
+          where: { start_date: { [Op.between]: [start, end] } }
+        }),
+      ]);
+
+      const rev = +pRevenue || 0;
+      const unp = +pUnpaid || 0;
+      const exp = +pExpenses || 0;
+      const salP = +pSalariesPaid || 0;
+      const salPend = +pSalariesPending || 0;
+      const charges = exp + salP;
+      const bal = rev - charges;
+
+      stats.hasPeriod = true;
+      stats.start = start;
+      stats.end = end;
+      stats.period = {
+        start, end,
+        revenue: rev,
+        unpaid: unp,
+        expenses: exp,
+        salariesPaid: salP,
+        salariesPending: salPend,
+        charges,
+        balance: bal,
+        maintenancesActive: pMaintenancesActive || 0,
+        maintenancesCompleted: pMaintenancesCompleted || 0,
+        tasksOpen: pTasksOpen || 0,
+        documents: pDocs || 0,
+        newTenants: pNewTenants || 0,
+        newLeases: pNewLeases || 0,
+      };
+
+      // Si période active, on reflète les données sur les KPI tout en gardant stats.global
+      stats.finance = {
+        revenue: rev,
+        unpaid: unp,
+        expenses: exp,
+        salariesPaid: salP,
+        salariesPending: salPend,
+        charges,
+        balance: bal,
+      };
+      stats.tasksOpen = pTasksOpen || 0;
+      stats.documents = pDocs || 0;
+      stats.maintenances.active = pMaintenancesActive || 0;
+      stats.maintenances.completed = pMaintenancesCompleted || 0;
+    } else {
+      stats.hasPeriod = false;
+      stats.period = null;
+      this._statsCache = stats;
+      this._statsCacheTime = Date.now();
+    }
+
     return stats;
   }
 

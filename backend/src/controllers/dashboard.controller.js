@@ -4,7 +4,8 @@ const { success, error } = require('../utils/response');
 module.exports = {
   getStats: async (req, res, next) => {
     try {
-      const data = await dashboardService.getStats();
+      const { start, end } = req.query;
+      const data = await dashboardService.getStats(start, end);
       return success(res, data);
     } catch (err) { next(err); }
   },

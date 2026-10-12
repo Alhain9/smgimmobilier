@@ -546,18 +546,20 @@
    ================================================================ */
 
 @media print {
-    @page {
-        size: landscape;
-        margin: 0.4cm;
-    }
-
-    body * {
+    /* N'isoler et ne masquer le reste de la page que si un reçu de caisse est présent dans le DOM */
+    body:has(#printableInvoiceContainer) * {
         visibility: hidden !important;
     }
 
-    #printableInvoiceContainer,
-    #printableInvoiceContainer * {
+    body:has(#printableInvoiceContainer) #printableInvoiceContainer,
+    body:has(#printableInvoiceContainer) #printableInvoiceContainer * {
         visibility: visible !important;
+    }
+
+    body:has(#printableInvoiceContainer) {
+        margin: 0 !important;
+        padding: 0 !important;
+        background: #ffffff !important;
     }
 
     #printableInvoiceContainer {

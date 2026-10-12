@@ -115,6 +115,7 @@ class ReceiptHtmlGenerator {
     let remainingDebt = Math.max(0, debt - paid);
     let isDebtPaid = remainingDebt <= 0 && debt > 0;
     let hasDebt = debt > 0;
+    let advance = 0;
 
     let periodText = '';
     let periodClass = '';
@@ -168,22 +169,31 @@ class ReceiptHtmlGenerator {
       }
 
       const overdueMonthName = MONTH_NAMES_FR[unpaidFromMonthIndex];
+      const coveredRent = paidMonths * rent;
+      advance = Math.max(0, paid - coveredRent);
+
       if (isOverdue) {
         const autoDebt = Math.round(overdueMonths * rent);
-        remainingDebt = autoDebt;
-        hasDebt = true;
+        const netDebt = Math.max(0, autoDebt - advance);
+        if (cfg.remainingBalance != null && !isNaN(parseFloat(cfg.remainingBalance))) {
+          remainingDebt = Math.max(0, Math.round(parseFloat(cfg.remainingBalance)));
+        } else {
+          remainingDebt = netDebt;
+        }
+        hasDebt = remainingDebt > 0;
       } else {
         // Couvert jusqu'à la date active ou dans le futur : PAS d'arriéré
         remainingDebt = 0;
         hasDebt = false;
       }
 
+      const advSuffix = advance > 0 ? ` + avance de ${fmtAmount(advance)} FCFA sur le mois suivant` : '';
       if (isOverdue) {
         periodClass = 'dette';
-        periodText = `Paiement couvrant ${paidMonths} mois (du ${startStr} au ${endStr})`;
-      } else if (monthsGap < 0) {
+        periodText = `Paiement couvrant ${paidMonths} mois (du ${startStr} au ${endStr})${advSuffix}`;
+      } else if (monthsGap < 0 || advance > 0) {
         periodClass = '';
-        periodText = `Paiement par anticipation couvrant ${paidMonths} mois (du ${startStr} au ${endStr})`;
+        periodText = `Paiement couvrant ${paidMonths} mois (du ${startStr} au ${endStr})${advSuffix}`;
       } else {
         periodText = `Paiement couvrant ${paidMonths} mois de loyer (du ${startStr} au ${endStr})`;
         periodClass = '';
@@ -283,7 +293,7 @@ class ReceiptHtmlGenerator {
               <tr>
                 <td><strong>STATUT DU COMPTE</strong></td>
                 <td class="text-right total">
-                  <strong style="color:${typeof isOverdue !== 'undefined' && isOverdue ? 'var(--accent-color,#c0392b)' : (hasDebt && remainingDebt > 0 ? 'var(--accent-color,#c0392b)' : '#27ae60')}">${typeof isOverdue !== 'undefined' && isOverdue ? `Impayé à partir du mois de ${overdueMonthName} ${unpaidFromYear}` : (hasDebt && remainingDebt > 0 ? 'Dette restante' : (typeof monthsGap !== 'undefined' && monthsGap < 0 ? 'À jour (Avance)' : 'À jour'))}</strong>
+                  <strong style="color:${typeof isOverdue !== 'undefined' && isOverdue ? 'var(--accent-color,#c0392b)' : (hasDebt && remainingDebt > 0 ? 'var(--accent-color,#c0392b)' : '#27ae60')}">${typeof isOverdue !== 'undefined' && isOverdue ? `Impayé à partir du mois de ${overdueMonthName} ${unpaidFromYear}` : (hasDebt && remainingDebt > 0 ? 'Dette restante' : ((typeof monthsGap !== 'undefined' && monthsGap < 0) || advance > 0 ? 'À jour (Avance)' : 'À jour'))}</strong>
                 </td>
               </tr>
             </tfoot>

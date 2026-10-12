@@ -57,12 +57,12 @@ if (process.env.NODE_ENV === 'development') {
 // Fichiers uploadés (statique)
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Servir l'application Frontend complète & PWA avec vérification immédiate du cache (Zero Stale Cache)
+// Servir l'application Frontend complète avec vérification immédiate du cache (Zero Stale Cache)
 app.use(express.static(path.join(__dirname, '../../frontend'), {
   etag: true,
   lastModified: true,
   setHeaders: (res, filePath) => {
-    // Les fichiers de code (HTML, JS, CSS, JSON, sw.js) ne doivent JAMAIS être bloqués par le cache local du navigateur ou de la PWA
+    // Les fichiers de code (HTML, JS, CSS, JSON) ne doivent JAMAIS être bloqués par le cache local du navigateur
     // Dès qu'un fichier change sur le serveur, le navigateur le télécharge IMMÉDIATEMENT sans aucune action manuelle
     if (
       filePath.endsWith('.html') ||

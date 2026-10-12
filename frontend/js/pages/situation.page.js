@@ -607,6 +607,19 @@ const PageSituation = {
     const safeCaution = Number(line.caution) || 0;
     const safeObs = Helpers.escapeHtml(line.observations === '—' ? '' : (line.observations || ''));
 
+    // Extraction précise des dates de couverture pour les sélecteurs de calendrier
+    const parsePeriodToIso = (str) => {
+      if (!str) return { start: '', end: '' };
+      const dmy = [...str.matchAll(/(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})/g)].map(m => `${m[3]}-${String(m[2]).padStart(2, '0')}-${String(m[1]).padStart(2, '0')}`);
+      const ymd = [...str.matchAll(/(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})/g)].map(m => `${m[1]}-${String(m[2]).padStart(2, '0')}-${String(m[3]).padStart(2, '0')}`);
+      const all = [...dmy, ...ymd];
+      return { start: all[0] || '', end: all[1] || all[0] || '' };
+    };
+    const parsedIso = parsePeriodToIso(line.periode_paiement);
+    const initialPayDate = line.payment_date ? line.payment_date.slice(0, 10) : (parsedIso.start || (effPeriodYm ? `${effPeriodYm}-05` : new Date().toISOString().slice(0, 10)));
+    const initialPeriodStart = line.period_start ? line.period_start.slice(0, 10) : (parsedIso.start || (effPeriodYm ? `${effPeriodYm}-01` : ''));
+    const initialPeriodEnd = line.period_end ? line.period_end.slice(0, 10) : (parsedIso.end || '');
+
     Modal.open({
       title: '✏️ Modifier les 12 colonnes de la situation',
       content: `
@@ -662,11 +675,32 @@ const PageSituation = {
               <input type="number" id="edit_col_versement" class="form-control" value="${safeVersement}" min="0" placeholder="0" />
             </div>
           </div>
-          <div style="display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:10px;margin-top:8px">
-            <div class="form-group">
-              <label style="font-size:11.5px;font-weight:600;display:block;margin-bottom:3px">9. Période correspondant au paiement</label>
-              <input type="text" id="edit_col_periode" class="form-control" value="${safePeriode}" placeholder="ex: 01/04/2026 au 01/07/2026" />
+
+          <!-- 9. PÉRIODE CORRESPONDANT AU PAIEMENT AVEC CALENDRIERS (DATE DE PAIEMENT, COUVERTURE DÉBUT & FIN) -->
+          <div style="background:#f8fafc;padding:10px 12px;border-radius:8px;margin-top:10px;border:1px solid #e2e8f0;">
+            <div style="font-weight:700;color:var(--primary);margin-bottom:6px;font-size:12px;display:flex;justify-content:space-between;align-items:center;">
+              <span>🗓️ 9. Période correspondant au paiement (Couverture exacte)</span>
+              <span id="edit_col_coverage_badge" style="font-size:11px;color:#0284c7;font-weight:600;"></span>
             </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+              <div class="form-group" style="margin-bottom:0">
+                <label style="font-size:11px;font-weight:600;display:block;margin-bottom:2px">Date de paiement *</label>
+                <input type="date" id="edit_col_pay_date" class="form-control" value="${initialPayDate}" required />
+              </div>
+              <div class="form-group" style="margin-bottom:0">
+                <label style="font-size:11px;font-weight:600;display:block;margin-bottom:2px">Période début (Couverture) *</label>
+                <input type="date" id="edit_col_period_start" class="form-control" value="${initialPeriodStart}" required />
+              </div>
+              <div class="form-group" style="margin-bottom:0">
+                <label style="font-size:11px;font-weight:600;display:block;margin-bottom:2px">Période fin (Couverture) *</label>
+                <input type="date" id="edit_col_period_end" class="form-control" value="${initialPeriodEnd}" required />
+              </div>
+            </div>
+            <small id="edit_col_coverage_hint" style="font-size:11.5px;margin-top:4px;display:block;color:#0284c7;font-weight:600;"></small>
+          </div>
+
+          <!-- 10. MODE DE PAIEMENT & 11. CAUTION -->
+          <div style="display:grid;grid-template-columns:1.5fr 1fr;gap:10px;margin-top:10px">
             <div class="form-group">
               <label style="font-size:11.5px;font-weight:600;display:block;margin-bottom:3px">10. Mode de paiement</label>
               <select id="edit_col_mode" class="form-control">
@@ -716,6 +750,47 @@ const PageSituation = {
       `,
       size: 'large',
     });
+
+    // Auto-calcul dynamique de la couverture lors de la saisie
+    const pStartEl = document.getElementById('edit_col_period_start');
+    const pEndEl = document.getElementById('edit_col_period_end');
+    const versEl = document.getElementById('edit_col_versement');
+    const rentEl = document.getElementById('edit_col_rent');
+    const hintEl = document.getElementById('edit_col_coverage_hint');
+
+    const update12ColCoverage = () => {
+      const v = parseFloat(versEl?.value) || 0;
+      const r = parseFloat(rentEl?.value) || 0;
+      const s = pStartEl?.value;
+      if (!hintEl) return;
+      if (v > 0 && r > 0 && s) {
+        const months = Math.max(1, Math.floor(v / r));
+        const advance = Math.max(0, v - (months * r));
+        const sD = new Date(s);
+        if (!isNaN(sD.getTime())) {
+          const eD = new Date(sD);
+          eD.setMonth(eD.getMonth() + months);
+          const y = eD.getFullYear();
+          const m = String(eD.getMonth() + 1).padStart(2, '0');
+          const d = String(eD.getDate()).padStart(2, '0');
+          if (!pEndEl.value || pEndEl.dataset.autoFilled === 'true') {
+            pEndEl.value = `${y}-${m}-${d}`;
+            pEndEl.dataset.autoFilled = 'true';
+          }
+          const advText = advance > 0 ? ` + avance de ${Helpers.formatMoney(advance)}` : '';
+          hintEl.innerHTML = `💡 <b>Couverture calculée :</b> ${months} mois (du ${Helpers.formatDate(s)} au ${Helpers.formatDate(pEndEl.value)})${advText}`;
+        }
+      } else if (s && pEndEl?.value) {
+        hintEl.innerHTML = `💡 <b>Période définie :</b> du ${Helpers.formatDate(s)} au ${Helpers.formatDate(pEndEl.value)}`;
+      } else {
+        hintEl.innerHTML = '';
+      }
+    };
+    if (pEndEl) pEndEl.addEventListener('input', () => { pEndEl.dataset.autoFilled = 'false'; update12ColCoverage(); });
+    if (pStartEl) pStartEl.addEventListener('change', update12ColCoverage);
+    if (versEl) versEl.addEventListener('input', update12ColCoverage);
+    if (rentEl) rentEl.addEventListener('input', update12ColCoverage);
+    update12ColCoverage();
   },
 
   async saveRow(apartmentId, tenantId, propertyId, defaultPeriodYm) {
@@ -727,13 +802,22 @@ const PageSituation = {
     const arriere = parseFloat(document.getElementById('edit_col_arriere')?.value) || 0;
     const anticip = parseFloat(document.getElementById('edit_col_anticip')?.value) || 0;
     const versement = parseFloat(document.getElementById('edit_col_versement')?.value) || 0;
-    const periode = document.getElementById('edit_col_periode')?.value.trim();
+    const payDate = document.getElementById('edit_col_pay_date')?.value || null;
+    const pStart = document.getElementById('edit_col_period_start')?.value || null;
+    const pEnd = document.getElementById('edit_col_period_end')?.value || null;
     const mode = document.getElementById('edit_col_mode')?.value;
     const caution = parseFloat(document.getElementById('edit_col_caution')?.value) || 0;
     const obs = document.getElementById('edit_col_obs')?.value.trim();
     const applyMonth = document.getElementById('edit_col_apply_month')?.checked;
 
     if (!aptNum) { Toast.warning('Le numéro de logement est requis'); return; }
+
+    let periode = '';
+    if (pStart && pEnd) {
+      periode = `${Helpers.formatDate(pStart)} au ${Helpers.formatDate(pEnd)}`;
+    } else if (pStart) {
+      periode = `À partir du ${Helpers.formatDate(pStart)}`;
+    }
 
     const periodYm = applyMonth ? defaultPeriodYm : null;
 
@@ -751,6 +835,9 @@ const PageSituation = {
         arriere_loyer: arriere,
         anticipation: anticip,
         versement_mois: versement,
+        payment_date: payDate,
+        period_start: pStart,
+        period_end: pEnd,
         periode_paiement: periode,
         mode_paiement: mode,
         caution: caution,

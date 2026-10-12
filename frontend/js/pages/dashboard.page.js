@@ -9,11 +9,12 @@ const PageDashboard = {
     Router.register('my-maintenance', () => this.renderTenantMaintenance());
   },
 
-  statCard(icon, color, value, name, action) {
+  statCard(icon, color, value, name, action, subLabel) {
     const clickAttr = action ? `onclick="${action}" style="cursor:pointer" title="Cliquer pour voir le détail de ${name}"` : '';
+    const subHtml = subLabel ? `<div class="stat-sublabel" style="font-size:0.73rem; color:var(--text-muted); margin-top:3px; line-height:1.2; font-weight:500;">${subLabel}</div>` : '';
     return `<div class="stat-card" ${clickAttr}>
       <div class="stat-icon ${color}">${icon}</div>
-      <div class="stat-info"><div class="stat-value">${value}</div><div class="stat-name">${name}</div></div>
+      <div class="stat-info"><div class="stat-value">${value}</div><div class="stat-name">${name}</div>${subHtml}</div>
     </div>`;
   },
 
@@ -27,8 +28,8 @@ const PageDashboard = {
     if (role === 'technicien') return this.renderTechnician();
     if (role === 'bailleur') return this.renderBailleur();
     await this.renderAdmin();
-    // Rafraîchissement temps réel toutes les 15s (KPI globaux manager/super_admin uniquement)
-    if (Auth.hasRole('manager', 'super_admin')) {
+    // Rafraîchissement temps réel toutes les 15s (KPI globaux)
+    if (Auth.hasRole('super_admin', 'manager', 'dir_admin', 'dir_technique', 'gestionnaire', 'comptable')) {
       this._timer = setInterval(() => {
         if ((window.location.hash.replace('#', '') || 'dashboard') !== 'dashboard') { this.stopRealtime(); return; }
         this.refreshStats();
@@ -218,18 +219,109 @@ const PageDashboard = {
     }
   },
 
+  _activePeriod: null, // { start: 'YYYY-MM-DD', end: 'YYYY-MM-DD' } ou null (vue globale)
+  _currentPreset: null,
+
+  setPeriodPreset(preset) {
+    this._currentPreset = preset;
+    const now = new Date();
+    const toYmd = (d) => {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+
+    if (preset === 'all') {
+      this._activePeriod = null;
+      this._currentPreset = null;
+      this._period = { start: null, end: null };
+      this.renderAdmin();
+      return;
+    }
+
+    let start, end;
+    if (preset === 'week' || preset === 7) {
+      this._currentPreset = 'week';
+      end = toYmd(now);
+      const s = new Date(now.getTime() - 6 * 86400000);
+      start = toYmd(s);
+    } else if (preset === 'month' || preset === 30) {
+      this._currentPreset = 'month';
+      const s = new Date(now.getFullYear(), now.getMonth(), 1);
+      start = toYmd(s);
+      end = toYmd(now);
+    } else if (preset === 'last_month') {
+      this._currentPreset = 'last_month';
+      const s = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const e = new Date(now.getFullYear(), now.getMonth(), 0);
+      start = toYmd(s);
+      end = toYmd(e);
+    } else if (preset === 'year' || preset === 365) {
+      this._currentPreset = 'year';
+      const s = new Date(now.getFullYear(), 0, 1);
+      start = toYmd(s);
+      end = toYmd(now);
+    } else if (typeof preset === 'number') {
+      end = toYmd(now);
+      const s = new Date(now.getTime() - (preset - 1) * 86400000);
+      start = toYmd(s);
+    }
+
+    this._activePeriod = { start, end };
+    this._period = { start, end };
+    this.renderAdmin();
+  },
+
+  applyPeriodFilter() {
+    const sInput = document.getElementById('dashCustomStart');
+    const eInput = document.getElementById('dashCustomEnd');
+    if (!sInput || !eInput) return;
+    const start = sInput.value;
+    const end = eInput.value;
+    if (!start || !end) {
+      if (typeof Toast !== 'undefined') Toast.error('Veuillez sélectionner les deux dates (début et fin).');
+      else alert('Veuillez sélectionner les deux dates.');
+      return;
+    }
+    if (start > end) {
+      if (typeof Toast !== 'undefined') Toast.error('La date de début doit précéder ou égaler la date de fin.');
+      else alert('La date de début doit précéder ou égaler la date de fin.');
+      return;
+    }
+    this._currentPreset = 'custom';
+    this._activePeriod = { start, end };
+    this._period = { start, end };
+    this.renderAdmin();
+  },
+
+  resetPeriodFilter() {
+    this._activePeriod = null;
+    this._currentPreset = null;
+    this._period = { start: null, end: null };
+    this.renderAdmin();
+  },
+
   async refreshStats() {
     try {
-      const { data: s } = await API.get('/dashboard/stats');
+      const q = this._activePeriod ? `?start=${this._activePeriod.start}&end=${this._activePeriod.end}` : '';
+      const { data: s } = await API.get(`/dashboard/stats${q}`);
       const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+      const setMoney = (id, val) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const fmt = Helpers.formatMoney(val);
+        el.setAttribute('data-raw', fmt);
+        el.textContent = fmt;
+      };
       set('st_free', s.free); set('st_tenants', s.tenants); set('st_occ', s.occupancyRate + '%');
-      set('st_revenue', Helpers.formatMoney(s.finance.revenue));
-      set('st_unpaid', Helpers.formatMoney(s.finance.unpaid));
-      set('st_charges', Helpers.formatMoney(s.finance.charges));
+      setMoney('st_revenue', s.finance.revenue);
+      setMoney('st_unpaid', s.finance.unpaid);
+      setMoney('st_charges', s.finance.charges);
       set('st_maint', s.maintenances.active);
       set('st_docs', s.documents); set('st_equip', s.equipment); set('st_tasks', s.tasksOpen);
-      set('st_salpend', Helpers.formatMoney(s.finance.salariesPending));
-      set('st_balance', Helpers.formatMoney(s.finance.balance));
+      setMoney('st_salpend', s.finance.salariesPending);
+      setMoney('st_balance', s.finance.balance);
       set('st_occupied', `${s.occupied}/${s.apartments}`);
       set('st_leases', s.activeLeases); set('st_users', s.users);
       const t = document.getElementById('rt_time'); if (t) t.textContent = new Date().toLocaleTimeString('fr-FR');
@@ -238,15 +330,205 @@ const PageDashboard = {
 
   async renderAdmin() {
     Layout.setTitle('Tableau de bord');
-    const isGlobal = Auth.hasRole('manager', 'super_admin');
+    const isGlobal = Auth.hasRole('super_admin', 'manager', 'dir_admin', 'dir_technique', 'gestionnaire', 'comptable');
     let sectors = [];
     try { sectors = (await API.get('/dashboard/sector-summary')).data; } catch { sectors = []; }
 
     let body = `<div class="page-head"><div>
         <h2>Bonjour, ${Auth.getUser().full_name.split(' ')[0]} 👋</h2>
         <div class="subtitle">${isGlobal ? "Vue d'ensemble en temps réel · 🟢 maj <span id=\"rt_time\">" + new Date().toLocaleTimeString('fr-FR') + '</span>' : 'Vue d\'ensemble de votre périmètre'}</div>
-      </div></div>
-      <div id="myDayMini" class="mb-4"></div>`;
+      </div></div>`;
+
+    // 1. LES 12 INDICATEURS CLÉS EN PREMIER LIEU AVEC FILTRE PAR PÉRIODE & MASQUAGE
+    if (isGlobal) {
+      let s = null;
+      let revenue = [];
+      try {
+        const statsQuery = this._activePeriod ? `?start=${this._activePeriod.start}&end=${this._activePeriod.end}` : '';
+        const [resStats, resRev] = await Promise.all([
+          API.get(`/dashboard/stats${statsQuery}`),
+          API.get('/dashboard/revenue')
+        ]);
+        s = resStats.data;
+        revenue = resRev.data;
+      } catch (e) {
+        console.error('Erreur de chargement des statistiques', e);
+      }
+
+      if (s) {
+        localStorage.removeItem('smg_hide_dashboard_amounts');
+        const isStatsHidden = localStorage.getItem('smg_hide_dashboard_stats') === 'true';
+
+        const now = new Date();
+        const toYmd = (d) => {
+          const y = d.getFullYear();
+          const m = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          return `${y}-${m}-${day}`;
+        };
+        const curStart = this._activePeriod ? this._activePeriod.start : toYmd(new Date(now.getTime() - 6 * 86400000));
+        const curEnd = this._activePeriod ? this._activePeriod.end : toYmd(now);
+        const hasPeriod = Boolean(s.hasPeriod && s.period);
+        const pDays = hasPeriod ? Math.max(1, Math.round((new Date(s.end) - new Date(s.start)) / 86400000) + 1) : 0;
+
+        body += `
+          <div id="dashboardStatsContainer" class="card mb-4" style="border:1px solid var(--border); box-shadow:0 4px 14px rgba(0,0,0,0.05); margin-bottom:22px;">
+            <div class="card-header flex justify-between items-center" style="background:linear-gradient(90deg, rgba(37,99,235,0.06) 0%, rgba(37,99,235,0.01) 100%); padding:12px 18px; border-bottom:1px solid var(--border); flex-wrap:wrap; gap:10px;">
+              <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                <span style="font-size:1.35rem;">📊</span>
+                <h3 style="margin:0; font-size:1.05rem; font-weight:700; color:var(--text);">
+                  Indicateurs Clés & Performance Globale
+                </h3>
+                ${hasPeriod ? `
+                  <span class="badge badge-primary" style="font-weight:700; font-size:0.75rem; padding:4px 9px;">
+                    📅 Période : ${Helpers.formatDate(s.start)} → ${Helpers.formatDate(s.end)} (${pDays}j)
+                  </span>
+                ` : `
+                  <span class="badge badge-success" style="font-weight:700; font-size:0.75rem; padding:4px 9px;">
+                    🌐 Vue Globale (Tout)
+                  </span>
+                `}
+                <span class="badge badge-outline" id="dashboardStatsCountBadge" style="font-weight:600; font-size:0.75rem;">12 indicateurs</span>
+              </div>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <button class="btn btn-sm btn-outline" id="btnToggleDashboardStats" onclick="PageDashboard.toggleDashboardStats()" title="Masquer ou afficher cette section">
+                  ${isStatsHidden ? '👁️ Afficher (12 indicateurs)' : '👁️ Masquer'}
+                </button>
+              </div>
+            </div>
+
+            <div id="dashboardStatsBody" style="display:${isStatsHidden ? 'none' : 'block'}; padding:18px 18px 4px 18px;">
+              <!-- BARRE DE FILTRE PERSONNALISABLE PAR PÉRIODE -->
+              <div class="period-filter-toolbar" style="background:var(--bg-secondary, #f8fafc); border:1px solid var(--border); border-radius:10px; padding:12px 14px; margin-bottom:16px; display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px;">
+                <!-- Raccourcis temporels -->
+                <div style="display:flex; align-items:center; flex-wrap:wrap; gap:6px;">
+                  <span style="font-weight:700; font-size:0.85rem; color:var(--text); display:flex; align-items:center; gap:6px; margin-right:4px;">
+                    <span>📅</span> <span>Période :</span>
+                  </span>
+                  <button type="button" class="btn btn-xs ${!this._activePeriod ? 'btn-primary' : 'btn-outline'}" onclick="PageDashboard.setPeriodPreset('all')" title="Voir toutes les données cumulées">🌐 Tout (Global)</button>
+                  <button type="button" class="btn btn-xs ${this._currentPreset === 'week' ? 'btn-primary' : 'btn-outline'}" onclick="PageDashboard.setPeriodPreset('week')">7 jours</button>
+                  <button type="button" class="btn btn-xs ${this._currentPreset === 'month' ? 'btn-primary' : 'btn-outline'}" onclick="PageDashboard.setPeriodPreset('month')">Ce mois</button>
+                  <button type="button" class="btn btn-xs ${this._currentPreset === 'last_month' ? 'btn-primary' : 'btn-outline'}" onclick="PageDashboard.setPeriodPreset('last_month')">Mois dernier</button>
+                  <button type="button" class="btn btn-xs ${this._currentPreset === 'year' ? 'btn-primary' : 'btn-outline'}" onclick="PageDashboard.setPeriodPreset('year')">Cette année</button>
+                </div>
+
+                <!-- Sélecteur personnalisable [ Date début ] → [ Date fin ] [ Appliquer ] -->
+                <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                  <div style="display:inline-flex; align-items:center; gap:6px; background:var(--card-bg, #fff); padding:4px 10px; border:1px solid var(--border); border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,0.04);">
+                    <input type="date" id="dashCustomStart" class="form-control" style="width:138px; padding:3px 6px; font-size:0.85rem; border:none; outline:none; background:transparent; font-weight:600;" value="${curStart}" title="Date de début (ex: 06/10/2026)" />
+                    <span style="font-weight:800; color:var(--primary); font-size:16px; user-select:none;">→</span>
+                    <input type="date" id="dashCustomEnd" class="form-control" style="width:138px; padding:3px 6px; font-size:0.85rem; border:none; outline:none; background:transparent; font-weight:600;" value="${curEnd}" title="Date de fin (ex: 12/10/2026)" />
+                  </div>
+                  <button class="btn btn-sm btn-primary" onclick="PageDashboard.applyPeriodFilter()" style="font-weight:700; display:inline-flex; align-items:center; gap:6px; padding:6px 14px; box-shadow:0 2px 6px rgba(37,99,235,0.25);">
+                    <span>⚡</span> <span>Appliquer</span>
+                  </button>
+                  ${this._activePeriod ? `
+                    <button class="btn btn-sm btn-outline" onclick="PageDashboard.resetPeriodFilter()" title="Revenir aux indicateurs globaux" style="display:inline-flex; align-items:center; gap:4px;">
+                      <span>🔄</span> <span>Tout (Global)</span>
+                    </button>
+                  ` : ''}
+                </div>
+              </div>
+
+              <!-- PANNEAU DE SYNTHÈSE DE LA PÉRIODE SI FILTRE ACTIF -->
+              ${hasPeriod ? `
+                <div class="card" style="margin-bottom:18px; border:1px solid var(--primary-light, #bfdbfe); background:linear-gradient(135deg, rgba(37,99,235,0.05), rgba(37,99,235,0.01)); border-radius:10px; padding:12px 16px;">
+                  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:10px;">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                      <span style="font-size:1.15rem;">🎯</span>
+                      <b style="color:var(--primary); font-size:0.95rem;">Performance sur la période : ${Helpers.formatDate(s.start)} → ${Helpers.formatDate(s.end)}</b>
+                      <span class="badge badge-primary">${pDays} jour(s)</span>
+                    </div>
+                    <div style="font-size:0.8rem; color:var(--text-muted);">
+                      Indicateurs calculés sur la période choisie (avec rappel du cumul global)
+                    </div>
+                  </div>
+                  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:10px;">
+                    <div style="background:var(--card-bg, #fff); padding:10px 12px; border-radius:8px; border:1px solid var(--border);">
+                      <div style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">💰 Loyers Encaissés</div>
+                      <div style="font-weight:800; color:var(--success); font-size:1.1rem; margin-top:2px;">${Helpers.formatMoney(s.period.revenue)}</div>
+                      <div style="font-size:0.7rem; color:var(--text-muted); margin-top:2px;">🌐 Global : ${Helpers.formatMoney(s.global.finance.revenue)}</div>
+                    </div>
+                    <div style="background:var(--card-bg, #fff); padding:10px 12px; border-radius:8px; border:1px solid var(--border);">
+                      <div style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">🔴 Impayés Période</div>
+                      <div style="font-weight:800; color:var(--danger); font-size:1.1rem; margin-top:2px;">${Helpers.formatMoney(s.period.unpaid)}</div>
+                      <div style="font-size:0.7rem; color:var(--text-muted); margin-top:2px;">🌐 Global : ${Helpers.formatMoney(s.global.finance.unpaid)}</div>
+                    </div>
+                    <div style="background:var(--card-bg, #fff); padding:10px 12px; border-radius:8px; border:1px solid var(--border);">
+                      <div style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">🧾 Charges & Salaires</div>
+                      <div style="font-weight:800; color:var(--warning); font-size:1.1rem; margin-top:2px;">${Helpers.formatMoney(s.period.charges)}</div>
+                      <div style="font-size:0.7rem; color:var(--text-muted); margin-top:2px;">🌐 Global : ${Helpers.formatMoney(s.global.finance.charges)}</div>
+                    </div>
+                    <div style="background:var(--card-bg, #fff); padding:10px 12px; border-radius:8px; border:1px solid var(--border);">
+                      <div style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">📈 Solde Net Période</div>
+                      <div style="font-weight:800; color:${s.period.balance >= 0 ? 'var(--success)' : 'var(--danger)'}; font-size:1.1rem; margin-top:2px;">${Helpers.formatMoney(s.period.balance)}</div>
+                      <div style="font-size:0.7rem; color:var(--text-muted); margin-top:2px;">🌐 Global : ${Helpers.formatMoney(s.global.finance.balance)}</div>
+                    </div>
+                    <div style="background:var(--card-bg, #fff); padding:10px 12px; border-radius:8px; border:1px solid var(--border);">
+                      <div style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">🔧 Maintenances</div>
+                      <div style="font-weight:800; color:var(--primary); font-size:1.1rem; margin-top:2px;">${s.period.maintenancesActive} act. / ${s.period.maintenancesCompleted} term.</div>
+                      <div style="font-size:0.7rem; color:var(--text-muted); margin-top:2px;">🌐 Global : ${s.global.maintenances} actives</div>
+                    </div>
+                  </div>
+                </div>
+              ` : ''}
+
+              <!-- GRILLES DES 12 INDICATEURS CLÉS -->
+              <div class="stats-grid" style="margin-bottom:16px;">
+                ${this.statCard('🏢','sky', s.properties, 'Immeubles', "Router.go('properties')", "Patrimoine géré")}
+                ${this.statCard('🚪','green', `<span id="st_free">${s.free}</span>`, 'Logements libres', "Router.go('apartments')", `${s.occupied}/${s.apartments} occupés`)}
+                ${this.statCard('👤','sky', `<span id="st_tenants">${s.tenants}</span>`, 'Locataires', "Router.go('tenants')", hasPeriod && s.period.newTenants > 0 ? `(+${s.period.newTenants} sur la période)` : 'Total locataires actifs')}
+                ${this.statCard('📈','orange', `<span id="st_occ">${s.occupancyRate}%</span>`, "Taux d'occupation", "Router.go('situation')", `${s.occupied} logements loués`)}
+              </div>
+
+              <div class="stats-grid" style="margin-bottom:16px;">
+                ${this.statCard('💰','green', `<span id="st_revenue" class="stat-financial" data-raw="${Helpers.formatMoney(s.finance.revenue)}">${Helpers.formatMoney(s.finance.revenue)}</span>`, hasPeriod ? 'Revenus sur période' : 'Revenus encaissés', "PageDashboard.drillDown('revenue')", hasPeriod ? `🌐 Global : ${Helpers.formatMoney(s.global.finance.revenue)}` : 'Total historique cumulé')}
+                ${this.statCard('🔴','red', `<span id="st_unpaid" class="stat-financial" data-raw="${Helpers.formatMoney(s.finance.unpaid)}">${Helpers.formatMoney(s.finance.unpaid)}</span>`, hasPeriod ? 'Impayés sur période' : 'Impayés', "PageDashboard.drillDown('unpaid')", hasPeriod ? `🌐 Global : ${Helpers.formatMoney(s.global.finance.unpaid)}` : 'Impayés en cours')}
+                ${this.statCard('🧾','orange', `<span id="st_charges" class="stat-financial" data-raw="${Helpers.formatMoney(s.finance.charges)}">${Helpers.formatMoney(s.finance.charges)}</span>`, hasPeriod ? 'Charges sur période' : 'Charges (dép.+salaires)', "PageDashboard.drillDown('charges')", hasPeriod ? `🌐 Global : ${Helpers.formatMoney(s.global.finance.charges)}` : 'Dépenses + salaires')}
+                ${this.statCard('🔧','red', `<span id="st_maint">${s.maintenances.active}</span>`, hasPeriod ? 'Maintenances sur période' : 'Maintenances actives', "PageDashboard.drillDown('maintenances')", hasPeriod ? `🌐 Global : ${s.global.maintenances} actives` : 'En cours ou validées')}
+              </div>
+
+              <div class="stats-grid" style="margin-bottom:16px;">
+                ${this.statCard('💵','orange', `<span id="st_salpend" class="stat-financial" data-raw="${Helpers.formatMoney(s.finance.salariesPending)}">${Helpers.formatMoney(s.finance.salariesPending)}</span>`, 'Salaires à payer', "Router.go('rh')", hasPeriod ? `🌐 Global : ${Helpers.formatMoney(s.global.finance.salariesPending)}` : 'En attente')}
+                ${this.statCard('📂','sky', `<span id="st_docs">${s.documents}</span>`, hasPeriod ? 'Documents période' : 'Documents', "Router.go('documents')", hasPeriod ? `🌐 Global : ${s.global.documents} total` : 'GED centralisée')}
+                ${this.statCard('🛠','sky', `<span id="st_equip">${s.equipment}</span>`, 'Équipements', "Router.go('equipment')", 'Inventaire en parc')}
+                ${this.statCard('✅','green', `<span id="st_tasks">${s.tasksOpen}</span>`, hasPeriod ? 'Tâches période' : 'Tâches en cours', "Router.go('tasks')", hasPeriod ? `🌐 Global : ${s.global.tasksOpen} ouvertes` : 'À traiter')}
+              </div>
+            </div>
+          </div>
+        `;
+
+        const months = ['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
+        const max = Math.max(...(revenue || []), 1);
+        const bars = (revenue || []).map((v, i) =>
+          `<div class="chart-bar" style="height:${(v / max) * 100}%" title="${months[i]}: ${Helpers.formatMoney(v)}"></div>`).join('');
+        const labels = months.map((m) => `<span>${m}</span>`).join('');
+
+        body += `
+          <div class="grid-2 mb-4">
+            <div class="card">
+              <div class="card-header"><h3>Revenus mensuels ${new Date().getFullYear()}</h3></div>
+              <div class="card-body">
+                <div class="chart-bars">${bars}</div>
+                <div class="chart-labels">${labels}</div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-header"><h3>Synthèse temps réel</h3></div>
+              <div class="card-body">
+                <div class="list-item"><span class="list-dot" style="background:var(--success)"></span><div style="flex:1">Logements occupés</div><b id="st_occupied">${s.occupied}/${s.apartments}</b></div>
+                <div class="list-item"><span class="list-dot" style="background:var(--info)"></span><div style="flex:1">Baux actifs</div><b id="st_leases">${s.activeLeases}</b></div>
+                <div class="list-item"><span class="list-dot" style="background:var(--warning)"></span><div style="flex:1">Logements en maintenance / réservés</div><b>${s.maintenanceApts} / ${s.reservedApts}</b></div>
+                <div class="list-item"><span class="list-dot" style="background:var(--primary)"></span><div style="flex:1">Utilisateurs</div><b id="st_users">${s.users}</b></div>
+                <div class="list-item"><span class="list-dot" style="background:${s.finance.balance>=0?'var(--success)':'var(--danger)'}"></span><div style="flex:1">Solde net (revenus - charges)</div><b id="st_balance" class="stat-financial" data-raw="${Helpers.formatMoney(s.finance.balance)}">${Helpers.formatMoney(s.finance.balance)}</b></div>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+    }
+
+    body += `<div id="myDayMini" class="mb-4"></div>`;
 
     if (Auth.hasRole('super_admin', 'manager', 'dir_admin', 'dir_technique')) {
       body += `<div id="globalActivityTrackerContainer" class="mb-4"></div>`;
@@ -254,60 +536,6 @@ const PageDashboard = {
 
     if (Auth.hasRole('super_admin', 'manager', 'dir_admin', 'dir_technique', 'gestionnaire', 'comptable')) {
       body += `<div id="upcomingRentDuesContainer" class="mb-4"></div>`;
-    }
-
-    if (isGlobal) {
-      const { data: s } = await API.get('/dashboard/stats');
-      const { data: revenue } = await API.get('/dashboard/revenue');
-
-      const months = ['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
-      const max = Math.max(...revenue, 1);
-      const bars = revenue.map((v, i) =>
-        `<div class="chart-bar" style="height:${(v / max) * 100}%" title="${months[i]}: ${Helpers.formatMoney(v)}"></div>`).join('');
-      const labels = months.map((m) => `<span>${m}</span>`).join('');
-
-      body += `
-        <div class="stats-grid">
-          ${this.statCard('🏢','sky', s.properties, 'Immeubles', "Router.go('properties')")}
-          ${this.statCard('🚪','green', `<span id="st_free">${s.free}</span>`, 'Logements libres', "Router.go('apartments')")}
-          ${this.statCard('👤','sky', `<span id="st_tenants">${s.tenants}</span>`, 'Locataires', "Router.go('tenants')")}
-          ${this.statCard('📈','orange', `<span id="st_occ">${s.occupancyRate}%</span>`, "Taux d'occupation", "Router.go('situation')")}
-        </div>
-
-        <div class="stats-grid">
-          ${this.statCard('💰','green', `<span id="st_revenue">${Helpers.formatMoney(s.finance.revenue)}</span>`, 'Revenus encaissés', "PageDashboard.drillDown('revenue')")}
-          ${this.statCard('🔴','red', `<span id="st_unpaid">${Helpers.formatMoney(s.finance.unpaid)}</span>`, 'Impayés', "PageDashboard.drillDown('unpaid')")}
-          ${this.statCard('🧾','orange', `<span id="st_charges">${Helpers.formatMoney(s.finance.charges)}</span>`, 'Charges (dép.+salaires)', "PageDashboard.drillDown('charges')")}
-          ${this.statCard('🔧','red', `<span id="st_maint">${s.maintenances.active}</span>`, 'Maintenances actives', "PageDashboard.drillDown('maintenances')")}
-        </div>
-
-        <div class="stats-grid">
-          ${this.statCard('💵','orange', `<span id="st_salpend">${Helpers.formatMoney(s.finance.salariesPending)}</span>`, 'Salaires à payer', "Router.go('rh')")}
-          ${this.statCard('📂','sky', `<span id="st_docs">${s.documents}</span>`, 'Documents', "Router.go('documents')")}
-          ${this.statCard('🛠','sky', `<span id="st_equip">${s.equipment}</span>`, 'Équipements', "Router.go('equipment')")}
-          ${this.statCard('✅','green', `<span id="st_tasks">${s.tasksOpen}</span>`, 'Tâches en cours', "Router.go('tasks')")}
-        </div>
-
-        <div class="grid-2">
-          <div class="card">
-            <div class="card-header"><h3>Revenus mensuels ${new Date().getFullYear()}</h3></div>
-            <div class="card-body">
-              <div class="chart-bars">${bars}</div>
-              <div class="chart-labels">${labels}</div>
-            </div>
-          </div>
-          <div class="card">
-            <div class="card-header"><h3>Synthèse temps réel</h3></div>
-            <div class="card-body">
-              <div class="list-item"><span class="list-dot" style="background:var(--success)"></span><div style="flex:1">Logements occupés</div><b id="st_occupied">${s.occupied}/${s.apartments}</b></div>
-              <div class="list-item"><span class="list-dot" style="background:var(--info)"></span><div style="flex:1">Baux actifs</div><b id="st_leases">${s.activeLeases}</b></div>
-              <div class="list-item"><span class="list-dot" style="background:var(--warning)"></span><div style="flex:1">Logements en maintenance / réservés</div><b>${s.maintenanceApts} / ${s.reservedApts}</b></div>
-              <div class="list-item"><span class="list-dot" style="background:var(--primary)"></span><div style="flex:1">Utilisateurs</div><b id="st_users">${s.users}</b></div>
-              <div class="list-item"><span class="list-dot" style="background:${s.finance.balance>=0?'var(--success)':'var(--danger)'}"></span><div style="flex:1">Solde net (revenus - charges)</div><b id="st_balance">${Helpers.formatMoney(s.finance.balance)}</b></div>
-            </div>
-          </div>
-        </div>
-      `;
     }
 
     // Carte « Performance sur la période » — visible par les rôles finance (cohérent avec le secteur Finances)
@@ -329,8 +557,13 @@ const PageDashboard = {
     }
 
     Layout.content(body);
-    this.loadMyDayMini();
-    if (canFinance) this.loadPeriod();
+    if (canFinance) {
+      if (this._activePeriod) {
+        this.loadPeriod(this._activePeriod.start, this._activePeriod.end);
+      } else {
+        this.loadPeriod();
+      }
+    }
     if (Auth.hasRole('super_admin', 'manager', 'dir_admin', 'dir_technique')) {
       this.loadGlobalActivityTracker();
     }
@@ -355,7 +588,7 @@ const PageDashboard = {
       <div class="card" id="periodCard">
         <div class="card-header">
           <h3>📊 Performance sur la période</h3>
-          <button class="btn btn-sm btn-outline no-print" onclick="window.print()">🖨 Imprimer</button>
+          <button class="btn btn-sm btn-outline no-print" onclick="PageDashboard.printPeriodReport()">🖨 Imprimer</button>
         </div>
         <div class="card-body">
           <div class="period-bar no-print">
@@ -397,16 +630,16 @@ const PageDashboard = {
   _period: { start: null, end: null },
   _breakdownData: [],
   applyPreset(days) {
-    const end = new Date();
-    const start = new Date(end.getTime() - (days - 1) * 86400000);
-    this.loadPeriod(start.toISOString().slice(0, 10), end.toISOString().slice(0, 10));
+    this.setPeriodPreset(days);
   },
   applyCustom() {
     const start = document.getElementById('perStart').value;
     const end = document.getElementById('perEnd').value;
     if (!start || !end) { Toast.error('Choisissez les deux dates'); return; }
     if (start > end) { Toast.error('La date de début doit précéder la date de fin'); return; }
-    this.loadPeriod(start, end);
+    this._activePeriod = { start, end };
+    this._period = { start, end };
+    this.renderAdmin();
   },
   async loadPeriod(start, end) {
     if (!start || !end) {
@@ -672,6 +905,325 @@ const PageDashboard = {
     XLSX.utils.book_append_sheet(wb, ws, 'Synthese Immeubles');
     XLSX.writeFile(wb, `Synthese_Immeubles_${this._period.start}_au_${this._period.end}.xlsx`);
     Toast.success('Exportation Excel générée avec succès');
+  },
+
+  printPeriodReport() {
+    const periodBody = document.getElementById('periodBody');
+    if (!periodBody || periodBody.querySelector('.spinner')) {
+      Toast.error('Veuillez patienter pendant le chargement des données de la période');
+      return;
+    }
+
+    const start = this._period?.start || '';
+    const end = this._period?.end || '';
+    const fmtStart = start ? Helpers.formatDate(start) : '';
+    const fmtEnd = end ? Helpers.formatDate(end) : '';
+    const periodLabel = (fmtStart && fmtEnd) ? `${fmtStart} au ${fmtEnd}` : 'Période sélectionnée';
+    const printDate = new Date().toLocaleDateString('fr-FR', {
+      day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+    });
+
+    const clone = periodBody.cloneNode(true);
+    clone.querySelectorAll('.no-print, button, input').forEach(el => el.remove());
+
+    const html = `<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>SMG IMMOBILIER - Rapport de Performance (${periodLabel})</title>
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 12mm 10mm;
+    }
+    * {
+      box-sizing: border-box;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    body {
+      font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Arial, sans-serif;
+      color: #0f172a;
+      background: #ffffff;
+      margin: 0;
+      padding: 10px;
+      font-size: 11.5px;
+      line-height: 1.4;
+    }
+    .report-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 2px solid #2563eb;
+      padding-bottom: 12px;
+      margin-bottom: 14px;
+    }
+    .report-brand h1 {
+      margin: 0;
+      font-size: 19px;
+      font-weight: 800;
+      color: #1e3a8a;
+      letter-spacing: -0.5px;
+    }
+    .report-brand p {
+      margin: 2px 0 0 0;
+      font-size: 11px;
+      color: #64748b;
+    }
+    .report-meta {
+      text-align: right;
+      font-size: 11px;
+    }
+    .report-badge {
+      background: #eff6ff;
+      color: #1d4ed8;
+      border: 1px solid #bfdbfe;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-weight: 700;
+      display: inline-block;
+      margin-bottom: 4px;
+      font-size: 11px;
+    }
+    .period-range {
+      font-size: 12.5px;
+      margin-bottom: 12px;
+      font-weight: 600;
+      color: #1e293b;
+    }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .stat-card {
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      padding: 9px 11px;
+      background: #f8fafc;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      break-inside: avoid;
+    }
+    .stat-icon {
+      font-size: 18px;
+      width: 34px;
+      height: 34px;
+      border-radius: 7px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .stat-icon.green { background: #dcfce7 !important; }
+    .stat-icon.red { background: #fee2e2 !important; }
+    .stat-icon.orange { background: #fef3c7 !important; }
+    .stat-icon.sky { background: #e0f2fe !important; }
+    .stat-info { flex: 1; min-width: 0; }
+    .stat-value {
+      font-size: 13.5px;
+      font-weight: 800;
+      color: #0f172a;
+      line-height: 1.2;
+    }
+    .stat-name {
+      font-size: 10.5px;
+      color: #64748b;
+      font-weight: 600;
+      margin-top: 2px;
+    }
+    .pchart-legend {
+      display: flex;
+      gap: 16px;
+      font-size: 10.5px;
+      margin-top: 10px;
+      margin-bottom: 6px;
+      font-weight: 600;
+    }
+    .pchart-legend .dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 4px;
+    }
+    .pchart-legend .dot.rev { background: #22c55e !important; }
+    .pchart-legend .dot.exp { background: #ef4444 !important; }
+    .pchart {
+      display: flex;
+      gap: 8px;
+      align-items: flex-end;
+      height: 110px;
+      border-bottom: 1px solid #cbd5e1;
+      padding-bottom: 4px;
+      margin-bottom: 14px;
+      break-inside: avoid;
+    }
+    .pchart-col {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      height: 100%;
+      justify-content: flex-end;
+    }
+    .pchart-bars {
+      display: flex;
+      gap: 3px;
+      align-items: flex-end;
+      width: 100%;
+      height: 90px;
+      justify-content: center;
+    }
+    .pchart-bar {
+      width: 14px;
+      border-radius: 3px 3px 0 0;
+    }
+    .pchart-bar.rev { background: #22c55e !important; }
+    .pchart-bar.exp { background: #ef4444 !important; }
+    .pchart-label {
+      font-size: 10px;
+      color: #64748b;
+      margin-top: 4px;
+    }
+    .card {
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      margin-top: 12px;
+      overflow: hidden;
+      break-inside: avoid;
+    }
+    .card-header {
+      background: #f1f5f9;
+      padding: 9px 12px;
+      border-bottom: 1px solid #cbd5e1;
+    }
+    .card-header h3 {
+      margin: 0;
+      font-size: 12.5px;
+      font-weight: 700;
+      color: #1e293b;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+    }
+    th, td {
+      padding: 7px 9px;
+      text-align: left;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    th {
+      background: #f8fafc;
+      color: #334155;
+      font-weight: 700;
+      border-top: 1px solid #cbd5e1;
+    }
+    tfoot tr {
+      background: #f1f5f9;
+      font-weight: 800;
+      border-top: 2px solid #cbd5e1;
+    }
+    .badge {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 700;
+    }
+    .badge-info { background: #e0f2fe; color: #0284c7; }
+    .badge-danger { background: #fee2e2; color: #dc2626; }
+    .report-signatures {
+      margin-top: 25px;
+      display: flex;
+      justify-content: space-between;
+      padding-top: 14px;
+      border-top: 1px dashed #cbd5e1;
+      font-size: 11px;
+      break-inside: avoid;
+    }
+    .sig-box {
+      width: 220px;
+      text-align: center;
+    }
+    .sig-line {
+      margin-top: 45px;
+      border-top: 1px solid #94a3b8;
+      padding-top: 4px;
+      color: #64748b;
+    }
+    .no-print { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="report-header">
+    <div class="report-brand">
+      <h1>🏢 SMG IMMOBILIER</h1>
+      <p>Gestion Locative & Administration de Biens Immobiliers</p>
+    </div>
+    <div class="report-meta">
+      <div class="report-badge">📊 RAPPORT DE PERFORMANCE</div>
+      <div>Période : <b>${periodLabel}</b></div>
+      <div style="color:#64748b; font-size:10px; margin-top:2px;">Édité le ${printDate}</div>
+    </div>
+  </div>
+
+  <div class="report-content">
+    ${clone.innerHTML}
+  </div>
+
+  <div class="report-signatures">
+    <div class="sig-box">
+      <b>Responsable Comptable & Financier</b>
+      <div class="sig-line">Date & Signature</div>
+    </div>
+    <div class="sig-box">
+      <b>Direction Générale</b>
+      <div class="sig-line">Visa & Cachet</div>
+    </div>
+  </div>
+</body>
+</html>`;
+
+    let oldFrame = document.getElementById('smg_period_print_frame');
+    if (oldFrame) oldFrame.remove();
+
+    const printFrame = document.createElement('iframe');
+    printFrame.id = 'smg_period_print_frame';
+    printFrame.style.position = 'fixed';
+    printFrame.style.right = '0';
+    printFrame.style.bottom = '0';
+    printFrame.style.width = '0';
+    printFrame.style.height = '0';
+    printFrame.style.border = '0';
+    printFrame.style.visibility = 'hidden';
+    document.body.appendChild(printFrame);
+
+    const frameDoc = printFrame.contentWindow.document;
+    frameDoc.open();
+    frameDoc.write(html);
+    frameDoc.close();
+
+    setTimeout(() => {
+      try {
+        printFrame.contentWindow.focus();
+        printFrame.contentWindow.print();
+      } catch (err) {
+        console.error('Erreur impression iframe:', err);
+        const win = window.open('', '_blank');
+        if (win) {
+          win.document.write(html);
+          win.document.close();
+          win.focus();
+          setTimeout(() => { win.print(); win.close(); }, 300);
+        } else {
+          window.print();
+        }
+      }
+    }, 350);
   },
 
   sectorCard(sec) {
@@ -2082,4 +2634,17 @@ const PageDashboard = {
       btn.innerHTML = willHide ? `👁️ Afficher (${cnt.trim() || 'échéances'})` : '👁️ Masquer';
     }
   },
+
+  toggleDashboardStats() {
+    const body = document.getElementById('dashboardStatsBody');
+    const btn = document.getElementById('btnToggleDashboardStats');
+    if (!body) return;
+    const willHide = body.style.display !== 'none';
+    body.style.display = willHide ? 'none' : 'block';
+    localStorage.setItem('smg_hide_dashboard_stats', willHide ? 'true' : 'false');
+    if (btn) {
+      btn.innerHTML = willHide ? '👁️ Afficher (12 indicateurs)' : '👁️ Masquer';
+    }
+  },
 };
+

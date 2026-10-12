@@ -54,3 +54,17 @@ const ROLE_LABELS = {
   locataire: 'Locataire',
   bailleur: 'Bailleur / Propriétaire',
 };
+
+// Désactivation & nettoyage automatique de tout Service Worker ou cache résiduel (PWA désactivée)
+if (typeof window !== 'undefined') {
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistrations().then((registrations) => {
+      for (const reg of registrations) reg.unregister();
+    }).catch(() => {});
+  }
+  if ('caches' in window) {
+    caches.keys().then((keys) => {
+      for (const key of keys) caches.delete(key);
+    }).catch(() => {});
+  }
+}

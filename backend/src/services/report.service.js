@@ -260,15 +260,26 @@ class ReportService {
         const endMonth = coverEnd.getMonth() + 1; // Le mois de period_end = dernier mois couvert
         const diffMonths = (year - endYear) * 12 + (month - endMonth);
 
+        // Détection de l'avance résiduelle éventuelle payée lors du dernier règlement
+        const lastPaidAmt = Number(lastCompletedWithEnd.amount) || 0;
+        const coveredMonths = Math.max(1, Math.floor(lastPaidAmt / monthly));
+        const advanceFromLastPay = Math.max(0, lastPaidAmt - (coveredMonths * monthly));
+
         if (diffMonths > 0) {
-          dette = diffMonths * monthly;
-          anticipation = 0;
+          const grossDebt = diffMonths * monthly;
+          if (advanceFromLastPay >= grossDebt) {
+            anticipation = advanceFromLastPay - grossDebt;
+            dette = 0;
+          } else {
+            dette = grossDebt - advanceFromLastPay;
+            anticipation = 0;
+          }
         } else if (diffMonths < 0) {
-          anticipation = Math.abs(diffMonths) * monthly;
+          anticipation = (Math.abs(diffMonths) * monthly) + advanceFromLastPay;
           dette = 0;
         } else {
           dette = 0;
-          anticipation = 0;
+          anticipation = advanceFromLastPay;
         }
       } else if (monthly > 0 && start && !isNaN(new Date(start).getTime())) {
         const sDate = new Date(start);
@@ -312,7 +323,14 @@ class ReportService {
       let obs = (t.observations && t.observations.trim()) || (last?.observations && last.observations.trim());
       if (!obs) {
         if (dette > 0) {
-          obs = `Arriéré ~${Math.round(dette / monthly)} mois`;
+          const lastPaidAmt = (lastCompletedWithEnd && Number(lastCompletedWithEnd.amount)) || 0;
+          const coveredM = Math.max(1, Math.floor(lastPaidAmt / monthly));
+          const adv = Math.max(0, lastPaidAmt - (coveredM * monthly));
+          if (adv > 0) {
+            obs = `Arriéré ${dette.toLocaleString('fr-FR')} FCFA (déduction avance ${adv.toLocaleString('fr-FR')} FCFA)`;
+          } else {
+            obs = `Arriéré ~${Math.round(dette / monthly)} mois`;
+          }
         } else if (anticipation > 0) {
           obs = `Avance ~${Math.round(anticipation / monthly)} mois`;
         } else {
@@ -331,6 +349,9 @@ class ReportService {
         arriere_loyer: dette,
         versement_mois: versementMois,
         anticipation,
+        payment_date: (lastDuMois || last)?.payment_date || null,
+        period_start: (lastDuMois || last)?.period_start || null,
+        period_end: (lastDuMois || last)?.period_end || null,
         periode_paiement: periodePaiement,
         mode_paiement: (lastDuMois || last) ? (methodLabels[(lastDuMois || last).payment_method] || (lastDuMois || last).payment_method || '—') : '—',
         observations: obs,
@@ -380,6 +401,9 @@ class ReportService {
             arriere_loyer: numOrVal(ov.arriere_loyer, row.arriere_loyer),
             anticipation: numOrVal(ov.anticipation, row.anticipation),
             versement_mois: numOrVal(ov.versement_mois, row.versement_mois),
+            payment_date: strOrVal(ov.payment_date, row.payment_date),
+            period_start: strOrVal(ov.period_start, row.period_start),
+            period_end: strOrVal(ov.period_end, row.period_end),
             periode_paiement: strOrVal(ov.periode_paiement, row.periode_paiement),
             mode_paiement: strOrVal(ov.mode_paiement, row.mode_paiement),
             caution: numOrVal(ov.caution, row.caution),
@@ -783,6 +807,9 @@ class ReportService {
       arriere_loyer,
       anticipation,
       versement_mois,
+      payment_date,
+      period_start,
+      period_end,
       periode_paiement,
       mode_paiement,
       caution,
@@ -871,6 +898,9 @@ class ReportService {
       arriere_loyer: cleanNum(arriere_loyer),
       anticipation: cleanNum(anticipation),
       versement_mois: cleanNum(versement_mois),
+      payment_date: cleanStr(payment_date),
+      period_start: cleanStr(period_start),
+      period_end: cleanStr(period_end),
       periode_paiement: cleanStr(periode_paiement),
       mode_paiement: cleanStr(mode_paiement),
       caution: cleanNum(caution),
@@ -894,6 +924,9 @@ class ReportService {
           arriere_loyer = :arriere_loyer,
           anticipation = :anticipation,
           versement_mois = :versement_mois,
+          payment_date = :payment_date,
+          period_start = :period_start,
+          period_end = :period_end,
           periode_paiement = :periode_paiement,
           mode_paiement = :mode_paiement,
           caution = :caution,
@@ -908,12 +941,14 @@ class ReportService {
           property_id, apartment_id, tenant_id, period_ym,
           numero_chambre, nom_locataire, telephone, montant_loyer,
           description_logement, arriere_loyer, anticipation, versement_mois,
+          payment_date, period_start, period_end,
           periode_paiement, mode_paiement, caution, observations,
           created_at, updated_at
         ) VALUES (
           :property_id, :apartment_id, :tenant_id, :period_ym,
           :numero_chambre, :nom_locataire, :telephone, :montant_loyer,
           :description_logement, :arriere_loyer, :anticipation, :versement_mois,
+          :payment_date, :period_start, :period_end,
           :periode_paiement, :mode_paiement, :caution, :observations,
           NOW(), NOW()
         )`,
@@ -925,15 +960,19 @@ class ReportService {
     if (overrideFields.versement_mois !== null) {
       try {
         const vMois = Number(overrideFields.versement_mois);
-        const { period_start: pStart, period_end: pEnd } = parsePeriodDates(overrideFields.periode_paiement);
+        const parsedDates = parsePeriodDates(overrideFields.periode_paiement);
+        const pStart = overrideFields.period_start || parsedDates.period_start;
+        const pEnd = overrideFields.period_end || parsedDates.period_end;
 
-        let pDate = null;
-        if (pStart) {
-          pDate = pStart;
-        } else if (overrideFields.period_ym) {
-          pDate = `${overrideFields.period_ym}-15`;
-        } else {
-          pDate = new Date().toISOString().slice(0, 10);
+        let pDate = overrideFields.payment_date || null;
+        if (!pDate) {
+          if (pStart) {
+            pDate = pStart;
+          } else if (overrideFields.period_ym) {
+            pDate = `${overrideFields.period_ym}-15`;
+          } else {
+            pDate = new Date().toISOString().slice(0, 10);
+          }
         }
 
         const targetYm = (overrideFields.period_ym || (pDate ? pDate.slice(0, 7) : new Date().toISOString().slice(0, 7)));
@@ -976,6 +1015,7 @@ class ReportService {
               tenant_id: effTenantId || existingPayment.tenant_id,
               amount: vMois,
               payment_method: pMethod,
+              payment_date: pDate || existingPayment.payment_date,
               period_start: pStart || existingPayment.period_start,
               period_end: pEnd || existingPayment.period_end,
               observations: overrideFields.observations !== null ? overrideFields.observations : existingPayment.observations,

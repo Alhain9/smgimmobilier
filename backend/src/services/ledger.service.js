@@ -163,20 +163,36 @@ class LedgerService {
       const MONTH_NAMES_FR = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
       const gap = (refDate.getFullYear() - unpaidY) * 12 + (refDate.getMonth() - unpaidM);
 
+      // Trouver l'avance résiduelle éventuelle sur le dernier paiement
+      const lastPayWithEnd = payments
+        .filter((p) => ['completed', 'awaiting_confirmation'].includes(p.status) && p.period_end)
+        .sort((a, b) => new Date(b.period_end) - new Date(a.period_end))[0];
+
+      let advanceFromLastPay = 0;
+      if (lastPayWithEnd && monthlyRent > 0) {
+        const pAmt = num(lastPayWithEnd.amount);
+        const coveredM = Math.max(1, Math.floor(pAmt / monthlyRent));
+        advanceFromLastPay = Math.max(0, pAmt - (coveredM * monthlyRent));
+      }
+
       if (gap > 0) {
         isOverdueFromPeriod = true;
         overdueMonthsFromPeriod = gap;
-        solde = overdueMonthsFromPeriod * monthlyRent;
+        const grossDebt = overdueMonthsFromPeriod * monthlyRent;
+        solde = Math.max(0, grossDebt - advanceFromLastPay);
+        const advMsg = advanceFromLastPay > 0 ? ` (avance déduite : ${Math.round(advanceFromLastPay).toLocaleString('fr-FR')} FCFA)` : '';
         overdueMessage = isDeparted
-          ? `Impayé à la sortie (${gap} mois) à partir du mois de ${MONTH_NAMES_FR[unpaidM]} ${unpaidY}`
-          : `Impayé à partir du mois de ${MONTH_NAMES_FR[unpaidM]} ${unpaidY}`;
+          ? `Impayé à la sortie (${gap} mois) à partir du mois de ${MONTH_NAMES_FR[unpaidM]} ${unpaidY}${advMsg}`
+          : `Impayé à partir du mois de ${MONTH_NAMES_FR[unpaidM]} ${unpaidY}${advMsg}`;
       } else if (gap === 0 && endDay <= 5) {
         isOverdueFromPeriod = true;
         overdueMonthsFromPeriod = 1;
-        solde = 1 * monthlyRent;
+        const grossDebt = 1 * monthlyRent;
+        solde = Math.max(0, grossDebt - advanceFromLastPay);
+        const advMsg = advanceFromLastPay > 0 ? ` (avance déduite : ${Math.round(advanceFromLastPay).toLocaleString('fr-FR')} FCFA)` : '';
         overdueMessage = isDeparted
-          ? `Impayé à la sortie (1 mois) à partir du mois de ${MONTH_NAMES_FR[unpaidM]} ${unpaidY}`
-          : `Impayé à partir du mois de ${MONTH_NAMES_FR[unpaidM]} ${unpaidY}`;
+          ? `Impayé à la sortie (1 mois) à partir du mois de ${MONTH_NAMES_FR[unpaidM]} ${unpaidY}${advMsg}`
+          : `Impayé à partir du mois de ${MONTH_NAMES_FR[unpaidM]} ${unpaidY}${advMsg}`;
       } else {
         isOverdueFromPeriod = false;
         overdueMonthsFromPeriod = 0;

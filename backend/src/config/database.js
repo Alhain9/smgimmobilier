@@ -406,6 +406,46 @@ const connectDB = async () => {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
       `);
     } catch (_) {}
+    try {
+      await sequelize.query(`
+        CREATE TABLE IF NOT EXISTS situation_overrides (
+          id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+          property_id BIGINT UNSIGNED NOT NULL,
+          apartment_id BIGINT UNSIGNED NOT NULL,
+          tenant_id BIGINT UNSIGNED NULL,
+          period_ym VARCHAR(10) NULL,
+          numero_chambre VARCHAR(50) NULL,
+          nom_locataire VARCHAR(150) NULL,
+          telephone VARCHAR(50) NULL,
+          montant_loyer DECIMAL(12, 2) NULL,
+          description_logement VARCHAR(255) NULL,
+          arriere_loyer DECIMAL(12, 2) NULL,
+          anticipation DECIMAL(12, 2) NULL,
+          versement_mois DECIMAL(12, 2) NULL,
+          payment_date DATE NULL,
+          period_start DATE NULL,
+          period_end DATE NULL,
+          periode_paiement VARCHAR(100) NULL,
+          mode_paiement VARCHAR(50) NULL,
+          caution DECIMAL(12, 2) NULL,
+          observations TEXT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          INDEX idx_sit_prop (property_id),
+          INDEX idx_sit_apt (apartment_id),
+          INDEX idx_sit_ym (period_ym)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+      `);
+    } catch (_) {}
+    try {
+      await sequelize.query("ALTER TABLE situation_overrides ADD COLUMN payment_date DATE NULL;");
+    } catch (_) {}
+    try {
+      await sequelize.query("ALTER TABLE situation_overrides ADD COLUMN period_start DATE NULL;");
+    } catch (_) {}
+    try {
+      await sequelize.query("ALTER TABLE situation_overrides ADD COLUMN period_end DATE NULL;");
+    } catch (_) {}
   } catch (error) {
     console.error(`❌ Erreur connexion base de données (MySQL):`, error.message);
   }

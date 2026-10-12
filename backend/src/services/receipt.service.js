@@ -139,8 +139,12 @@ class ReceiptService {
         if (monthsGap > 0) overdueMonths = monthsGap;
         else if (monthsGap === 0 && endDay <= 5) overdueMonths = 1;
 
+        const paidAmt = num(payment.amount);
+        const coveredMonths = Math.max(1, Math.floor(paidAmt / monthlyRent));
+        const advanceAmt = Math.max(0, paidAmt - (coveredMonths * monthlyRent));
+
         if (overdueMonths > 0) {
-          remainingBalance = Math.round(overdueMonths * monthlyRent);
+          remainingBalance = Math.max(0, Math.round(overdueMonths * monthlyRent) - advanceAmt);
         } else {
           remainingBalance = 0;
         }

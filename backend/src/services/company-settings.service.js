@@ -79,13 +79,13 @@ class CompanySettingsService {
           fs.copyFileSync(uploadedPath, frontendLogoPath);
           logger.info('🖼️ Logo synchronisé vers frontend/assets/images/logo.png');
 
-          // Regénérer automatiquement les icônes PWA (192, 512, favicons)
+          // Regénérer automatiquement les favicons et icônes
           const { exec } = require('child_process');
           const scriptPath = path.join(__dirname, '../../../frontend/assets/icons/convert_icons.ps1');
           if (fs.existsSync(scriptPath)) {
             exec(`powershell -ExecutionPolicy Bypass -File "${scriptPath}"`, (err) => {
-              if (err) logger.warn('Avertissement regénération icônes PWA:', { error: err.message });
-              else logger.info('✅ Icônes PWA et favicons regénérées avec le nouveau logo entreprise !');
+              if (err) logger.warn('Avertissement regénération favicons:', { error: err.message });
+              else logger.info('✅ Favicons regénérées avec le nouveau logo entreprise !');
             });
           }
         }

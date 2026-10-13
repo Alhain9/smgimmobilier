@@ -667,11 +667,11 @@ const PageManagementReports = {
       </div>
 
       <!-- 1. KPI FINANCIERS -->
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:16px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:16px">
         <div class="card stat-card">
           <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted)">Loyer Attendu (Théorique)</div>
           <div style="font-size:20px;font-weight:800;color:var(--primary);margin-top:4px">${fmt(s.theoretical_rent)}</div>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${r.rental_situation.occupied_apartments} logement(s) × ${r.period.months} mois</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${r.period.months} mois de loyer</div>
         </div>
 
         <div class="card stat-card">
@@ -684,12 +684,6 @@ const PageManagementReports = {
           <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted)">Reste à Encaisser / Impayés</div>
           <div style="font-size:20px;font-weight:800;color:var(--danger);margin-top:4px">${fmt(s.remaining_to_collect)}</div>
           <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Écart sur la période</div>
-        </div>
-
-        <div class="card stat-card">
-          <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted)">Taux d'occupation</div>
-          <div style="font-size:20px;font-weight:800;color:var(--primary);margin-top:4px">${r.rental_situation.occupancy_rate || 0}%</div>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${r.rental_situation.occupied_apartments || 0}/${r.rental_situation.total_apartments || 0} logements occupés</div>
         </div>
       </div>
 
@@ -712,7 +706,7 @@ const PageManagementReports = {
       <div class="card" style="margin-bottom:16px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
           <div>
-            <h4 style="font-size:15px;font-weight:700;margin:0">🏠 2. Situation Locative Complète de l'Immeuble (${r.rental_situation.occupied_apartments}/${r.rental_situation.total_apartments} occupés)</h4>
+            <h4 style="font-size:15px;font-weight:700;margin:0">🏠 2. Situation Locative Complète de l'Immeuble</h4>
             <small class="text-muted">Modèle officiel SMG à 12 colonnes standardisées avec suivi des cautions, arriérés et observations.</small>
           </div>
           <button class="btn btn-sm btn-danger" id="bulkDelBtn_mr" style="display:none;font-weight:600" onclick="PageManagementReports.deleteSelected()">

@@ -84,7 +84,7 @@ class ManagementReportPdfService {
     const pageH = doc.page.height;      // 595.28 pt
     const marginX = 30;
     const contentW = pageW - (marginX * 2); // 781.89 pt (~782 pt)
-    const bottomLimit = pageH - 25;     // 570.28 pt
+    const bottomLimit = pageH - 32;     // Sécurité stricte avant marge basse (563 pt)
 
     // Helper sécurisé de saut de page sans création de page vide
     const checkPage = (neededHeight) => {
@@ -123,26 +123,22 @@ class ManagementReportPdfService {
     doc.y = curY + bandH + 6;
 
     // ================================================================
-    // PARTIE 1 : RÉSUMÉ FINANCIER (6 KPI PARFAITEMENT DÉTAILLÉS)
+    // PARTIE 1 : RÉSUMÉ FINANCIER (5 KPI PARFAITEMENT DÉTAILLÉS)
     // ================================================================
     this._drawSectionHeader(doc, '1. RÉSUMÉ FINANCIER DE LA PÉRIODE', primaryColor, contentW, marginX);
     const s = reportData.summary || {};
-    const rentalSit = reportData.rental_situation || {};
 
-    const kpiW = (contentW - 8) / 3;
+    const kpiW = (contentW - 16) / 5;
     const kpiH = 29;
-    const kpiY1 = doc.y;
+    const kpiY = doc.y;
 
-    this._drawKpiBox(doc, marginX, kpiY1, kpiW, kpiH, 'LOYER THÉORIQUE ATTENDU', fmtMoney(s.theoretical_rent), primaryColor);
-    this._drawKpiBox(doc, marginX + kpiW + 4, kpiY1, kpiW, kpiH, 'LOYER RÉELLEMENT ENCAISSÉ', fmtMoney(s.collected_rent), COLORS.success);
-    this._drawKpiBox(doc, marginX + (kpiW + 4) * 2, kpiY1, kpiW, kpiH, 'RESTE À ENCAISSER (IMPAYÉS)', fmtMoney(s.remaining_to_collect), s.remaining_to_collect > 0 ? COLORS.danger : COLORS.muted);
+    this._drawKpiBox(doc, marginX, kpiY, kpiW, kpiH, 'LOYER THÉORIQUE ATTENDU', fmtMoney(s.theoretical_rent), primaryColor);
+    this._drawKpiBox(doc, marginX + (kpiW + 4), kpiY, kpiW, kpiH, 'LOYER RÉELLEMENT ENCAISSÉ', fmtMoney(s.collected_rent), COLORS.success);
+    this._drawKpiBox(doc, marginX + (kpiW + 4) * 2, kpiY, kpiW, kpiH, 'RESTE À ENCAISSER (IMPAYÉS)', fmtMoney(s.remaining_to_collect), s.remaining_to_collect > 0 ? COLORS.danger : COLORS.muted);
+    this._drawKpiBox(doc, marginX + (kpiW + 4) * 3, kpiY, kpiW, kpiH, "TAUX D'ENCAISSEMENT", `${s.collection_rate || 0}%`, (s.collection_rate || 0) >= 80 ? COLORS.success : COLORS.warning);
+    this._drawKpiBox(doc, marginX + (kpiW + 4) * 4, kpiY, kpiW, kpiH, 'RÉSULTAT NET À REVERSER', fmtMoney(s.collected_rent), COLORS.success);
 
-    const kpiY2 = kpiY1 + kpiH + 3;
-    this._drawKpiBox(doc, marginX, kpiY2, kpiW, kpiH, "TAUX D'ENCAISSEMENT", `${s.collection_rate || 0}%`, (s.collection_rate || 0) >= 80 ? COLORS.success : COLORS.warning);
-    this._drawKpiBox(doc, marginX + kpiW + 4, kpiY2, kpiW, kpiH, "TAUX D'OCCUPATION", `${rentalSit.occupancy_rate || 0}% (${rentalSit.occupied_apartments || 0}/${rentalSit.total_apartments || 0})`, COLORS.primary);
-    this._drawKpiBox(doc, marginX + (kpiW + 4) * 2, kpiY2, kpiW, kpiH, 'RÉSULTAT NET À REVERSER', fmtMoney(s.collected_rent), COLORS.success);
-
-    doc.y = kpiY2 + kpiH + 6;
+    doc.y = kpiY + kpiH + 6;
 
     // ================================================================
     // PARTIE 2 : SITUATION LOCATIVE PAR LOGEMENT (12 COLONNES STANDARDISÉES)
@@ -151,15 +147,9 @@ class ManagementReportPdfService {
     const rawLignes = (situation.lignes && situation.lignes.length)
       ? situation.lignes
       : (reportData.rental_situation?.apartments || reportData.apartments || []);
-    const totalApts = rawLignes.length;
-    const occupiedApts = rawLignes.filter((a) => {
-      const st = a.statut || a.status;
-      return st === 'occupied' || (a.nom_locataire && a.nom_locataire !== '—');
-    }).length;
-    const occRate = totalApts > 0 ? Math.round((occupiedApts / totalApts) * 100) : 0;
 
     checkPage(30);
-    this._drawSectionHeader(doc, `2. SITUATION LOCATIVE PAR LOGEMENT (${occupiedApts}/${totalApts} occupés — ${occRate}%)`, primaryColor, contentW, marginX);
+    this._drawSectionHeader(doc, '2. SITUATION LOCATIVE PAR LOGEMENT', primaryColor, contentW, marginX);
 
     // Les 12 colonnes standardisées demandées :
     // Num du logement, Noms locataires, Numéro de téléphone, Montant loyers, Description du logement,
@@ -385,11 +375,12 @@ class ManagementReportPdfService {
     const totalPages = doc.bufferedPageRange().count;
     for (let i = 0; i < totalPages; i++) {
       doc.switchToPage(i);
-      const footerY = pageH - 18;
+      doc.page.margins.bottom = 0; // Empêche tout déclenchement auto de addPage par PDFKit
+      const footerY = pageH - 16;
       doc.moveTo(marginX, footerY - 3).lineTo(pageW - marginX, footerY - 3).strokeColor(COLORS.border).lineWidth(0.4).stroke();
       doc.fontSize(6.5).fillColor(COLORS.muted).font('Helvetica')
-        .text(`${cleanText(settings.name || 'SMG IMMOBILIER')} — Rapport de gestion officiel et confidentiel`, marginX, footerY, { width: contentW / 2 })
-        .text(`Page ${i + 1} sur ${totalPages}`, pageW - marginX - 100, footerY, { width: 100, align: 'right' });
+        .text(`${cleanText(settings.name || 'SMG IMMOBILIER')} — Rapport de gestion officiel et confidentiel`, marginX, footerY, { width: contentW / 2, lineBreak: false })
+        .text(`Page ${i + 1} sur ${totalPages}`, pageW - marginX - 100, footerY, { width: 100, align: 'right', lineBreak: false });
     }
 
     return new Promise((resolve) => {
@@ -679,11 +670,12 @@ class ManagementReportPdfService {
     const totalPages = doc.bufferedPageRange().count;
     for (let i = 0; i < totalPages; i++) {
       doc.switchToPage(i);
-      const footerY = pageH - 18;
+      doc.page.margins.bottom = 0; // Empêche tout déclenchement auto de addPage par PDFKit
+      const footerY = pageH - 16;
       doc.moveTo(36, footerY - 3).lineTo(pageW - 36, footerY - 3).strokeColor(COLORS.border).lineWidth(0.4).stroke();
       doc.fontSize(6.5).fillColor(COLORS.muted).font('Helvetica')
-        .text(`${cleanText(settings.name || 'SMG IMMOBILIER')} — Récapitulatif officiel des entrées par immeuble`, 36, footerY, { width: contentW / 2 })
-        .text(`Page ${i + 1} sur ${totalPages}`, pageW - 136, footerY, { width: 100, align: 'right' });
+        .text(`${cleanText(settings.name || 'SMG IMMOBILIER')} — Récapitulatif officiel des entrées par immeuble`, 36, footerY, { width: contentW / 2, lineBreak: false })
+        .text(`Page ${i + 1} sur ${totalPages}`, pageW - 136, footerY, { width: 100, align: 'right', lineBreak: false });
     }
 
     return new Promise((resolve) => {

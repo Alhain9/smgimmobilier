@@ -308,6 +308,7 @@ const PageUsers = {
           <td>${Helpers.statusBadge(r.status)}</td>
           <td>
             <button class="btn btn-sm btn-outline" onclick="PageUsers.openUserModal(${r.id})" title="Modifier">✏️</button>
+            <button class="btn btn-sm btn-outline" onclick="PageUsers.openAssignProperties(${r.id}, '${Helpers.escapeHtml(r.full_name)}')" title="Attribuer l'accès aux immeubles (reçus & gestion)">🏢 Immeubles</button>
             <button class="btn btn-sm btn-outline" onclick="PageUsers.toggle(${r.id})" title="Activer / Suspendre">${r.status === 'active' ? '🔒' : '🔓'}</button>
             <button class="btn btn-sm btn-danger" onclick="PageUsers.remove(${r.id})" title="Supprimer">🗑</button>
           </td>
@@ -1033,9 +1034,8 @@ const PageUsers = {
       const html = `
         <div style="padding:4px">
           <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">
-            Sélectionnez les immeubles <b>prioritaires</b> pour <b>${userName}</b>. 
-            Ces immeubles apparaîtront en tête de liste dans son interface. 
-            Il pourra toujours accéder aux autres immeubles en cas d'absence d'un collègue.
+            Sélectionnez les immeubles auxquels <b>${userName}</b> aura accès. 
+            Cela lui permettra de consulter et suivre tous les <b>reçus de paiement</b> et la situation financière de ces immeubles, en plus de ses propres reçus émis.
           </p>
           <div style="max-height:320px;overflow-y:auto;padding-right:4px" id="assignPropsCheckboxes">
             ${checkboxes || '<p style="color:var(--text-muted);text-align:center">Aucun immeuble disponible</p>'}

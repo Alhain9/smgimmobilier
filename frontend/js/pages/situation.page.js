@@ -684,16 +684,16 @@ const PageSituation = {
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
               <div class="form-group" style="margin-bottom:0">
-                <label style="font-size:11px;font-weight:600;display:block;margin-bottom:2px">Date de paiement *</label>
-                <input type="date" id="edit_col_pay_date" class="form-control" value="${initialPayDate}" required />
+                <label style="font-size:11px;font-weight:600;display:block;margin-bottom:2px">Date de paiement</label>
+                <input type="date" id="edit_col_pay_date" class="form-control" value="${initialPayDate}" />
               </div>
               <div class="form-group" style="margin-bottom:0">
-                <label style="font-size:11px;font-weight:600;display:block;margin-bottom:2px">Période début (Couverture) *</label>
-                <input type="date" id="edit_col_period_start" class="form-control" value="${initialPeriodStart}" required />
+                <label style="font-size:11px;font-weight:600;display:block;margin-bottom:2px">Période début (Couverture)</label>
+                <input type="date" id="edit_col_period_start" class="form-control" value="${initialPeriodStart}" />
               </div>
               <div class="form-group" style="margin-bottom:0">
-                <label style="font-size:11px;font-weight:600;display:block;margin-bottom:2px">Période fin (Couverture) *</label>
-                <input type="date" id="edit_col_period_end" class="form-control" value="${initialPeriodEnd}" required />
+                <label style="font-size:11px;font-weight:600;display:block;margin-bottom:2px">Période fin (Couverture)</label>
+                <input type="date" id="edit_col_period_end" class="form-control" value="${initialPeriodEnd}" />
               </div>
             </div>
             <small id="edit_col_coverage_hint" style="font-size:11.5px;margin-top:4px;display:block;color:#0284c7;font-weight:600;"></small>
@@ -704,11 +704,11 @@ const PageSituation = {
             <div class="form-group">
               <label style="font-size:11.5px;font-weight:600;display:block;margin-bottom:3px">10. Mode de paiement</label>
               <select id="edit_col_mode" class="form-control">
+                <option value="" ${!safeMode || safeMode === '—' || safeMode === 'Autre' || safeMode === 'vide' ? 'selected' : ''}>— Aucun / Non spécifié —</option>
                 <option value="Espèces" ${safeMode.includes('esp') || safeMode === 'cash' ? 'selected' : ''}>Espèces</option>
                 <option value="Virement bancaire" ${safeMode.includes('vir') || safeMode === 'bank_transfer' ? 'selected' : ''}>Virement bancaire</option>
                 <option value="Chèque" ${safeMode.includes('chè') || safeMode.includes('che') || safeMode === 'check' ? 'selected' : ''}>Chèque</option>
                 <option value="Mobile Money" ${safeMode.includes('momo') || safeMode.includes('om') || safeMode.includes('mobile') ? 'selected' : ''}>Mobile Money</option>
-                <option value="Autre" ${!safeMode || safeMode === '—' ? 'selected' : ''}>— Non spécifié —</option>
               </select>
             </div>
             <div class="form-group">

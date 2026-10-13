@@ -13,9 +13,11 @@ class ManagementReportService {
   _monthsInPeriod(start, end) {
     const s = new Date(start);
     const e = new Date(end);
-    if (isNaN(s) || isNaN(e) || s > e) return 1;
-    const months = (e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth()) + 1;
-    return Math.max(1, months);
+    if (isNaN(s) || isNaN(e) || s >= e) return 1;
+    const diffDays = Math.round((e - s) / (1000 * 60 * 60 * 24));
+    // Entre 26 et 32 jours => exactement 1 mois (ex: 01/09 au 01/10 ou 01/09 au 30/09)
+    const approx = Math.max(1, Math.round(diffDays / 30.4375));
+    return approx;
   }
 
   // ===== 1. RAPPORT D'UN BIEN / IMMEUBLE =====
@@ -380,8 +382,8 @@ class ManagementReportService {
       };
     });
 
-    // Résultat net de la période
-    const netResult = totalCollected - totalExpenses;
+    // Résultat net à reverser au bailleur = Total des encaissements perçus (loyers)
+    const netResult = totalCollected;
 
     return {
       property: {

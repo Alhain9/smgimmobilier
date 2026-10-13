@@ -279,6 +279,14 @@ class ReceiptService {
     if (filters.start && filters.end) {
       where.payment_date = { [Op.between]: [filters.start, filters.end] };
     }
+    // Filtrage par émetteur / collaborateur
+    if (filters.generated_by) {
+      where.generated_by = filters.generated_by;
+    }
+    // Condition personnalisée d'accès (émis par l'utilisateur OU appartenant à ses immeubles assignés)
+    if (filters.userOrPropertyCondition) {
+      Object.assign(where, filters.userOrPropertyCondition);
+    }
     // Filtrage bailleur : seulement ses propriétés
     if (Array.isArray(filters.ownerPropertyIds)) {
       where.property_id = { [Op.in]: filters.ownerPropertyIds };

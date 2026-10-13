@@ -4,16 +4,46 @@ const receiptPdfService = require('../services/receipt-pdf.service');
 const { success, error } = require('../utils/response');
 
 class ReceiptController {
-  // Liste des reçus (filtrée par query params + bailleur si applicable)
+  // Liste des reçus (filtrée par query params, utilisateur ou immeubles assignés)
   async list(req, res, next) {
     try {
-      const { Tenant } = require('../models');
+      const { Tenant, ManagerProperty } = require('../models');
+      const { Op } = require('sequelize');
+      const isAdminOrManager = req.user && ['super_admin', 'admin', 'manager'].includes(req.user.role);
+
       let tenantId = req.query.tenant_id || null;
+      let generatedBy = null;
+      let userOrPropertyCondition = null;
 
       if (req.user && req.user.role === 'locataire') {
         const t = await Tenant.findOne({ where: { user_id: req.user.id } });
         if (!t) return success(res, [], 'Aucun profil locataire');
         tenantId = t.id;
+      } else if (req.user && !isAdminOrManager && !req.user.is_bailleur) {
+        // Collaborateur (comptable, gestionnaire, directeur administratif...) :
+        // Ne voit que ses propres reçus OU les reçus des immeubles auxquels l'admin lui a donné accès
+        const assignedLinks = await ManagerProperty.findAll({
+          where: { user_id: req.user.id },
+          attributes: ['property_id'],
+        });
+        const assignedPropertyIds = assignedLinks.map((l) => Number(l.property_id)).filter(Boolean);
+
+        if (assignedPropertyIds.length > 0) {
+          userOrPropertyCondition = {
+            [Op.or]: [
+              { generated_by: req.user.id },
+              { property_id: { [Op.in]: assignedPropertyIds } },
+            ],
+          };
+        } else {
+          // Aucun immeuble attribué : ne voit que ses propres reçus émis
+          generatedBy = req.user.id;
+        }
+      } else if (isAdminOrManager) {
+        // L'admin et le manager peuvent voir tous les reçus et filtrer par personne (collaborateur)
+        if (req.query.generated_by || req.query.user_id) {
+          generatedBy = req.query.generated_by || req.query.user_id;
+        }
       }
 
       const filters = {
@@ -24,6 +54,8 @@ class ReceiptController {
         start: req.query.start || null,
         end: req.query.end || null,
         ownerPropertyIds: req.ownerPropertyIds || null,
+        generated_by: generatedBy,
+        userOrPropertyCondition,
       };
       const receipts = await receiptService.list(filters);
       return success(res, receipts, 'Liste des reçus');
@@ -34,7 +66,8 @@ class ReceiptController {
   async getById(req, res, next) {
     try {
       const receipt = await receiptService.getById(req.params.id);
-      
+      const isAdminOrManager = req.user && ['super_admin', 'admin', 'manager'].includes(req.user.role);
+
       // Sécurité locataire : vérifier que le reçu lui appartient
       if (req.user && req.user.role === 'locataire') {
         const { Tenant } = require('../models');
@@ -48,6 +81,21 @@ class ReceiptController {
       if (req.ownerPropertyIds && !req.ownerPropertyIds.includes(receipt.property_id)) {
         return error(res, 'Accès refusé : ce reçu ne concerne pas vos biens', 403);
       }
+
+      // Sécurité collaborateurs (comptable, gestionnaire, dir_admin...)
+      if (req.user && !isAdminOrManager && !req.user.is_bailleur && req.user.role !== 'locataire') {
+        const isOwn = Number(receipt.generated_by) === Number(req.user.id);
+        if (!isOwn) {
+          const { ManagerProperty } = require('../models');
+          const hasAccess = receipt.property_id ? await ManagerProperty.findOne({
+            where: { user_id: req.user.id, property_id: receipt.property_id },
+          }) : null;
+          if (!hasAccess) {
+            return error(res, 'Accès refusé : vous n\'avez pas accès à ce reçu', 403);
+          }
+        }
+      }
+
       return success(res, receipt, 'Détail du reçu');
     } catch (err) { next(err); }
   }
@@ -78,6 +126,7 @@ class ReceiptController {
   async downloadPdf(req, res, next) {
     try {
       const receipt = await receiptService.getById(req.params.id);
+      const isAdminOrManager = req.user && ['super_admin', 'admin', 'manager'].includes(req.user.role);
 
       // Sécurité locataire : vérifier que le reçu lui appartient
       if (req.user && req.user.role === 'locataire') {
@@ -91,6 +140,20 @@ class ReceiptController {
       // Sécurité bailleur
       if (req.ownerPropertyIds && !req.ownerPropertyIds.includes(receipt.property_id)) {
         return error(res, 'Accès refusé', 403);
+      }
+
+      // Sécurité collaborateurs
+      if (req.user && !isAdminOrManager && !req.user.is_bailleur && req.user.role !== 'locataire') {
+        const isOwn = Number(receipt.generated_by) === Number(req.user.id);
+        if (!isOwn) {
+          const { ManagerProperty } = require('../models');
+          const hasAccess = receipt.property_id ? await ManagerProperty.findOne({
+            where: { user_id: req.user.id, property_id: receipt.property_id },
+          }) : null;
+          if (!hasAccess) {
+            return error(res, 'Accès refusé', 403);
+          }
+        }
       }
 
       const buffer = await receiptPdfService.generate(receipt);

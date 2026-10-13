@@ -381,16 +381,16 @@ const PageManagementReports = {
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
               <div class="form-group" style="margin-bottom:0">
-                <label style="font-size:11px;font-weight:600;display:block;margin-bottom:2px">Date de paiement *</label>
-                <input type="date" id="edit_col_pay_date_mr" class="form-control" value="${initialPayDate}" required />
+                <label style="font-size:11px;font-weight:600;display:block;margin-bottom:2px">Date de paiement</label>
+                <input type="date" id="edit_col_pay_date_mr" class="form-control" value="${initialPayDate}" />
               </div>
               <div class="form-group" style="margin-bottom:0">
-                <label style="font-size:11px;font-weight:600;display:block;margin-bottom:2px">Période début (Couverture) *</label>
-                <input type="date" id="edit_col_period_start_mr" class="form-control" value="${initialPeriodStart}" required />
+                <label style="font-size:11px;font-weight:600;display:block;margin-bottom:2px">Période début (Couverture)</label>
+                <input type="date" id="edit_col_period_start_mr" class="form-control" value="${initialPeriodStart}" />
               </div>
               <div class="form-group" style="margin-bottom:0">
-                <label style="font-size:11px;font-weight:600;display:block;margin-bottom:2px">Période fin (Couverture) *</label>
-                <input type="date" id="edit_col_period_end_mr" class="form-control" value="${initialPeriodEnd}" required />
+                <label style="font-size:11px;font-weight:600;display:block;margin-bottom:2px">Période fin (Couverture)</label>
+                <input type="date" id="edit_col_period_end_mr" class="form-control" value="${initialPeriodEnd}" />
               </div>
             </div>
             <small id="edit_col_coverage_hint_mr" style="font-size:11.5px;margin-top:4px;display:block;color:#0284c7;font-weight:600;"></small>
@@ -401,11 +401,11 @@ const PageManagementReports = {
             <div class="form-group">
               <label style="font-size:11.5px;font-weight:600;display:block;margin-bottom:3px">10. Mode de paiement</label>
               <select id="edit_col_mode_mr" class="form-control">
+                <option value="" ${!safeMode || safeMode === '—' || safeMode === 'Autre' || safeMode === 'vide' ? 'selected' : ''}>— Aucun / Non spécifié —</option>
                 <option value="Espèces" ${safeMode.includes('esp') || safeMode === 'cash' ? 'selected' : ''}>Espèces</option>
                 <option value="Virement bancaire" ${safeMode.includes('vir') || safeMode === 'bank_transfer' ? 'selected' : ''}>Virement bancaire</option>
                 <option value="Chèque" ${safeMode.includes('chè') || safeMode.includes('che') || safeMode === 'check' ? 'selected' : ''}>Chèque</option>
                 <option value="Mobile Money" ${safeMode.includes('momo') || safeMode.includes('om') || safeMode.includes('mobile') ? 'selected' : ''}>Mobile Money</option>
-                <option value="Autre" ${!safeMode || safeMode === '—' ? 'selected' : ''}>— Non spécifié —</option>
               </select>
             </div>
             <div class="form-group">
@@ -627,6 +627,28 @@ const PageManagementReports = {
       </tr>
     `;
 
+    const formatPeriodLabel = (start, end, months) => {
+      const sD = new Date(start);
+      const eD = new Date(end);
+      const mCount = Number(months) || 1;
+      const FRENCH_MONTHS = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
+      if (!isNaN(sD.getTime())) {
+        const sName = FRENCH_MONTHS[sD.getMonth()];
+        const sYear = sD.getFullYear();
+        if (mCount === 1) return `(1 mois — ${sName} ${sYear})`;
+        if (!isNaN(eD.getTime())) {
+          const effE = new Date(eD);
+          if (effE.getDate() <= 1) effE.setDate(effE.getDate() - 1);
+          const eName = FRENCH_MONTHS[effE.getMonth()];
+          const eYear = effE.getFullYear();
+          if (sName === eName && sYear === eYear) return `(1 mois — ${sName} ${sYear})`;
+          return `(${mCount} mois — de ${sName} ${sYear} à ${eName} ${eYear})`;
+        }
+        return `(${mCount} mois — ${sName} ${sYear})`;
+      }
+      return `(${mCount} mois)`;
+    };
+
     area.innerHTML = `
       <!-- EN-TÊTE DU RAPPORT -->
       <div class="card" style="margin-bottom:16px;border-left:4px solid var(--primary)">
@@ -635,7 +657,7 @@ const PageManagementReports = {
             <span class="badge badge-info" style="font-size:12px">🏢 ${p.property_name}</span>
             <h3 style="font-size:16px;font-weight:700;margin-top:4px">${p.address || ''}, ${p.city || ''}</h3>
             <p style="font-size:12px;color:var(--text-muted);margin:0">
-              Propriétaire : <b>${p.owner ? p.owner.full_name : '—'}</b> | Période : <b>${r.period.start}</b> au <b>${r.period.end}</b> (${r.period.months} mois)
+              Propriétaire : <b>${p.owner ? p.owner.full_name : '—'}</b> | Période : <b>${Helpers.formatDate(r.period.start)}</b> au <b>${Helpers.formatDate(r.period.end)}</b> ${formatPeriodLabel(r.period.start, r.period.end, r.period.months)}
             </p>
           </div>
           <button class="btn btn-success" onclick="PageManagementReports.downloadPdf()">
@@ -665,23 +687,23 @@ const PageManagementReports = {
         </div>
 
         <div class="card stat-card">
-          <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted)">Total Dépenses Immeuble</div>
-          <div style="font-size:20px;font-weight:800;color:var(--accent);margin-top:4px">${fmt(s.total_expenses)}</div>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Maint: ${fmt(s.maintenance_expenses)} | Autre: ${fmt(s.other_expenses)}</div>
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted)">Taux d'occupation</div>
+          <div style="font-size:20px;font-weight:800;color:var(--primary);margin-top:4px">${r.rental_situation.occupancy_rate || 0}%</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${r.rental_situation.occupied_apartments || 0}/${r.rental_situation.total_apartments || 0} logements occupés</div>
         </div>
       </div>
 
       <!-- RÉSULTAT NET -->
-      <div class="card" style="margin-bottom:16px;background:var(--secondary-bg, #f0f4f8);border:2px solid ${netResultColor}">
+      <div class="card" style="margin-bottom:16px;background:var(--secondary-bg, #f0f4f8);border:2px solid var(--success)">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
           <div>
-            <h4 style="font-size:14px;font-weight:700;color:var(--text);margin:0">💰 RÉSULTAT FINANCIER DE LA PÉRIODE</h4>
+            <h4 style="font-size:14px;font-weight:700;color:var(--text);margin:0">💰 RÉSULTAT NET À REVERSER AU BAILLEUR</h4>
             <p style="font-size:12px;color:var(--text-muted);margin:2px 0 0">
-              Encaissements (${fmt(s.collected_rent)}) − Dépenses (${fmt(s.total_expenses)})
+              Total des encaissements perçus (loyers) : <b>${fmt(s.collected_rent)}</b>
             </p>
           </div>
-          <div style="font-size:24px;font-weight:900;color:${netResultColor}">
-            ${netResultSign}${fmt(s.net_result)}
+          <div style="font-size:24px;font-weight:900;color:var(--success)">
+            ${fmt(s.collected_rent)}
           </div>
         </div>
       </div>
@@ -730,7 +752,7 @@ const PageManagementReports = {
 
       <!-- 3. ENCAISSEMENTS RÉALISÉS (SYNTHÈSE AGRÉGÉE PAR LOGEMENT / LOCATAIRE) -->
       <div class="card" style="margin-bottom:16px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:gap:8px">
           <h4 style="font-size:15px;font-weight:700;margin:0">💳 3. Encaissements Réalisés (${(r.aggregated_collections || []).length} logements réglés — Total : ${fmt(s.collected_rent)})</h4>
           <span class="badge badge-success" style="font-size:12px">Total Encaissé : ${fmt(s.collected_rent)}</span>
         </div>
@@ -766,47 +788,6 @@ const PageManagementReports = {
             </table>
           </div>
         `}
-
-        <!-- DÉTAIL DES TRANSACTIONS INDIVIDUELLES -->
-        ${(r.transactions || []).length ? `
-          <div style="margin-top:16px;border-top:1px dashed var(--border);padding-top:12px">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-              <h5 style="font-size:13px;font-weight:700;color:var(--text-muted);margin:0">
-                🔍 Historique Détaillé des Transactions (${r.transactions.length} opération(s))
-              </h5>
-              <button class="btn btn-sm btn-outline" style="font-size:11px" onclick="
-                const el = document.getElementById('reportTxDetailBox');
-                if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
-              ">Afficher / Masquer le détail</button>
-            </div>
-            <div id="reportTxDetailBox" class="table-responsive" style="max-height:260px;overflow-y:auto;border:1px solid var(--border);border-radius:6px">
-              <table class="table table-sm">
-                <thead>
-                  <tr style="background:var(--secondary-bg)">
-                    <th>Date</th>
-                    <th>Locataire</th>
-                    <th>Logement</th>
-                    <th>Mode</th>
-                    <th>N° Reçu</th>
-                    <th style="text-align:right">Montant</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${r.transactions.map((t) => `
-                    <tr>
-                      <td><small>${new Date(t.date).toLocaleDateString('fr-FR')}</small></td>
-                      <td><b>${t.tenant_name}</b></td>
-                      <td>${t.apartment_number}</td>
-                      <td><small>${t.payment_method || '—'}</small></td>
-                      <td><small style="color:var(--primary)">${t.receipt_number || '—'}</small></td>
-                      <td style="text-align:right"><b style="color:var(--success)">${fmt(t.amount)}</b></td>
-                    </tr>
-                  `).join('')}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ` : ''}
       </div>
 
       <!-- 4. TRAVAUX & INTERVENTIONS TECHNIQUES -->
@@ -842,54 +823,19 @@ const PageManagementReports = {
         `}
       </div>
 
-      <!-- 5. DÉPENSES DÉTAILLÉES -->
-      <div class="card" style="margin-bottom:16px">
-        <h4 style="font-size:15px;font-weight:700;margin-bottom:12px">🧾 5. Dépenses Détaillées (Total : ${fmt(s.total_expenses)})</h4>
-        ${!(r.expenses_detail || []).length ? '<p style="color:var(--text-muted);font-size:13px">Aucune dépense sur cette période.</p>' : `
-          <div class="table-responsive">
-            <table class="table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Désignation</th>
-                  <th>Catégorie</th>
-                  <th>Contexte / Logement</th>
-                  <th>Qté</th>
-                  <th>Prix Unitaire</th>
-                  <th>Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${r.expenses_detail.map((e) => `
-                  <tr>
-                    <td><small>${new Date(e.date).toLocaleDateString('fr-FR')}</small></td>
-                    <td><b>${e.item_name}</b></td>
-                    <td><span class="badge badge-secondary">${e.category}</span></td>
-                    <td><small>${e.apartment_number} (${e.maintenance_title || '—'})</small></td>
-                    <td>${e.quantity}</td>
-                    <td>${Number(e.unit_price).toLocaleString('fr-FR')}</td>
-                    <td><b style="color:var(--danger)">${fmt(e.total_price)}</b></td>
-                  </tr>
-                `).join('')}
-              </tbody>
-            </table>
-          </div>
-        `}
-      </div>
-
-      <!-- 6. BILAN ET RÉSULTAT DE LA PÉRIODE -->
-      <div class="card" style="background:var(--secondary-bg, #f0f4f8);border:2px solid ${netResultColor}">
+      <!-- 5. BILAN ET RÉSULTAT DE LA PÉRIODE -->
+      <div class="card" style="background:var(--secondary-bg, #f0f4f8);border:2px solid var(--success)">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
           <div>
-            <h4 style="font-size:15px;font-weight:700;color:var(--text);margin:0">📊 6. BILAN ET RÉSULTAT NET DE LA PÉRIODE</h4>
+            <h4 style="font-size:15px;font-weight:700;color:var(--text);margin:0">📊 5. BILAN ET RÉSULTAT NET DE LA PÉRIODE</h4>
             <p style="font-size:13px;color:var(--text-muted);margin:4px 0 0">
-              Total Encaissements (${fmt(s.collected_rent)}) − Total Dépenses (${fmt(s.total_expenses)})
+              Total des encaissements perçus (loyers) : <b>${fmt(s.collected_rent)}</b>
             </p>
           </div>
           <div style="text-align:right">
-            <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:${netResultColor}">Montant Net à Reverser</div>
-            <div style="font-size:24px;font-weight:900;color:${netResultColor}">
-              ${netResultSign}${fmt(s.net_result)}
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--success)">Montant Net à Reverser au Bailleur</div>
+            <div style="font-size:24px;font-weight:900;color:var(--success)">
+              ${fmt(s.collected_rent)}
             </div>
           </div>
         </div>

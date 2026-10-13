@@ -11,6 +11,36 @@ const { logger } = require('../config/logger');
 const { cleanText, fmtMoney, fmtDate, drawCompanyHeader } = require('../utils/pdf-helpers');
 const companyService = require('./company-settings.service');
 
+const FRENCH_MONTHS = [
+  'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
+  'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'
+];
+
+function formatPeriodWithMonthName(start, end, months) {
+  const s = new Date(start);
+  const e = new Date(end);
+  const mCount = Number(months) || 1;
+  if (!isNaN(s.getTime())) {
+    const startMName = FRENCH_MONTHS[s.getMonth()];
+    const startYear = s.getFullYear();
+    if (mCount === 1) {
+      return `(1 mois — ${startMName} ${startYear})`;
+    }
+    if (!isNaN(e.getTime())) {
+      const effEndD = new Date(e);
+      if (effEndD.getDate() <= 1) effEndD.setDate(effEndD.getDate() - 1);
+      const endMName = FRENCH_MONTHS[effEndD.getMonth()];
+      const endYear = effEndD.getFullYear();
+      if (startMName === endMName && startYear === endYear) {
+        return `(1 mois — ${startMName} ${startYear})`;
+      }
+      return `(${mCount} mois — de ${startMName} ${startYear} à ${endMName} ${endYear})`;
+    }
+    return `(${mCount} mois — ${startMName} ${startYear})`;
+  }
+  return `(${mCount} mois)`;
+}
+
 const COLORS = {
   primary: '#1a3a5c',
   secondary: '#f0f4f8',
@@ -86,8 +116,9 @@ class ManagementReportPdfService {
     doc.fontSize(7.5).fillColor(COLORS.text).font('Helvetica-Bold')
       .text(`Bien : ${propName} (${propAddr})   |   Propriétaire : ${ownerName}`, marginX + 10, curY + 18, { width: contentW - 20, align: 'center' });
 
+    const periodLabel = formatPeriodWithMonthName(reportData.period?.start, reportData.period?.end, reportData.period?.months);
     doc.fontSize(7).fillColor(COLORS.muted).font('Helvetica')
-      .text(`Période couverte : du ${fmtDate(reportData.period?.start)} au ${fmtDate(reportData.period?.end)} (${reportData.period?.months || 1} mois)  —  Généré le ${fmtDate(new Date())}`, marginX + 10, curY + 26, { width: contentW - 20, align: 'center' });
+      .text(`Période couverte : du ${fmtDate(reportData.period?.start)} au ${fmtDate(reportData.period?.end)} ${periodLabel}  —  Généré le ${fmtDate(new Date())}`, marginX + 10, curY + 26, { width: contentW - 20, align: 'center' });
 
     doc.y = curY + bandH + 6;
 
@@ -96,6 +127,7 @@ class ManagementReportPdfService {
     // ================================================================
     this._drawSectionHeader(doc, '1. RÉSUMÉ FINANCIER DE LA PÉRIODE', primaryColor, contentW, marginX);
     const s = reportData.summary || {};
+    const rentalSit = reportData.rental_situation || {};
 
     const kpiW = (contentW - 8) / 3;
     const kpiH = 29;
@@ -106,9 +138,9 @@ class ManagementReportPdfService {
     this._drawKpiBox(doc, marginX + (kpiW + 4) * 2, kpiY1, kpiW, kpiH, 'RESTE À ENCAISSER (IMPAYÉS)', fmtMoney(s.remaining_to_collect), s.remaining_to_collect > 0 ? COLORS.danger : COLORS.muted);
 
     const kpiY2 = kpiY1 + kpiH + 3;
-    this._drawKpiBox(doc, marginX, kpiY2, kpiW, kpiH, 'DÉPENSES & MAINTENANCE', fmtMoney(s.total_expenses || s.maintenance_expenses), COLORS.accent);
-    this._drawKpiBox(doc, marginX + kpiW + 4, kpiY2, kpiW, kpiH, "TAUX D'ENCAISSEMENT", `${s.collection_rate || 0}%`, (s.collection_rate || 0) >= 80 ? COLORS.success : COLORS.warning);
-    this._drawKpiBox(doc, marginX + (kpiW + 4) * 2, kpiY2, kpiW, kpiH, 'RÉSULTAT NET DE GESTION', fmtMoney(s.net_result), (s.net_result || 0) >= 0 ? COLORS.success : COLORS.danger);
+    this._drawKpiBox(doc, marginX, kpiY2, kpiW, kpiH, "TAUX D'ENCAISSEMENT", `${s.collection_rate || 0}%`, (s.collection_rate || 0) >= 80 ? COLORS.success : COLORS.warning);
+    this._drawKpiBox(doc, marginX + kpiW + 4, kpiY2, kpiW, kpiH, "TAUX D'OCCUPATION", `${rentalSit.occupancy_rate || 0}% (${rentalSit.occupied_apartments || 0}/${rentalSit.total_apartments || 0})`, COLORS.primary);
+    this._drawKpiBox(doc, marginX + (kpiW + 4) * 2, kpiY2, kpiW, kpiH, 'RÉSULTAT NET À REVERSER', fmtMoney(s.collected_rent), COLORS.success);
 
     doc.y = kpiY2 + kpiH + 6;
 
@@ -264,39 +296,6 @@ class ManagementReportPdfService {
     }
 
     // ================================================================
-    // SOUS-TABLEAU DÉTAILLÉ : HISTORIQUE DE TOUTES LES TRANSACTIONS
-    // ================================================================
-    if (txList.length > 0) {
-      checkPage(24);
-      doc.fontSize(7).fillColor(primaryColor).font('Helvetica-Bold')
-        .text(`↳ DÉTAIL DES TRANSACTIONS INDIVIDUELLES (${txList.length} opération(s))`, marginX + 2, doc.y);
-      doc.y += 2;
-
-      const txHeaders = ['Date', 'Locataire', 'Logement', 'Mode paiement', 'N° Reçu', 'Montant'];
-      // Total = 75 + 210 + 65 + 120 + 192 + 120 = 782 pt
-      const txWidths = [75, 210, 65, 120, 192, 120];
-
-      const txRows = txList.map((t) => [
-        fmtDate(t.date),
-        cleanText(t.tenant_name),
-        cleanText(t.apartment_number),
-        cleanText(t.payment_method || 'Espèces'),
-        cleanText(t.receipt_number || '—'),
-        fmtMoney(t.amount),
-      ]);
-
-      this._renderDenseTable(doc, {
-        headers: txHeaders,
-        widths: txWidths,
-        rows: txRows,
-        checkPage,
-        primaryColor,
-        alignRightCols: [5],
-        startX: marginX,
-      });
-    }
-
-    // ================================================================
     // PARTIE 4 : TRAVAUX ET INTERVENTIONS TECHNIQUES
     // ================================================================
     const worksList = reportData.works_done || [];
@@ -333,47 +332,10 @@ class ManagementReportPdfService {
     }
 
     // ================================================================
-    // PARTIE 5 : DÉPENSES DÉTAILLÉES
-    // ================================================================
-    const expList = reportData.expenses_detail || [];
-    checkPage(24);
-    this._drawSectionHeader(doc, `5. DÉPENSES DÉTAILLÉES (Total : ${fmtMoney(s.total_expenses || 0)})`, primaryColor, contentW, marginX);
-
-    if (!expList.length) {
-      doc.fontSize(7).fillColor(COLORS.muted).font('Helvetica-Oblique')
-        .text('Aucune dépense imputée sur cette période.', marginX + 4, doc.y);
-      doc.y += 8;
-    } else {
-      const expHeaders = ['Date', 'Désignation / Fourniture', 'Catégorie', 'Affectation', 'Qté', 'P.U. (FCFA)', 'Total (FCFA)'];
-      // Total = 70 + 230 + 110 + 125 + 45 + 92 + 110 = 782 pt
-      const expWidths = [70, 230, 110, 125, 45, 92, 110];
-
-      const expRows = expList.map((e) => [
-        fmtDate(e.date),
-        cleanText(e.item_name),
-        cleanText(e.category || 'Entretien'),
-        cleanText(e.apartment_number || 'Immeuble'),
-        cleanText(e.quantity || 1),
-        fmtMoney(e.unit_price, false),
-        fmtMoney(e.total_price, false),
-      ]);
-
-      this._renderDenseTable(doc, {
-        headers: expHeaders,
-        widths: expWidths,
-        rows: expRows,
-        checkPage,
-        primaryColor,
-        alignRightCols: [5, 6],
-        startX: marginX,
-      });
-    }
-
-    // ================================================================
-    // PARTIE 6 : BILAN ET RÉSULTAT NET DE LA PÉRIODE
+    // PARTIE 5 : BILAN ET RÉSULTAT NET DE LA PÉRIODE
     // ================================================================
     checkPage(60);
-    this._drawSectionHeader(doc, '6. BILAN ET RÉSULTAT NET DE LA PÉRIODE', primaryColor, contentW, marginX);
+    this._drawSectionHeader(doc, '5. BILAN ET RÉSULTAT NET DE LA PÉRIODE', primaryColor, contentW, marginX);
 
     const bilanH = 46;
     const bilanY = doc.y;
@@ -381,34 +343,27 @@ class ManagementReportPdfService {
     doc.rect(marginX, bilanY, 4, bilanH).fill(primaryColor);
     doc.rect(marginX, bilanY, contentW, bilanH).strokeColor(COLORS.border).lineWidth(0.5).stroke();
 
-    // Colonne gauche : Synthèse recettes - dépenses
-    doc.fontSize(8).fillColor(COLORS.text).font('Helvetica')
-      .text('Total des encaissements perçus (loyers) :', marginX + 12, bilanY + 8)
-      .font('Helvetica-Bold').fillColor(COLORS.success)
-      .text(`+ ${fmtMoney(s.collected_rent)}`, marginX + 220, bilanY + 8);
+    // Colonne gauche : Synthèse encaissements perçus
+    doc.fontSize(8.5).fillColor(COLORS.text).font('Helvetica-Bold')
+      .text('Total des encaissements perçus (loyers) :', marginX + 12, bilanY + 10)
+      .fillColor(COLORS.success)
+      .text(`+ ${fmtMoney(s.collected_rent)}`, marginX + 225, bilanY + 10);
 
-    const donTxt = s.caretaker_expenses > 0 ? ` (dont gardien: ${fmtMoney(s.caretaker_expenses)})` : '';
-    doc.fontSize(8).fillColor(COLORS.text).font('Helvetica')
-      .text('Total des dépenses et travaux imputés :', marginX + 12, bilanY + 20)
-      .font('Helvetica-Bold').fillColor(COLORS.accent)
-      .text(`- ${fmtMoney(s.total_expenses)}${donTxt}`, marginX + 205, bilanY + 20);
+    doc.fontSize(7.5).fillColor(COLORS.muted).font('Helvetica')
+      .text(`Taux d'encaissement période : ${s.collection_rate || 0}%  |  Impayés résiduels : ${fmtMoney(s.remaining_to_collect)}`, marginX + 12, bilanY + 27);
 
-    doc.fontSize(7).fillColor(COLORS.muted).font('Helvetica')
-      .text(`Taux d'encaissement période : ${s.collection_rate || 0}%  |  Impayés résiduels : ${fmtMoney(s.remaining_to_collect)}`, marginX + 12, bilanY + 32);
-
-    // Colonne droite : Badge du résultat net
-    const resBoxW = 240;
+    // Colonne droite : Badge du résultat net à reverser au bailleur
+    const resBoxW = 260;
     const resBoxX = pageW - marginX - resBoxW - 8;
-    const resNet = s.net_result || 0;
-    const isPos = resNet >= 0;
+    const resNet = s.collected_rent || 0;
 
-    doc.rect(resBoxX, bilanY + 6, resBoxW, 34).fill(isPos ? '#dcfce7' : '#fee2e2');
-    doc.rect(resBoxX, bilanY + 6, resBoxW, 34).strokeColor(isPos ? '#86efac' : '#fca5a5').lineWidth(0.5).stroke();
+    doc.rect(resBoxX, bilanY + 6, resBoxW, 34).fill('#dcfce7');
+    doc.rect(resBoxX, bilanY + 6, resBoxW, 34).strokeColor('#86efac').lineWidth(0.5).stroke();
 
-    doc.fontSize(7).fillColor(isPos ? COLORS.success : COLORS.danger).font('Helvetica-Bold')
-      .text('RÉSULTAT NET À REVERSER AU BAILLEUR', resBoxX + 4, bilanY + 10, { width: resBoxW - 8, align: 'center' });
-    doc.fontSize(12).fillColor(isPos ? COLORS.success : COLORS.danger).font('Helvetica-Bold')
-      .text(fmtMoney(resNet), resBoxX + 4, bilanY + 21, { width: resBoxW - 8, align: 'center' });
+    doc.fontSize(7.5).fillColor(COLORS.success).font('Helvetica-Bold')
+      .text('RÉSULTAT NET À REVERSER AU BAILLEUR', resBoxX + 4, bilanY + 9, { width: resBoxW - 8, align: 'center' });
+    doc.fontSize(13).fillColor(COLORS.success).font('Helvetica-Bold')
+      .text(fmtMoney(resNet), resBoxX + 4, bilanY + 20, { width: resBoxW - 8, align: 'center' });
 
     doc.y = bilanY + bilanH + 8;
 

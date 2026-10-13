@@ -4,18 +4,35 @@ const PageReceipts = {
     Router.register('receipts', () => this.render());
   },
 
+  _staffUsers: [],
+
   async render() {
     Layout.setTitle('Reçus de paiement');
+    const isAdminOrManager = Auth.hasRole('super_admin', 'manager');
+
+    if (isAdminOrManager && (!this._staffUsers || !this._staffUsers.length)) {
+      try {
+        const uRes = await API.get('/users');
+        this._staffUsers = (uRes.data || []).filter((u) => u.status === 'active' && u.role?.name !== 'locataire');
+      } catch (_) {
+        this._staffUsers = [];
+      }
+    }
+
     const appContent = document.getElementById('appContent');
     appContent.innerHTML = `
       <div class="card" style="margin-bottom:16px">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
           <div>
             <h2 style="font-size:18px;font-weight:700;color:var(--text)">🧾 Reçus et documents financiers</h2>
-            <p style="font-size:13px;color:var(--text-muted);margin-top:2px">Consultez, imprimez et téléchargez les reçus officiels des paiements de loyer et cautions.</p>
+            <p style="font-size:13px;color:var(--text-muted);margin-top:2px">
+              ${isAdminOrManager 
+                ? 'Consultez l\'historique global de tous les reçus par collaborateur ou pour l\'ensemble du parc.' 
+                : 'Consultez vos reçus émis et ceux des immeubles qui vous sont attribués.'}
+            </p>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn btn-primary" onclick="ReceiptManager.open()"><span class="btn-icon">➕</span> Nouveau Reçu (Générateur)</button>
+            <button class="btn btn-primary" onclick="PageReceipts.openNewReceiptModal()"><span class="btn-icon">➕</span> Émettre un Reçu</button>
             <button class="btn btn-success" onclick="PageReceipts.openArchiveGenerator()"><span class="btn-icon">⚡</span> Générer reçus des archives</button>
             <button class="btn btn-outline" onclick="PageReceipts.loadReceipts()"><span class="btn-icon">🔄</span> Actualiser</button>
           </div>
@@ -32,6 +49,16 @@ const PageReceipts = {
               <option value="other_income">Autre recette</option>
             </select>
           </div>
+          ${isAdminOrManager ? `
+            <div>
+              <label style="font-size:12px;font-weight:600;color:var(--text-muted)">👤 Historique par personne</label>
+              <select id="receiptStaffFilter" class="form-control" onchange="PageReceipts.loadReceipts()">
+                <option value="">👥 Tous les collaborateurs (Tous)</option>
+                <option value="mine">👤 Mes propres reçus uniquement</option>
+                ${(this._staffUsers || []).map((u) => `<option value="${u.id}">${Helpers.escapeHtml(u.full_name)} (${u.role?.label || u.role?.name || 'Personnel'})</option>`).join('')}
+              </select>
+            </div>
+          ` : ''}
           <div>
             <label style="font-size:12px;font-weight:600;color:var(--text-muted)">Date de début</label>
             <input type="date" id="receiptStartDate" class="form-control" onchange="PageReceipts.loadReceipts()" />
@@ -72,12 +99,13 @@ const PageReceipts = {
                 <th>Montant</th>
                 <th>Mode</th>
                 <th>Date</th>
+                <th>Émis par</th>
                 <th>Statut</th>
                 <th style="text-align:right">Actions</th>
               </tr>
             </thead>
             <tbody id="receiptsTableBody">
-              <tr><td colspan="10" style="text-align:center;padding:30px"><div class="spinner"></div></td></tr>
+              <tr><td colspan="11" style="text-align:center;padding:30px"><div class="spinner"></div></td></tr>
             </tbody>
           </table>
         </div>
@@ -96,11 +124,17 @@ const PageReceipts = {
     const type = document.getElementById('receiptTypeFilter')?.value || '';
     const start = document.getElementById('receiptStartDate')?.value || '';
     const end = document.getElementById('receiptEndDate')?.value || '';
+    const staffFilter = document.getElementById('receiptStaffFilter')?.value || '';
 
     let url = '/receipts?';
     if (type) url += `type=${type}&`;
     if (start) url += `start=${start}&`;
     if (end) url += `end=${end}&`;
+    if (staffFilter === 'mine') {
+      url += `generated_by=${Auth.user?.id}&`;
+    } else if (staffFilter) {
+      url += `generated_by=${staffFilter}&`;
+    }
 
     try {
       const res = await API.get(url);
@@ -108,14 +142,14 @@ const PageReceipts = {
       this.renderTable(this._receipts);
     } catch (err) {
       Toast.error('Erreur lors du chargement des reçus');
-      document.getElementById('receiptsTableBody').innerHTML = `<tr><td colspan="10" style="text-align:center;color:var(--danger)">Échec de chargement des reçus.</td></tr>`;
+      document.getElementById('receiptsTableBody').innerHTML = `<tr><td colspan="11" style="text-align:center;color:var(--danger)">Échec de chargement des reçus.</td></tr>`;
     }
   },
 
   renderTable(receipts) {
     const tbody = document.getElementById('receiptsTableBody');
     if (!receipts.length) {
-      tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:30px;color:var(--text-muted)">Aucun reçu trouvé.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="11" style="text-align:center;padding:30px;color:var(--text-muted)">Aucun reçu trouvé.</td></tr>`;
       this.updateSelectAllCheckbox(false);
       return;
     }
@@ -141,6 +175,12 @@ const PageReceipts = {
         : `<span class="badge badge-danger">Annulé</span>`;
       const isChecked = this._selectedIds.has(r.id);
 
+      const genName = r.generator?.full_name || 'Système';
+      const isMine = r.generated_by && Number(r.generated_by) === Number(Auth.user?.id);
+      const genBadge = isMine
+        ? `<span class="badge badge-primary" style="font-size:10.5px">Moi</span>`
+        : `<small style="font-weight:600;color:var(--text)">${Helpers.escapeHtml(genName)}</small>`;
+
       return `
         <tr id="receipt-row-${r.id}" style="${isChecked ? 'background:rgba(239, 68, 68, 0.05)' : ''}">
           <td style="text-align:center">
@@ -153,6 +193,7 @@ const PageReceipts = {
           <td><b style="color:var(--success)">${amount}</b></td>
           <td><small>${r.payment_method || '—'}</small></td>
           <td>${date}</td>
+          <td>${genBadge}</td>
           <td>${statusBadge}</td>
           <td style="text-align:right;white-space:nowrap">
             <button class="btn btn-sm btn-primary" onclick="PageReceipts.openOfficial(${r.id})" title="Voir le reçu officiel" style="font-weight:600;display:inline-flex;align-items:center;gap:4px;">👁️ Voir</button>
@@ -502,6 +543,210 @@ const PageReceipts = {
     } catch (err) {
       console.error(err);
       Toast.error(err.message || 'Erreur lors de la génération des archives');
+    }
+  },
+
+  _availableProperties: [],
+
+  async openNewReceiptModal() {
+    try {
+      Toast.info('Chargement du générateur...');
+      const pRes = await API.get('/properties');
+      this._availableProperties = pRes.data || [];
+
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const propsOptions = this._availableProperties.map((p) => `<option value="${p.id}">${Helpers.escapeHtml(p.property_name)} (${p.city || '—'})</option>`).join('');
+
+      const html = `
+        <form id="newReceiptForm" onsubmit="PageReceipts.submitNewReceipt(event)">
+          <div style="background:#f8fafc;padding:12px;border-radius:8px;margin-bottom:14px;border:1px solid #e2e8f0;">
+            <div style="font-weight:700;color:var(--primary);margin-bottom:8px;font-size:12.5px;">🏢 1. LOCALISATION & BÉNÉFICIAIRE</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+              <div>
+                <label style="font-size:12px;font-weight:600;display:block;margin-bottom:3px">Immeuble / Bien</label>
+                <select id="new_rec_property" class="form-control" onchange="PageReceipts.onNewReceiptPropChange(this.value)">
+                  <option value="">— Sélectionner un immeuble —</option>
+                  ${propsOptions}
+                </select>
+              </div>
+              <div>
+                <label style="font-size:12px;font-weight:600;display:block;margin-bottom:3px">Logement / Chambre</label>
+                <select id="new_rec_apartment" class="form-control" onchange="PageReceipts.onNewReceiptAptChange(this.value)">
+                  <option value="">— Choisir d'abord l'immeuble —</option>
+                </select>
+              </div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1.5fr 1fr;gap:10px;margin-top:10px">
+              <div>
+                <label style="font-size:12px;font-weight:600;display:block;margin-bottom:3px">Nom du Locataire / Payeur *</label>
+                <input type="text" id="new_rec_tenant_name" class="form-control" placeholder="Nom et prénom..." required />
+                <input type="hidden" id="new_rec_tenant_id" />
+              </div>
+              <div>
+                <label style="font-size:12px;font-weight:600;display:block;margin-bottom:3px">Téléphone</label>
+                <input type="text" id="new_rec_tenant_phone" class="form-control" placeholder="+237 6..." />
+              </div>
+            </div>
+          </div>
+
+          <div style="background:#ffffff;padding:12px;border-radius:8px;margin-bottom:14px;border:1px solid #e2e8f0;">
+            <div style="font-weight:700;color:var(--primary);margin-bottom:8px;font-size:12.5px;">💰 2. DÉTAILS DU PAIEMENT</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+              <div>
+                <label style="font-size:12px;font-weight:600;display:block;margin-bottom:3px">Type de reçu *</label>
+                <select id="new_rec_type" class="form-control">
+                  <option value="rent">Loyer</option>
+                  <option value="deposit">Caution</option>
+                  <option value="advance">Avance sur loyer</option>
+                  <option value="other_income">Autre recette financière</option>
+                </select>
+              </div>
+              <div>
+                <label style="font-size:12px;font-weight:600;display:block;margin-bottom:3px">Montant versé (FCFA) *</label>
+                <input type="number" id="new_rec_amount" class="form-control" min="1" placeholder="ex: 150000" required />
+              </div>
+              <div>
+                <label style="font-size:12px;font-weight:600;display:block;margin-bottom:3px">Date de paiement</label>
+                <input type="date" id="new_rec_payment_date" class="form-control" value="${todayStr}" />
+              </div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:10px">
+              <div>
+                <label style="font-size:12px;font-weight:600;display:block;margin-bottom:3px">Mode de paiement</label>
+                <select id="new_rec_payment_method" class="form-control">
+                  <option value="">— Aucun / Non spécifié —</option>
+                  <option value="Espèces" selected>Espèces (Cash)</option>
+                  <option value="Virement bancaire">Virement bancaire</option>
+                  <option value="Chèque">Chèque</option>
+                  <option value="Mobile Money">Mobile Money (OM / MoMo)</option>
+                </select>
+              </div>
+              <div>
+                <label style="font-size:12px;font-weight:600;display:block;margin-bottom:3px">Période début (Couverture)</label>
+                <input type="date" id="new_rec_period_start" class="form-control" />
+              </div>
+              <div>
+                <label style="font-size:12px;font-weight:600;display:block;margin-bottom:3px">Période fin (Couverture)</label>
+                <input type="date" id="new_rec_period_end" class="form-control" />
+              </div>
+            </div>
+
+            <div style="margin-top:10px">
+              <label style="font-size:12px;font-weight:600;display:block;margin-bottom:3px">Observations / Notes sur le reçu</label>
+              <input type="text" id="new_rec_observations" class="form-control" placeholder="ex: Paiement loyer complet, solde à jour..." />
+            </div>
+          </div>
+
+          <div style="display:flex;justify-content:flex-end;gap:8px">
+            <button type="button" class="btn btn-outline" onclick="Modal.close()">Annuler</button>
+            <button type="submit" class="btn btn-primary" id="btnSubmitNewReceipt">💾 Émettre et enregistrer le reçu</button>
+          </div>
+        </form>
+      `;
+
+      Modal.open({
+        title: "🧾 Émission d'un Reçu de Paiement Officiel",
+        content: html,
+        size: 'large',
+      });
+    } catch (err) {
+      Toast.error(err.message || 'Impossible d\'ouvrir le générateur');
+    }
+  },
+
+  onNewReceiptPropChange(propId) {
+    const aptSelect = document.getElementById('new_rec_apartment');
+    if (!aptSelect) return;
+    if (!propId) {
+      aptSelect.innerHTML = '<option value="">— Choisir d\'abord l\'immeuble —</option>';
+      return;
+    }
+    const prop = (this._availableProperties || []).find((p) => Number(p.id) === Number(propId));
+    const apts = prop?.apartments || [];
+    if (!apts.length) {
+      aptSelect.innerHTML = '<option value="">Aucun logement dans cet immeuble</option>';
+      return;
+    }
+    aptSelect.innerHTML = '<option value="">— Sélectionner le logement —</option>' +
+      apts.map((a) => `<option value="${a.id}" data-rent="${a.rent_amount || ''}">${Helpers.escapeHtml(a.apartment_number)} (${Helpers.formatMoney(a.rent_amount || 0)})</option>`).join('');
+  },
+
+  async onNewReceiptAptChange(aptId) {
+    if (!aptId) return;
+    try {
+      const res = await API.get(`/apartments/${aptId}`);
+      const apt = res.data;
+      if (apt) {
+        const amtInput = document.getElementById('new_rec_amount');
+        if (amtInput && !amtInput.value && apt.rent_amount) {
+          amtInput.value = apt.rent_amount;
+        }
+        const activeTenant = (apt.tenants || []).find((t) => t.status === 'active') || (apt.tenants || [])[0];
+        if (activeTenant) {
+          const tNameInput = document.getElementById('new_rec_tenant_name');
+          const tPhoneInput = document.getElementById('new_rec_tenant_phone');
+          const tIdInput = document.getElementById('new_rec_tenant_id');
+          if (tNameInput && activeTenant.user?.full_name) tNameInput.value = activeTenant.user.full_name;
+          if (tPhoneInput && activeTenant.user?.phone) tPhoneInput.value = activeTenant.user.phone;
+          if (tIdInput) tIdInput.value = activeTenant.id;
+        }
+      }
+    } catch (_) {}
+  },
+
+  async submitNewReceipt(e) {
+    e.preventDefault();
+    const btn = document.getElementById('btnSubmitNewReceipt');
+    if (btn) btn.disabled = true;
+
+    const property_id = document.getElementById('new_rec_property')?.value || null;
+    const apartment_id = document.getElementById('new_rec_apartment')?.value || null;
+    const tenant_id = document.getElementById('new_rec_tenant_id')?.value || null;
+    const tenant_name = document.getElementById('new_rec_tenant_name')?.value.trim();
+    const receipt_type = document.getElementById('new_rec_type')?.value || 'rent';
+    const amount = parseFloat(document.getElementById('new_rec_amount')?.value) || 0;
+    const payment_date = document.getElementById('new_rec_payment_date')?.value || null;
+    const payment_method = document.getElementById('new_rec_payment_method')?.value || '';
+    const period_start = document.getElementById('new_rec_period_start')?.value || null;
+    const period_end = document.getElementById('new_rec_period_end')?.value || null;
+    const observations = document.getElementById('new_rec_observations')?.value.trim() || null;
+
+    if (!amount || amount <= 0) {
+      Toast.warning('Veuillez indiquer un montant valide');
+      if (btn) btn.disabled = false;
+      return;
+    }
+
+    try {
+      const payload = {
+        property_id: property_id ? Number(property_id) : null,
+        apartment_id: apartment_id ? Number(apartment_id) : null,
+        tenant_id: tenant_id ? Number(tenant_id) : null,
+        tenant_name,
+        receipt_type,
+        amount,
+        payment_date,
+        payment_method,
+        period_start,
+        period_end,
+        observations,
+      };
+
+      const res = await API.post('/receipts/custom', payload);
+      const createdReceipt = res.data;
+
+      Toast.success('Reçu émis et archivé avec succès ! 🎉');
+      Modal.close();
+      await this.loadReceipts();
+
+      if (window.ReceiptManager && createdReceipt) {
+        ReceiptManager.open(createdReceipt);
+      }
+    } catch (err) {
+      Toast.error(err.message || 'Erreur lors de l\'émission du reçu');
+      if (btn) btn.disabled = false;
     }
   },
 };

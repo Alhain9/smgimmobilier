@@ -240,8 +240,9 @@ const PagePayments = {
         <!-- 4. MÉTHODE & STATUT -->
         <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
           <div class="form-group">
-            <label for="pay_method" style="font-weight:600;">Mode de paiement *</label>
+            <label for="pay_method" style="font-weight:600;">Mode de paiement</label>
             <select id="pay_method" class="form-control">
+              <option value="" ${!defaultMethod ? 'selected' : ''}>— Aucun / Non spécifié —</option>
               <option value="orange_money" ${defaultMethod === 'orange_money' ? 'selected' : ''}>Orange Money</option>
               <option value="mtn_mobile_money" ${defaultMethod === 'mtn_mobile_money' ? 'selected' : ''}>MTN MoMo</option>
               <option value="cash" ${defaultMethod === 'cash' ? 'selected' : ''}>Espèces</option>

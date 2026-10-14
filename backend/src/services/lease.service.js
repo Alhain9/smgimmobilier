@@ -1,10 +1,27 @@
 const { Lease, Tenant, Apartment, Property, User } = require('../models');
+const { Op } = require('sequelize');
 
 class LeaseService {
   _tenantInc() { return { model: Tenant, as: 'tenant', include: [{ model: User, as: 'user', attributes: ['id', 'full_name', 'phone'] }] }; }
-  getAll() {
+  getAll(filters = {}) {
+    const where = {};
+    if (filters.status) where.status = filters.status;
+    if (filters.tenant_id) where.tenant_id = filters.tenant_id;
+    if (filters.apartment_id) where.apartment_id = filters.apartment_id;
+    if (Array.isArray(filters.ownerPropertyIds)) {
+      where['$apartment.property_id$'] = { [Op.in]: filters.ownerPropertyIds };
+    }
     return Lease.findAll({
-      include: [this._tenantInc(), { model: Apartment, as: 'apartment', include: [{ model: Property, as: 'property', attributes: ['property_name'] }] }],
+      where,
+      include: [
+        this._tenantInc(),
+        {
+          model: Apartment,
+          as: 'apartment',
+          attributes: ['id', 'apartment_number', 'apartment_type', 'rent_amount', 'property_id'],
+          include: [{ model: Property, as: 'property', attributes: ['id', 'property_name', 'city'] }],
+        },
+      ],
       order: [['created_at', 'DESC']],
     });
   }

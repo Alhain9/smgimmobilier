@@ -86,6 +86,7 @@ const PagePayments = {
     const isAdminOrManager = Auth.hasRole('super_admin', 'manager', 'admin');
     const canCreate = Auth.hasRole('manager', 'super_admin', 'admin', 'comptable', 'dir_admin', 'gestionnaire');
     const canContact = Auth.hasRole('manager', 'super_admin', 'admin', 'comptable', 'dir_admin', 'gestionnaire');
+    const canManage = Auth.hasRole('manager', 'super_admin', 'admin', 'comptable', 'dir_admin', 'gestionnaire');
 
     if (isAdminOrManager && (!this._staffUsers || !this._staffUsers.length)) {
       try {
@@ -145,7 +146,7 @@ const PagePayments = {
              <button class="btn btn-sm btn-outline" title="Télécharger le reçu officiel PDF" onclick="PagePayments.downloadPdf(${r.id})" style="font-weight:600;display:inline-flex;align-items:center;gap:4px;">📄 PDF</button>` 
           : `<button class="btn btn-sm btn-outline" title="Rappel de paiement PDF" onclick="PagePayments.pdfReminder(${r.id})">📄 Rappel</button>`}
         ${r.tenant?.id ? `<button class="btn btn-sm btn-outline" title="Relevé de compte" onclick="PageSituation.ledger(${r.tenant.id})">📋</button>` : ''}
-        ${(isAdminOrManager || r.created_by === Auth.getUser()?.id || Boolean(r.apartment?.property?.is_assigned)) ? `<button class="btn btn-sm btn-outline" title="Modifier" onclick="PagePayments.edit(${r.id})">✏️</button>
+        ${canManage ? `<button class="btn btn-sm btn-outline" title="Modifier" onclick="PagePayments.edit(${r.id})">✏️</button>
         <button class="btn btn-sm btn-danger" title="Supprimer" onclick="PagePayments.remove(${r.id})">🗑</button>` : ''}`,
     });
     this._rows = {}; (data || []).forEach((r) => { this._rows[r.id] = r; });

@@ -75,9 +75,10 @@ module.exports = {
       });
       if (!existing) return error(res, 'Paiement introuvable', 404);
       if (!isAdminOrManager) {
-        const isCreator = existing.created_by === req.user.id;
+        const isCreator = existing.created_by && Number(existing.created_by) === Number(req.user.id);
         const isAssigned = req.assignedPropertyIds && existing.apartment && req.assignedPropertyIds.includes(Number(existing.apartment.property_id));
-        if (!isCreator && !isAssigned) {
+        const isLegacyOrNoRestriction = (!existing.created_by || !req.assignedPropertyIds || req.assignedPropertyIds.length === 0);
+        if (!isCreator && !isAssigned && !isLegacyOrNoRestriction) {
           return error(res, 'Accès refusé : vous ne pouvez modifier que vos propres paiements ou ceux des immeubles qui vous sont assignés', 403);
         }
       }
@@ -93,9 +94,10 @@ module.exports = {
       });
       if (!existing) return error(res, 'Paiement introuvable', 404);
       if (!isAdminOrManager) {
-        const isCreator = existing.created_by === req.user.id;
+        const isCreator = existing.created_by && Number(existing.created_by) === Number(req.user.id);
         const isAssigned = req.assignedPropertyIds && existing.apartment && req.assignedPropertyIds.includes(Number(existing.apartment.property_id));
-        if (!isCreator && !isAssigned) {
+        const isLegacyOrNoRestriction = (!existing.created_by || !req.assignedPropertyIds || req.assignedPropertyIds.length === 0);
+        if (!isCreator && !isAssigned && !isLegacyOrNoRestriction) {
           return error(res, 'Accès refusé : vous ne pouvez supprimer que vos propres paiements ou ceux des immeubles qui vous sont assignés', 403);
         }
       }
@@ -115,9 +117,10 @@ module.exports = {
             include: [{ model: Apartment, as: 'apartment', attributes: ['id', 'property_id'] }],
           });
           if (existing) {
-            const isCreator = existing.created_by === req.user.id;
+            const isCreator = existing.created_by && Number(existing.created_by) === Number(req.user.id);
             const isAssigned = req.assignedPropertyIds && existing.apartment && req.assignedPropertyIds.includes(Number(existing.apartment.property_id));
-            if (isAdminOrManager || isCreator || isAssigned) {
+            const isLegacyOrNoRestriction = (!existing.created_by || !req.assignedPropertyIds || req.assignedPropertyIds.length === 0);
+            if (isAdminOrManager || isCreator || isAssigned || isLegacyOrNoRestriction) {
               await paymentService.remove(id);
               deletedCount++;
             }

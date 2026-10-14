@@ -6,10 +6,24 @@ const PageLeases = {
   _apartments: [],
   _properties: [],
   _rows: {},
+  _showAll: false,
+
+  toggleShowAll() {
+    this._showAll = !this._showAll;
+    this.render();
+  },
 
   async fields() {
     this._tenants = (await API.get('/tenants')).data || [];
     this._apartments = (await API.get('/apartments')).data || [];
+
+    const isAdminOrManager = Auth.hasRole('super_admin', 'manager', 'admin');
+    const hasAssigned = this._apartments.some((a) => a.is_assigned);
+    let selectableApts = this._apartments;
+    if (!isAdminOrManager && hasAssigned) {
+      selectableApts = this._apartments.filter((a) => a.is_assigned);
+    }
+
     return [
       {
         name: 'tenant_id', label: 'Locataire', type: 'select', required: true,
@@ -17,7 +31,7 @@ const PageLeases = {
       },
       {
         name: 'apartment_id', label: 'Logement & Immeuble', type: 'select', required: true,
-        options: this._apartments.map((a) => ({
+        options: selectableApts.map((a) => ({
           value: a.id,
           label: `${a.apartment_number} — ${a.property?.property_name || 'Immeuble'} (${Helpers.formatMoney(a.rent_amount)}/mois)`,
           rent: a.rent_amount,
@@ -49,10 +63,54 @@ const PageLeases = {
   },
 
   async render() {
-    const canEdit = Auth.hasRole('manager', 'dir_admin', 'gestionnaire', 'comptable');
-    const canContact = Auth.hasRole('manager', 'dir_admin', 'gestionnaire', 'comptable');
+    const isAdminOrManager = Auth.hasRole('super_admin', 'manager', 'admin');
+    const isRestrictedRole = Auth.hasRole('comptable', 'gestionnaire', 'dir_admin', 'dir_technique') && !isAdminOrManager;
+    const canManage = Auth.hasRole('super_admin', 'manager', 'admin', 'comptable', 'dir_admin', 'gestionnaire');
+    const canContact = Auth.hasRole('super_admin', 'manager', 'admin', 'comptable', 'dir_admin', 'gestionnaire');
+
+    let allLeases = [];
+    try {
+      const res = await API.get('/leases');
+      allLeases = res.data || [];
+    } catch (_) {
+      allLeases = [];
+    }
+
+    const hasAssigned = allLeases.some((l) => l.is_assigned);
+    const assignedCount = allLeases.filter((l) => l.is_assigned).length;
+    const othersCount = allLeases.length - assignedCount;
+
+    let filterBanner = '';
+    if (isRestrictedRole && hasAssigned) {
+      if (!this._showAll) {
+        filterBanner = `
+          <div style="background:#e8f5e9;border:1px solid #c8e6c9;padding:10px 16px;border-radius:8px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+            <div style="font-size:13px;color:#1b5e20;font-weight:600">
+              📑 <b>Affichage prioritaire :</b> Vous visualisez les <b>${assignedCount}</b> contrat(s) de vos immeubles assignés. ${othersCount > 0 ? `(${othersCount} autre(s) contrat(s) masqué(s))` : ''}
+            </div>
+            ${othersCount > 0 ? `
+              <button class="btn btn-sm btn-outline" style="border-color:#2e7d32;color:#1b5e20" onclick="PageLeases.toggleShowAll()">
+                👁️ Afficher tous les contrats (démasquer)
+              </button>
+            ` : ''}
+          </div>
+        `;
+      } else {
+        filterBanner = `
+          <div style="background:#fff3cd;border:1px solid #ffeeba;padding:10px 16px;border-radius:8px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+            <div style="font-size:13px;color:#856404;font-weight:600">
+              👁️ <b>Tous les contrats sont affichés :</b> Visualisation globale de tous les immeubles.
+            </div>
+            <button class="btn btn-sm btn-primary" onclick="PageLeases.toggleShowAll()">
+              🔒 Masquer les autres contrats
+            </button>
+          </div>
+        `;
+      }
+    }
 
     const toolbar = `
+      ${filterBanner}
       <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
         <button class="btn btn-outline" onclick="Router.go('properties')">
           <span class="btn-icon">🏢</span> Modèles de contrat dans les Immeubles
@@ -64,9 +122,13 @@ const PageLeases = {
       endpoint: '/leases',
       title: 'Contrats de bail',
       toolbar,
-      canCreate: canEdit,
+      canCreate: isAdminOrManager || (isRestrictedRole && hasAssigned) || canManage,
       onCreate: 'PageLeases.create',
       searchable: true,
+      mapData: (all) => {
+        if (!isRestrictedRole || !hasAssigned || this._showAll) return all;
+        return all.filter((l) => l.is_assigned);
+      },
       columns: [
         {
           label: 'Locataire',
@@ -81,7 +143,10 @@ const PageLeases = {
           render: (r) => {
             const apt = r.apartment?.apartment_number || '—';
             const prop = r.apartment?.property?.property_name || '—';
-            return `<b>Logement ${apt}</b><br><small class="text-muted">🏢 ${prop}</small>`;
+            const badge = r.is_assigned
+              ? `<span style="display:inline-block;background:#d4edda;color:#155724;font-size:10px;font-weight:700;padding:1px 6px;border-radius:20px;margin-left:4px">★ Mon immeuble</span>`
+              : '';
+            return `<b>Logement ${apt}</b> ${badge}<br><small class="text-muted">🏢 ${prop}</small>`;
           },
         },
         {
@@ -131,24 +196,29 @@ const PageLeases = {
                 <a class="btn btn-sm btn-outline" href="${Helpers.fileUrl(r.contract_file)}" ${isWord ? 'download' : 'target="_blank"'} title="${isWord ? 'Télécharger le contrat Word signé' : 'Consulter le contrat PDF signé'}" style="color:var(--primary);font-weight:600">
                   ${isWord ? '📄 Word signé' : '📄 PDF signé'}
                 </a>
-                ${canEdit ? `<button class="btn btn-sm btn-outline" onclick="PageLeases.uploadContract(${r.id})" title="Remplacer le fichier signé">🔄</button>` : ''}
+                ${canManage ? `<button class="btn btn-sm btn-outline" onclick="PageLeases.uploadContract(${r.id})" title="Remplacer le fichier signé">🔄</button>` : ''}
               </div>`;
             }
-            if (canEdit) {
+            if (canManage) {
               return `<button class="btn btn-sm btn-outline" onclick="PageLeases.uploadContract(${r.id})" title="Joindre le contrat signé (Word ou PDF)" style="color:var(--primary);font-weight:600">⬆ Joindre Contrat</button>`;
             }
             return '<span class="text-muted">Non téléversé</span>';
           },
         },
       ],
-      rowActions: (r) => `
-        <button class="btn btn-sm btn-outline" title="Imprimer ou télécharger le modèle de l'immeuble" onclick="PageLeases.printBuildingTemplate(${r.id})">🖨️ Modèle Immeuble</button>
-        ${canEdit ? `<button class="btn btn-sm btn-success" title="Renouveler le bail (nouvelle période)" onclick="PageLeases.renewModal(${r.id})">🔄 Renouveler</button>` : ''}
-        ${canContact ? `<button class="btn btn-sm btn-whatsapp" title="Relance WhatsApp" onclick="PageLeases.whatsapp(${r.id})">🟢</button>` : ''}
-        ${canEdit ? `<button class="btn btn-sm btn-outline" title="Joindre / Remplacer contrat signé" onclick="PageLeases.uploadContract(${r.id})">⬆</button>
-        <button class="btn btn-sm btn-outline" title="Modifier" onclick="PageLeases.edit(${r.id})">✏️</button>` : ''}
-        ${Auth.hasRole('manager', 'dir_admin', 'comptable') ? `<button class="btn btn-sm btn-danger" title="Supprimer" onclick="PageLeases.remove(${r.id})">🗑</button>` : ''}
-      `,
+      rowActions: (r) => {
+        const canManageRow = isAdminOrManager || Boolean(r.is_assigned);
+        return `
+          <button class="btn btn-sm btn-outline" title="Imprimer ou télécharger le modèle de l'immeuble" onclick="PageLeases.printBuildingTemplate(${r.id})">🖨️ Modèle Immeuble</button>
+          ${canManage && canManageRow ? `<button class="btn btn-sm btn-success" title="Renouveler le bail (nouvelle période)" onclick="PageLeases.renewModal(${r.id})">🔄 Renouveler</button>` : ''}
+          ${canContact ? `<button class="btn btn-sm btn-whatsapp" title="Relance WhatsApp" onclick="PageLeases.whatsapp(${r.id})">🟢</button>` : ''}
+          ${canManage && canManageRow ? `
+            <button class="btn btn-sm btn-outline" title="Joindre / Remplacer contrat signé" onclick="PageLeases.uploadContract(${r.id})">⬆</button>
+            <button class="btn btn-sm btn-outline" title="Modifier" onclick="PageLeases.edit(${r.id})">✏️</button>
+            <button class="btn btn-sm btn-danger" title="Supprimer" onclick="PageLeases.remove(${r.id})">🗑</button>
+          ` : ''}
+        `;
+      },
     });
 
     this._rows = {};

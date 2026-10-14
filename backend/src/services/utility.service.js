@@ -35,6 +35,17 @@ class UtilityService {
     if (filters.status) where.status = filters.status;
     if (filters.period_month) where.period_month = filters.period_month;
     if (filters.period_year) where.period_year = filters.period_year;
+
+    if (filters.created_by) {
+      where.created_by = filters.created_by;
+    }
+    if (filters.userOrPropertyCondition) {
+      Object.assign(where, filters.userOrPropertyCondition);
+    }
+    if (Array.isArray(filters.ownerPropertyIds)) {
+      where['$apartment.property_id$'] = { [Op.in]: filters.ownerPropertyIds };
+    }
+
     return UtilityBill.findAll({
       where, include: this._inc(),
       order: [['period_year', 'DESC'], ['period_month', 'DESC'], ['id', 'DESC']],

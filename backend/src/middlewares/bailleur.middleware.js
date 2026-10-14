@@ -18,14 +18,14 @@ const injectOwnerProperties = async (req, res, next) => {
       });
       req.ownerPropertyIds = properties.map((p) => p.id);
       req.assignedPropertyIds = null;
-    } else if (req.user && (req.user.role === 'gestionnaire' || req.user.role === 'comptable')) {
-      // Injecter les immeubles affectés au gestionnaire/comptable
+    } else if (req.user && !['super_admin', 'admin', 'manager', 'locataire'].includes(req.user.role)) {
+      // Injecter les immeubles affectés aux collaborateurs (gestionnaire, comptable, dir_admin, dir_technique, etc.)
       const links = await ManagerProperty.findAll({
         where: { user_id: req.user.id },
         attributes: ['property_id'],
         raw: true,
       });
-      req.assignedPropertyIds = links.map((l) => l.property_id);
+      req.assignedPropertyIds = links.map((l) => Number(l.property_id)).filter(Boolean);
       req.ownerPropertyIds = null;
     } else {
       req.ownerPropertyIds = null;

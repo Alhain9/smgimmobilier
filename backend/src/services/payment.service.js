@@ -30,7 +30,20 @@ class PaymentService {
     const where = {};
     if (filters.status) where.status = filters.status;
     if (filters.tenant_id) where.tenant_id = filters.tenant_id;
+    if (filters.created_by) where.created_by = filters.created_by;
+    if (filters.userOrPropertyCondition) {
+      Object.assign(where, filters.userOrPropertyCondition);
+    }
+    if (Array.isArray(filters.ownerPropertyIds)) {
+      where['$apartment.property_id$'] = { [Op.in]: filters.ownerPropertyIds };
+    }
     return Payment.findAll({ where, include: this._inc(), order: [['payment_date', 'DESC']] });
+  }
+  async remove(id) {
+    const p = await Payment.findByPk(id);
+    if (!p) throw Object.assign(new Error('Paiement introuvable'), { status: 404 });
+    await p.destroy();
+    return true;
   }
   async getById(id, currentUser) {
     let p = await Payment.findByPk(id, { include: this._inc() });
@@ -49,6 +62,7 @@ class PaymentService {
   }
   async create(data, user) {
     if (!data.payment_date) data.payment_date = new Date().toISOString().slice(0, 10);
+    if (user && user.id && !data.created_by) data.created_by = user.id;
     const p = await Payment.create(data);
     const sansPreuve = !p.payment_proof && p.status === 'awaiting_confirmation';
     await this._log(p.id, 'created', `Paiement créé : ${Number(p.amount)} FCFA${sansPreuve ? ' (en attente de justification)' : ''}`, p, user);

@@ -8,9 +8,113 @@ const base = createCrudController(service, {
 
 module.exports = {
   ...base,
+  getAll: async (req, res, next) => {
+    try {
+      const { ManagerProperty } = require('../models');
+      const { Op } = require('sequelize');
+      const isAdminOrManager = req.user && ['super_admin', 'admin', 'manager'].includes(req.user.role);
+
+      let createdBy = null;
+      let userOrPropertyCondition = null;
+
+      if (req.user && !isAdminOrManager && !req.user.is_bailleur) {
+        const assignedLinks = await ManagerProperty.findAll({
+          where: { user_id: req.user.id },
+          attributes: ['property_id'],
+        });
+        const assignedPropertyIds = assignedLinks.map((l) => Number(l.property_id)).filter(Boolean);
+
+        if (assignedPropertyIds.length > 0) {
+          userOrPropertyCondition = {
+            [Op.or]: [
+              { created_by: req.user.id },
+              { '$apartment.property_id$': { [Op.in]: assignedPropertyIds } },
+            ],
+          };
+        } else {
+          createdBy = req.user.id;
+        }
+      } else if (isAdminOrManager) {
+        if (req.query.created_by || req.query.user_id) {
+          createdBy = req.query.created_by || req.query.user_id;
+        }
+      }
+
+      const filters = {
+        ...req.query,
+        created_by: createdBy,
+        userOrPropertyCondition,
+        ownerPropertyIds: req.ownerPropertyIds || null,
+      };
+
+      const data = await service.getAll(filters);
+      return success(res, data);
+    } catch (err) { next(err); }
+  },
   create: async (req, res, next) => {
     try { return success(res, await service.create(req.body, req.user), 'Facture enregistrée', 201); }
     catch (e) { next(e); }
+  },
+  update: async (req, res, next) => {
+    try {
+      const { UtilityBill, Apartment } = require('../models');
+      const isAdminOrManager = req.user && ['super_admin', 'admin', 'manager'].includes(req.user.role);
+      const existing = await UtilityBill.findByPk(req.params.id, {
+        include: [{ model: Apartment, as: 'apartment', attributes: ['id', 'property_id'] }],
+      });
+      if (!existing) return error(res, 'Facture introuvable', 404);
+      if (!isAdminOrManager) {
+        const isCreator = existing.created_by === req.user.id;
+        const isAssigned = req.assignedPropertyIds && existing.apartment && req.assignedPropertyIds.includes(Number(existing.apartment.property_id));
+        if (!isCreator && !isAssigned) {
+          return error(res, 'Accès refusé : vous ne pouvez modifier que vos propres factures ou celles des immeubles qui vous sont assignés', 403);
+        }
+      }
+      return success(res, await service.update(req.params.id, req.body), 'Facture mise à jour');
+    } catch (err) { next(err); }
+  },
+  remove: async (req, res, next) => {
+    try {
+      const { UtilityBill, Apartment } = require('../models');
+      const isAdminOrManager = req.user && ['super_admin', 'admin', 'manager'].includes(req.user.role);
+      const existing = await UtilityBill.findByPk(req.params.id, {
+        include: [{ model: Apartment, as: 'apartment', attributes: ['id', 'property_id'] }],
+      });
+      if (!existing) return error(res, 'Facture introuvable', 404);
+      if (!isAdminOrManager) {
+        const isCreator = existing.created_by === req.user.id;
+        const isAssigned = req.assignedPropertyIds && existing.apartment && req.assignedPropertyIds.includes(Number(existing.apartment.property_id));
+        if (!isCreator && !isAssigned) {
+          return error(res, 'Accès refusé : vous ne pouvez supprimer que vos propres factures ou celles des immeubles qui vous sont assignés', 403);
+        }
+      }
+      await service.remove(req.params.id);
+      return success(res, null, 'Facture supprimée');
+    } catch (err) { next(err); }
+  },
+  bulkRemove: async (req, res, next) => {
+    try {
+      const { UtilityBill, Apartment } = require('../models');
+      const isAdminOrManager = req.user && ['super_admin', 'admin', 'manager'].includes(req.user.role);
+      const ids = req.body.ids || [];
+      let deletedCount = 0;
+      for (const id of ids) {
+        try {
+          const existing = await UtilityBill.findByPk(id, {
+            include: [{ model: Apartment, as: 'apartment', attributes: ['id', 'property_id'] }],
+          });
+          if (existing) {
+            const isCreator = existing.created_by === req.user.id;
+            const isAssigned = req.assignedPropertyIds && existing.apartment && req.assignedPropertyIds.includes(Number(existing.apartment.property_id));
+            if (isAdminOrManager || isCreator || isAssigned) {
+              await service.remove(id);
+              deletedCount++;
+            }
+          }
+        } catch (_) {}
+      }
+      return success(res, { count: deletedCount }, `${deletedCount} facture(s) supprimée(s)`);
+    } catch (err) { next(err); }
   },
   // Dernière facture d'un logement → pour reporter l'ancien index + prix/frais et impayés
   getLast: async (req, res, next) => {

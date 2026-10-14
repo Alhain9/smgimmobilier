@@ -53,8 +53,56 @@ module.exports = {
   },
   vacate: async (req, res, next) => {
     try {
+      const isAdminOrManager = req.user && ['super_admin', 'admin', 'manager'].includes(req.user.role);
+      const tenant = await tenantService.getById(req.params.id);
+      const propId = tenant.apartment && tenant.apartment.property ? tenant.apartment.property.id : (tenant.apartment ? tenant.apartment.property_id : null);
+      if (!isAdminOrManager && propId && (!req.assignedPropertyIds || !req.assignedPropertyIds.includes(Number(propId)))) {
+        throw Object.assign(new Error("Action non autorisée : vous ne pouvez libérer que les locataires des immeubles qui vous sont assignés"), { status: 403 });
+      }
       const data = await tenantService.vacate(req.params.id, req.body);
       return success(res, data, 'Départ du locataire enregistré et logement libéré avec succès');
+    } catch (err) { next(err); }
+  },
+  update: async (req, res, next) => {
+    try {
+      const isAdminOrManager = req.user && ['super_admin', 'admin', 'manager'].includes(req.user.role);
+      const tenant = await tenantService.getById(req.params.id);
+      const propId = tenant.apartment && tenant.apartment.property ? tenant.apartment.property.id : (tenant.apartment ? tenant.apartment.property_id : null);
+      if (!isAdminOrManager && propId && (!req.assignedPropertyIds || !req.assignedPropertyIds.includes(Number(propId)))) {
+        throw Object.assign(new Error("Action non autorisée : vous ne pouvez modifier que les locataires des immeubles qui vous sont assignés"), { status: 403 });
+      }
+      const data = await tenantService.update(req.params.id, req.body, req.file);
+      return success(res, data, 'Locataire mis à jour');
+    } catch (err) { next(err); }
+  },
+  remove: async (req, res, next) => {
+    try {
+      const isAdminOrManager = req.user && ['super_admin', 'admin', 'manager'].includes(req.user.role);
+      const tenant = await tenantService.getById(req.params.id);
+      const propId = tenant.apartment && tenant.apartment.property ? tenant.apartment.property.id : (tenant.apartment ? tenant.apartment.property_id : null);
+      if (!isAdminOrManager && propId && (!req.assignedPropertyIds || !req.assignedPropertyIds.includes(Number(propId)))) {
+        throw Object.assign(new Error("Action non autorisée : vous ne pouvez supprimer que les locataires des immeubles qui vous sont assignés"), { status: 403 });
+      }
+      await tenantService.remove(req.params.id);
+      return success(res, null, 'Locataire supprimé');
+    } catch (err) { next(err); }
+  },
+  bulkRemove: async (req, res, next) => {
+    try {
+      const isAdminOrManager = req.user && ['super_admin', 'admin', 'manager'].includes(req.user.role);
+      const ids = req.body.ids || [];
+      let deletedCount = 0;
+      for (const id of ids) {
+        try {
+          const tenant = await tenantService.getById(id);
+          const propId = tenant.apartment && tenant.apartment.property ? tenant.apartment.property.id : (tenant.apartment ? tenant.apartment.property_id : null);
+          if (isAdminOrManager || !propId || (req.assignedPropertyIds && req.assignedPropertyIds.includes(Number(propId)))) {
+            await tenantService.remove(id);
+            deletedCount++;
+          }
+        } catch (_) {}
+      }
+      return success(res, { count: deletedCount }, `${deletedCount} locataire(s) supprimé(s)`);
     } catch (err) { next(err); }
   },
   settleDebt: async (req, res, next) => {

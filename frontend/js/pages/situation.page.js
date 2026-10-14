@@ -212,7 +212,16 @@ const PageSituation = {
       caution: sum('caution'),
     };
 
-    const headCols = this.COLS.map((c) => `<th style="white-space:nowrap;background:#e8f5e9;color:#1b5e20;border:1px solid #c8e6c9;font-weight:700;font-size:11.5px;text-align:center">${c[1]}</th>`).join('');
+    const isAdminOrManager = Auth.hasRole('super_admin', 'manager', 'admin');
+    const isAssignedProperty = this._properties && this._properties.find(p => Number(p.id) === Number(propertyId))?.is_assigned;
+    const canManageProperty = isAdminOrManager || Boolean(isAssignedProperty);
+
+    const headCols = this.COLS.map((c) => {
+      const isPeriod = c[0] === 'periode_paiement';
+      const extraStyle = isPeriod ? 'min-width:185px;' : '';
+      return `<th style="white-space:nowrap;background:#e8f5e9;color:#1b5e20;border:1px solid #c8e6c9;font-weight:700;font-size:11.5px;text-align:center;${extraStyle}">${c[1]}</th>`;
+    }).join('');
+
     const thead = `
       <thead>
         <tr>
@@ -231,7 +240,9 @@ const PageSituation = {
         if (idx === 0 && l.is_overridden) {
           cellContent += ` <span title="Ligne modifiée manuellement (chiffres ajustés)" style="color:#d97706;font-size:10px;cursor:help">✏️</span>`;
         }
-        return `<td>${cellContent}</td>`;
+        const isPeriod = c[0] === 'periode_paiement';
+        const extraStyle = isPeriod ? 'min-width:185px;white-space:nowrap;' : '';
+        return `<td style="${extraStyle}">${cellContent}</td>`;
       }).join('');
       const canCheck = !!l.tenant_id;
       return `
@@ -243,18 +254,20 @@ const PageSituation = {
           <td class="no-print" style="text-align:center;white-space:nowrap">
             ${l.tenant_id ? `
               <button class="btn btn-sm btn-success" style="padding:2px 6px;margin-right:2px;" title="Enregistrement d'un paiement" onclick="PageSituation.payTenant(${l.tenant_id}, ${l.apartment_id || 'null'}, ${l.montant_loyer || 0})">💳</button>
-              <button class="btn btn-sm btn-warning" style="padding:2px 6px;margin-right:2px;" title="Libérer le logement (départ locataire & reconnaissance de dette)" onclick="PageSituation.vacateRow(${l.apartment_id || 'null'}, ${l.tenant_id})">🚪</button>
+              ${canManageProperty ? `<button class="btn btn-sm btn-warning" style="padding:2px 6px;margin-right:2px;" title="Libérer le logement (départ locataire & reconnaissance de dette)" onclick="PageSituation.vacateRow(${l.apartment_id || 'null'}, ${l.tenant_id})">🚪</button>` : ''}
             ` : `
-              ${l.apartment_id ? `
+              ${l.apartment_id && canManageProperty ? `
                 <button class="btn btn-sm btn-success" style="padding:2px 6px;margin-right:2px;" title="Attribuer à un nouveau locataire (Relouer)" onclick="PageApartments.installTenant(${l.apartment_id}, ${propertyId})">👤</button>
               ` : ''}
             `}
-            <button class="btn btn-sm btn-primary" style="padding:2px 6px;margin-right:2px;" title="Modifier les 12 colonnes de cette ligne (chiffres & libellés)" onclick="PageSituation.editRow(${l.apartment_id || 'null'}, ${l.tenant_id || 'null'}, ${propertyId || 'null'}, '${periodYm || ''}')">✏️</button>
-            ${l.tenant_id ? `
+            ${canManageProperty ? `<button class="btn btn-sm btn-primary" style="padding:2px 6px;margin-right:2px;" title="Modifier les 12 colonnes de cette ligne (chiffres & libellés)" onclick="PageSituation.editRow(${l.apartment_id || 'null'}, ${l.tenant_id || 'null'}, ${propertyId || 'null'}, '${periodYm || ''}')">✏️</button>` : ''}
+            ${l.tenant_id && canManageProperty ? `
               <button class="btn btn-sm btn-outline" style="padding:2px 6px;margin-right:2px;" title="Modifier l'observation" onclick="PageSituation.editObservation(${l.tenant_id}, '${Helpers.escapeHtml(l.observations || '')}')">💬</button>
+            ` : ''}
+            ${l.tenant_id ? `
               <button class="btn btn-sm btn-outline" style="padding:2px 6px;margin-right:2px;" title="Relevé financier" onclick="PageSituation.ledger(${l.tenant_id})">📋</button>
             ` : ''}
-            <button class="btn btn-sm btn-danger" style="padding:2px 7px;" title="Supprimer individuellement" onclick="PageSituation.deleteSingle(${l.tenant_id || 'null'}, ${l.apartment_id || 'null'})">🗑</button>
+            ${canManageProperty ? `<button class="btn btn-sm btn-danger" style="padding:2px 7px;" title="Supprimer individuellement" onclick="PageSituation.deleteSingle(${l.tenant_id || 'null'}, ${l.apartment_id || 'null'})">🗑</button>` : ''}
           </td>
         </tr>
       `;
@@ -304,10 +317,11 @@ const PageSituation = {
   },
 
   updateSelection(containerId) {
+    const isAdminOrManager = Auth.hasRole('super_admin', 'manager', 'admin');
     const checked = Array.from(document.querySelectorAll(`.row-chk-${containerId}:checked`));
     const btn = document.getElementById(`bulkDelBtn_${containerId}`);
     const numEl = document.getElementById(`selNum_${containerId}`);
-    if (btn) btn.style.display = checked.length > 0 ? 'inline-flex' : 'none';
+    if (btn) btn.style.display = (isAdminOrManager && checked.length > 0) ? 'inline-flex' : 'none';
     if (numEl) numEl.textContent = String(checked.length);
   },
 
@@ -684,15 +698,15 @@ const PageSituation = {
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
               <div class="form-group" style="margin-bottom:0">
-                <label style="font-size:11px;font-weight:600;display:block;margin-bottom:2px">Date de paiement</label>
+                <label style="font-size:11px;font-weight:600;display:block;margin-bottom:2px">Date de paiement <span style="font-weight:400;color:var(--text-muted)">(optionnel)</span></label>
                 <input type="date" id="edit_col_pay_date" class="form-control" value="${initialPayDate}" />
               </div>
               <div class="form-group" style="margin-bottom:0">
-                <label style="font-size:11px;font-weight:600;display:block;margin-bottom:2px">Période début (Couverture)</label>
+                <label style="font-size:11px;font-weight:600;display:block;margin-bottom:2px">Période début (Couverture) <span style="font-weight:400;color:var(--text-muted)">(optionnel)</span></label>
                 <input type="date" id="edit_col_period_start" class="form-control" value="${initialPeriodStart}" />
               </div>
               <div class="form-group" style="margin-bottom:0">
-                <label style="font-size:11px;font-weight:600;display:block;margin-bottom:2px">Période fin (Couverture)</label>
+                <label style="font-size:11px;font-weight:600;display:block;margin-bottom:2px">Période fin (Couverture) <span style="font-weight:400;color:var(--text-muted)">(optionnel)</span></label>
                 <input type="date" id="edit_col_period_end" class="form-control" value="${initialPeriodEnd}" />
               </div>
             </div>
@@ -702,9 +716,9 @@ const PageSituation = {
           <!-- 10. MODE DE PAIEMENT & 11. CAUTION -->
           <div style="display:grid;grid-template-columns:1.5fr 1fr;gap:10px;margin-top:10px">
             <div class="form-group">
-              <label style="font-size:11.5px;font-weight:600;display:block;margin-bottom:3px">10. Mode de paiement</label>
+              <label style="font-size:11.5px;font-weight:600;display:block;margin-bottom:3px">10. Mode de paiement <span style="font-weight:400;color:var(--text-muted)">(optionnel)</span></label>
               <select id="edit_col_mode" class="form-control">
-                <option value="" ${!safeMode || safeMode === '—' || safeMode === 'Autre' || safeMode === 'vide' ? 'selected' : ''}>— Aucun / Non spécifié —</option>
+                <option value="" ${!safeMode || safeMode === '—' || safeMode === 'Autre' || safeMode === 'vide' ? 'selected' : ''}>— Aucun paiement ce mois / Non spécifié —</option>
                 <option value="Espèces" ${safeMode.includes('esp') || safeMode === 'cash' ? 'selected' : ''}>Espèces</option>
                 <option value="Virement bancaire" ${safeMode.includes('vir') || safeMode === 'bank_transfer' ? 'selected' : ''}>Virement bancaire</option>
                 <option value="Chèque" ${safeMode.includes('chè') || safeMode.includes('che') || safeMode === 'check' ? 'selected' : ''}>Chèque</option>

@@ -74,13 +74,52 @@ const PagePayments = {
         { value: 'failed', label: 'Échoué' }, { value: 'refunded', label: 'Remboursé' }] },
     ];
   },
+  _staffUsers: [],
+  _filterUserId: '',
+
+  async filterByUser(userId) {
+    this._filterUserId = userId;
+    await this.render();
+  },
+
   async render() {
-    const canEdit = Auth.hasRole('manager', 'comptable', 'dir_admin', 'gestionnaire');
-    const canContact = Auth.hasRole('manager', 'comptable', 'dir_admin', 'gestionnaire');
+    const isAdminOrManager = Auth.hasRole('super_admin', 'manager', 'admin');
+    const canCreate = Auth.hasRole('manager', 'super_admin', 'admin', 'comptable', 'dir_admin', 'gestionnaire');
+    const canContact = Auth.hasRole('manager', 'super_admin', 'admin', 'comptable', 'dir_admin', 'gestionnaire');
+
+    if (isAdminOrManager && (!this._staffUsers || !this._staffUsers.length)) {
+      try {
+        const uRes = await API.get('/users');
+        this._staffUsers = (uRes.data || []).filter((u) => u.status === 'active' && u.role?.name !== 'locataire');
+      } catch (_) {
+        this._staffUsers = [];
+      }
+    }
+
+    let endpoint = '/payments';
+    if (this._filterUserId) {
+      const uId = this._filterUserId === 'mine' ? Auth.user()?.id : this._filterUserId;
+      endpoint = `/payments?created_by=${encodeURIComponent(uId)}`;
+    }
+
+    const toolbarHtml = `
+      <div class="toolbar" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="btn btn-outline" onclick="PagePayments.filterByUser('')">Tous</button>
+        <button class="btn btn-outline" onclick="PagePayments.showDebts()">🔴 Voir les impayés</button>
+        ${isAdminOrManager ? `
+          <select id="paymentStaffFilter" class="form-control" style="max-width:260px;display:inline-block;padding:5px 8px;font-size:12.5px" onchange="PagePayments.filterByUser(this.value)">
+            <option value="">👤 Historique par personne (Tous)</option>
+            <option value="mine" ${this._filterUserId === 'mine' ? 'selected' : ''}>👤 Mes propres paiements uniquement</option>
+            ${(this._staffUsers || []).map((u) => `<option value="${u.id}" ${String(this._filterUserId) === String(u.id) ? 'selected' : ''}>${Helpers.escapeHtml(u.full_name)} (${u.role?.label || u.role?.name || 'Personnel'})</option>`).join('')}
+          </select>
+        ` : ''}
+      </div>
+    `;
+
     const data = await CrudPage.list({
-      endpoint: '/payments', title: 'Paiements',
-      canCreate: canEdit, onCreate: 'PagePayments.create',
-      toolbar: '<div class="toolbar"><button class="btn btn-outline" onclick="Router.go(\'payments\')">Tous</button><button class="btn btn-outline" onclick="PagePayments.showDebts()">🔴 Voir les impayés</button></div>',
+      endpoint, title: 'Paiements',
+      canCreate, onCreate: 'PagePayments.create',
+      toolbar: toolbarHtml,
       columns: [
         { label: 'Locataire', render: (r) => r.tenant?.user ? r.tenant.user.full_name : '—' },
         { label: 'Immeuble', render: (r) => r.apartment?.property
@@ -93,6 +132,7 @@ const PagePayments = {
         { label: 'Date', render: (r) => Helpers.formatDate(r.payment_date) },
         { label: 'Méthode', render: (r) => Helpers.methodLabel(r.payment_method) },
         { label: 'Statut', render: (r) => Helpers.statusBadge(r.status) },
+        { label: 'Enregistré par', render: (r) => r.declarant ? `<span style="font-size:12px;font-weight:600;color:var(--primary)">👤 ${Helpers.escapeHtml(r.declarant.full_name)}</span>` : '<span class="text-muted">—</span>' },
         { label: 'Preuve', render: (r) => r.payment_proof ? `<a href="${Helpers.fileUrl(r.payment_proof)}" target="_blank">📎 Voir</a>` : '—' },
       ],
       rowActions: (r) => `
@@ -105,9 +145,8 @@ const PagePayments = {
              <button class="btn btn-sm btn-outline" title="Télécharger le reçu officiel PDF" onclick="PagePayments.downloadPdf(${r.id})" style="font-weight:600;display:inline-flex;align-items:center;gap:4px;">📄 PDF</button>` 
           : `<button class="btn btn-sm btn-outline" title="Rappel de paiement PDF" onclick="PagePayments.pdfReminder(${r.id})">📄 Rappel</button>`}
         ${r.tenant?.id ? `<button class="btn btn-sm btn-outline" title="Relevé de compte" onclick="PageSituation.ledger(${r.tenant.id})">📋</button>` : ''}
-        ${canEdit ? `<button class="btn btn-sm btn-outline" onclick="PagePayments.uploadProof(${r.id})">⬆</button>
-        <button class="btn btn-sm btn-outline" onclick="PagePayments.edit(${r.id})">✏️</button>
-        <button class="btn btn-sm btn-danger" onclick="PagePayments.remove(${r.id})">🗑</button>` : ''}`,
+        ${(isAdminOrManager || r.created_by === Auth.getUser()?.id || Boolean(r.apartment?.property?.is_assigned)) ? `<button class="btn btn-sm btn-outline" title="Modifier" onclick="PagePayments.edit(${r.id})">✏️</button>
+        <button class="btn btn-sm btn-danger" title="Supprimer" onclick="PagePayments.remove(${r.id})">🗑</button>` : ''}`,
     });
     this._rows = {}; (data || []).forEach((r) => { this._rows[r.id] = r; });
   },

@@ -232,9 +232,10 @@ const PageManagementReports = {
 
   updateSelection() {
     const checked = Array.from(document.querySelectorAll('.row-mr-chk:checked'));
-    const btn = document.getElementById('bulkDelBtn_mr');
-    const numEl = document.getElementById('selNum_mr');
-    if (btn) btn.style.display = checked.length > 0 ? 'inline-flex' : 'none';
+    const pId = this._currentReport?.property?.id;
+    const isAssigned = this._properties && this._properties.find(prop => Number(prop.id) === Number(pId))?.is_assigned;
+    const canManage = Auth.hasRole('super_admin', 'manager', 'admin') || Boolean(isAssigned);
+    if (btn) btn.style.display = (checked.length > 0 && canManage) ? 'inline-flex' : 'none';
     if (numEl) numEl.textContent = String(checked.length);
   },
 
@@ -381,15 +382,15 @@ const PageManagementReports = {
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
               <div class="form-group" style="margin-bottom:0">
-                <label style="font-size:11px;font-weight:600;display:block;margin-bottom:2px">Date de paiement</label>
+                <label style="font-size:11px;font-weight:600;display:block;margin-bottom:2px">Date de paiement <span style="font-weight:400;color:var(--text-muted)">(optionnel)</span></label>
                 <input type="date" id="edit_col_pay_date_mr" class="form-control" value="${initialPayDate}" />
               </div>
               <div class="form-group" style="margin-bottom:0">
-                <label style="font-size:11px;font-weight:600;display:block;margin-bottom:2px">Période début (Couverture)</label>
+                <label style="font-size:11px;font-weight:600;display:block;margin-bottom:2px">Période début (Couverture) <span style="font-weight:400;color:var(--text-muted)">(optionnel)</span></label>
                 <input type="date" id="edit_col_period_start_mr" class="form-control" value="${initialPeriodStart}" />
               </div>
               <div class="form-group" style="margin-bottom:0">
-                <label style="font-size:11px;font-weight:600;display:block;margin-bottom:2px">Période fin (Couverture)</label>
+                <label style="font-size:11px;font-weight:600;display:block;margin-bottom:2px">Période fin (Couverture) <span style="font-weight:400;color:var(--text-muted)">(optionnel)</span></label>
                 <input type="date" id="edit_col_period_end_mr" class="form-control" value="${initialPeriodEnd}" />
               </div>
             </div>
@@ -399,9 +400,9 @@ const PageManagementReports = {
           <!-- 10. MODE DE PAIEMENT & 11. CAUTION -->
           <div style="display:grid;grid-template-columns:1.5fr 1fr;gap:10px;margin-top:10px">
             <div class="form-group">
-              <label style="font-size:11.5px;font-weight:600;display:block;margin-bottom:3px">10. Mode de paiement</label>
+              <label style="font-size:11.5px;font-weight:600;display:block;margin-bottom:3px">10. Mode de paiement <span style="font-weight:400;color:var(--text-muted)">(optionnel)</span></label>
               <select id="edit_col_mode_mr" class="form-control">
-                <option value="" ${!safeMode || safeMode === '—' || safeMode === 'Autre' || safeMode === 'vide' ? 'selected' : ''}>— Aucun / Non spécifié —</option>
+                <option value="" ${!safeMode || safeMode === '—' || safeMode === 'Autre' || safeMode === 'vide' ? 'selected' : ''}>— Aucun paiement ce mois / Non spécifié —</option>
                 <option value="Espèces" ${safeMode.includes('esp') || safeMode === 'cash' ? 'selected' : ''}>Espèces</option>
                 <option value="Virement bancaire" ${safeMode.includes('vir') || safeMode === 'bank_transfer' ? 'selected' : ''}>Virement bancaire</option>
                 <option value="Chèque" ${safeMode.includes('chè') || safeMode.includes('che') || safeMode === 'check' ? 'selected' : ''}>Chèque</option>
@@ -581,6 +582,14 @@ const PageManagementReports = {
       caution: sum('caution'),
     };
 
+    // Synchronisation stricte : Loyer théorique attendu = Total Montant Loyer * nb de mois (0 écart)
+    const periodMonths = Number(r.period?.months) || 1;
+    s.theoretical_rent = Number(sitTotal.montant_loyer) * periodMonths;
+
+    const isAdminOrManager = Auth.hasRole('super_admin', 'manager', 'admin');
+    const isAssignedProp = this._properties && this._properties.find(prop => Number(prop.id) === Number(p.id))?.is_assigned;
+    const canManageProperty = isAdminOrManager || Boolean(isAssignedProp);
+
     const sitTableRows = sitLignes.map((l) => {
       const canCheck = !!l.tenant_id;
       return `
@@ -596,13 +605,13 @@ const PageManagementReports = {
           <td style="${Number(l.arriere_loyer) > 0 ? 'color:var(--danger);font-weight:700' : ''}">${fmt(l.arriere_loyer)}</td>
           <td style="${Number(l.anticipation) > 0 ? 'color:var(--success);font-weight:700' : ''}">${fmt(l.anticipation)}</td>
           <td style="${Number(l.versement_mois) > 0 ? 'color:var(--primary);font-weight:700' : ''}">${fmt(l.versement_mois)}</td>
-          <td>${l.periode_paiement || '—'}</td>
+          <td style="min-width:185px;white-space:nowrap">${l.periode_paiement || '—'}</td>
           <td>${Helpers.methodLabel(l.mode_paiement)}</td>
           <td>${fmt(l.caution)}</td>
           <td style="font-size:12px">${l.observations || '—'}</td>
           <td class="no-print" style="text-align:center;white-space:nowrap">
-            <button class="btn btn-sm btn-primary" style="padding:2px 7px;margin-right:4px;" title="Modifier les 12 colonnes" onclick="PageManagementReports.editRow(${l.apartment_id || 'null'}, ${l.tenant_id || 'null'})">✏️</button>
-            <button class="btn btn-sm btn-danger" style="padding:2px 7px;" title="Supprimer individuellement" onclick="PageManagementReports.deleteSingle(${l.tenant_id || 'null'}, ${l.apartment_id || 'null'})">🗑</button>
+            ${canManageProperty ? `<button class="btn btn-sm btn-primary" style="padding:2px 7px;margin-right:4px;" title="Modifier les 12 colonnes" onclick="PageManagementReports.editRow(${l.apartment_id || 'null'}, ${l.tenant_id || 'null'})">✏️</button>` : ''}
+            ${canManageProperty ? `<button class="btn btn-sm btn-danger" style="padding:2px 7px;" title="Supprimer individuellement" onclick="PageManagementReports.deleteSingle(${l.tenant_id || 'null'}, ${l.apartment_id || 'null'})">🗑</button>` : ''}
           </td>
         </tr>
       `;
@@ -729,7 +738,7 @@ const PageManagementReports = {
                 <th>ARRIERE DE LOYER</th>
                 <th>LOYER PAR ANTICIPATION</th>
                 <th>VERSEMENT AU COUR DU MOIS</th>
-                <th>PÉRIODE CORRESPONDANT AU PAIEMENT</th>
+                <th style="min-width:185px;white-space:nowrap">PÉRIODE CORRESPONDANT AU PAIEMENT</th>
                 <th>MODE DE PAIEMENT</th>
                 <th>CAUTION</th>
                 <th>Observation</th>
@@ -757,7 +766,7 @@ const PageManagementReports = {
                 <tr>
                   <th>Logement</th>
                   <th>Locataire</th>
-                  <th>PERIODE CORRESPONDANT AU PAYEMENT</th>
+                  <th style="min-width:185px;white-space:nowrap">PERIODE CORRESPONDANT AU PAYEMENT</th>
                   <th>Mode(s)</th>
                   <th>N° Reçus</th>
                   <th style="text-align:right">Total Encaissé</th>

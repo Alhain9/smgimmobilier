@@ -34,8 +34,8 @@ const PageApartments = {
     ];
   },
   async render() {
-    const canEdit = Auth.hasRole('manager', 'dir_admin', 'gestionnaire', 'comptable');
-    const isRestrictedRole = Auth.hasRole('comptable', 'gestionnaire') && !Auth.hasRole('manager', 'super_admin');
+    const isAdminOrManager = Auth.hasRole('super_admin', 'manager', 'admin');
+    const isRestrictedRole = Auth.hasRole('comptable', 'gestionnaire', 'dir_admin') && !isAdminOrManager;
 
     let rawApts = [];
     try {
@@ -78,12 +78,12 @@ const PageApartments = {
 
     const toolbar = `
       ${filterBanner}
-      ${canEdit ? `<div class="mb-3"><button class="btn btn-outline" onclick="PageProperties.openImportModal()">📤 Importer la situation (Excel)</button></div>` : ''}
+      ${isAdminOrManager ? `<div class="mb-3"><button class="btn btn-outline" onclick="PageProperties.openImportModal()">📤 Importer la situation (Excel)</button></div>` : ''}
     `;
 
     await CrudPage.list({
       endpoint: '/apartments', title: 'Logements',
-      canCreate: canEdit, onCreate: 'PageApartments.create',
+      canCreate: isAdminOrManager || (isRestrictedRole && hasAssigned), onCreate: 'PageApartments.create',
       toolbar,
       mapData: (all) => {
         if (!isRestrictedRole || !hasAssigned || this._showAll) return all;
@@ -110,15 +110,20 @@ const PageApartments = {
           return Helpers.statusBadge(r.status);
         } },
       ],
-      rowActions: canEdit ? (r) => `
-        ${r.status === 'occupied' ? `
+      rowActions: (r) => {
+        const canManage = isAdminOrManager || Boolean(r.is_assigned);
+        return `
+        ${canManage && r.status === 'occupied' ? `
           <button class="btn btn-sm btn-warning" title="Libérer le logement (départ du locataire / fin de bail)" onclick="PageApartments.openVacateModal(${r.id})">🚪 Libérer</button>
         ` : ''}
-        ${r.status === 'free' ? `
+        ${canManage && r.status === 'free' ? `
           <button class="btn btn-sm btn-success" title="Attribuer à un nouveau locataire (Relouer)" onclick="PageApartments.installTenant(${r.id}, ${r.property_id})">👤 Relouer</button>
         ` : ''}
-        <button class="btn btn-sm btn-outline" title="Modifier le logement" onclick="PageApartments.edit(${r.id})">✏️</button>
-        ${Auth.hasRole('manager') ? `<button class="btn btn-sm btn-danger" title="Supprimer" onclick="PageApartments.remove(${r.id})">🗑</button>` : ''}` : null,
+        ${canManage ? `
+          <button class="btn btn-sm btn-outline" title="Modifier le logement" onclick="PageApartments.edit(${r.id})">✏️</button>
+          <button class="btn btn-sm btn-danger" title="Supprimer" onclick="PageApartments.remove(${r.id})">🗑</button>
+        ` : ''}`;
+      },
     });
   },
   async create() { CrudPage.openForm({ title: 'Nouveau logement', fields: await this.fields(), onSubmit: async (d) => { await API.post('/apartments', d); Toast.success('Créé'); PageApartments.render(); } }); },

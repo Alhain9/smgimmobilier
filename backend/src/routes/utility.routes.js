@@ -4,7 +4,9 @@ const upload = require('../middlewares/upload.middleware');
 const { authenticate } = require('../middlewares/auth.middleware');
 const { authorize, authorizePermission } = require('../middlewares/rbac.middleware');
 
-router.use(authenticate);
+const { injectOwnerProperties } = require('../middlewares/bailleur.middleware');
+
+router.use(authenticate, injectOwnerProperties);
 
 // Générer/gérer les factures de charges : rôles finance/gestion OU droit délégué `can_manage_utilities`
 const manage = authorizePermission('can_manage_utilities', 'super_admin', 'manager', 'comptable', 'dir_admin', 'gestionnaire');

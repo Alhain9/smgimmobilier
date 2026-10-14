@@ -3,9 +3,13 @@ const ctrl = require('../controllers/payment.controller');
 const upload = require('../middlewares/upload.middleware');
 const { authenticate } = require('../middlewares/auth.middleware');
 const { authorize } = require('../middlewares/rbac.middleware');
+const { injectOwnerProperties } = require('../middlewares/bailleur.middleware');
 
-const financeRead = [authenticate, authorize('manager', 'comptable', 'dir_admin', 'gestionnaire')];
-const financeWrite = [authenticate, authorize('manager', 'comptable', 'dir_admin', 'gestionnaire')];
+router.use(authenticate, injectOwnerProperties);
+
+const financeRead = [authorize('manager', 'admin', 'comptable', 'dir_admin', 'gestionnaire')];
+const financeWrite = [authorize('manager', 'admin', 'comptable', 'dir_admin', 'gestionnaire')];
+const financeDelete = [authorize('manager', 'admin', 'comptable', 'dir_admin', 'gestionnaire')];
 
 router.get('/debts', ...financeRead, ctrl.getDebts);
 router.get('/me/ledger', authenticate, ctrl.getMyLedger);          // locataire : son relevé
@@ -15,13 +19,13 @@ router.get('/:id/receipt-pdf', authenticate, ctrl.getReceiptPdf);
 router.get('/:id', authenticate, ctrl.getById);
 
 router.post('/', ...financeWrite, ctrl.create);
-router.post('/bulk-delete', ...financeWrite, ctrl.bulkRemove);
+router.post('/bulk-delete', ...financeDelete, ctrl.bulkRemove);
 router.post('/declare', authenticate, authorize('locataire'), upload.single('proof'), ctrl.declare);
 router.post('/campay/webhook', ctrl.campayWebhook);     // webhook CamPay Mobile Money
 router.post('/:id/proof', authenticate, upload.single('proof'), ctrl.uploadProof);
 
 router.patch('/:id/verify', ...financeRead, ctrl.verify);
 router.put('/:id', ...financeWrite, ctrl.update);
-router.delete('/:id', ...financeWrite, ctrl.remove);
+router.delete('/:id', ...financeDelete, ctrl.remove);
 
 module.exports = router;

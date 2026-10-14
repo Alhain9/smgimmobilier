@@ -9,6 +9,14 @@ const PageUtilities = {
   _rows: {},
   _allBills: [],
   _currentTab: 'factures', // 'factures' | 'facturer' | 'recap_mois' | 'recap_logement'
+  _staffUsers: [],
+  _filterUserId: '',
+
+  async filterByUser(userId) {
+    this._filterUserId = userId;
+    await this.render();
+  },
+
   MONTHS: ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'],
 
   monthLabel(m) { return this.MONTHS[m - 1] || m; },
@@ -61,7 +69,23 @@ const PageUtilities = {
     Layout.setTitle('Charges & Factures d\'Électricité');
     await this.loadBillable();
 
-    const isRestrictedRole = Auth.hasRole('comptable', 'gestionnaire') && !Auth.hasRole('manager', 'super_admin');
+    const isAdminOrManager = Auth.hasRole('super_admin', 'manager', 'admin');
+    const isRestrictedRole = Auth.hasRole('comptable', 'gestionnaire', 'dir_admin') && !isAdminOrManager;
+
+    if (isAdminOrManager && (!this._staffUsers || !this._staffUsers.length)) {
+      try {
+        const uRes = await API.get('/users');
+        this._staffUsers = (uRes.data || []).filter((u) => u.status === 'active' && u.role?.name !== 'locataire');
+      } catch (_) {
+        this._staffUsers = [];
+      }
+    }
+
+    let url = '/utility-bills';
+    if (this._filterUserId) {
+      const uId = this._filterUserId === 'mine' ? (Auth.getUser()?.id || Auth.user()?.id) : this._filterUserId;
+      url = `/utility-bills?created_by=${encodeURIComponent(uId)}`;
+    }
 
     // Charger les stats et factures en parallèle
     let stats = { total_logements: this._apts.length, total_factures: 0, total_collecte: 0, total_impaye: 0, nb_impayes: 0 };
@@ -69,7 +93,7 @@ const PageUtilities = {
     try {
       const [resStats, resBills] = await Promise.all([
         API.get('/utility-bills/stats').catch(() => ({ data: null })),
-        API.get('/utility-bills').catch(() => ({ data: [] }))
+        API.get(url).catch(() => ({ data: [] }))
       ]);
       if (resStats && resStats.data) stats = resStats.data;
       bills = resBills.data || [];
@@ -77,7 +101,7 @@ const PageUtilities = {
       // Si le gestionnaire/comptable a des immeubles affectés et qu'on ne montre pas tout
       if (isRestrictedRole && !this._showAll && this._apts.length > 0) {
         const myAptIds = new Set(this._apts.map((a) => a.id));
-        bills = bills.filter((b) => myAptIds.has(b.apartment_id));
+        bills = bills.filter((b) => myAptIds.has(b.apartment_id) || b.created_by === (Auth.getUser()?.id || Auth.user()?.id));
       }
 
       this._allBills = bills;
@@ -219,6 +243,8 @@ const PageUtilities = {
   // ============================================================
   renderFacturesTab(box) {
     const canEdit = Auth.hasRole('super_admin', 'manager', 'comptable', 'dir_admin', 'gestionnaire');
+    const isAdminOrManager = Auth.hasRole('super_admin', 'manager', 'admin');
+    const currentUser = Auth.getUser() || Auth.user();
     const bills = this._allBills || [];
 
     const rows = bills.map((b) => {
@@ -229,6 +255,8 @@ const PageUtilities = {
       const conso = this.conso(b);
       const isPaid = b.status === 'paid';
       const unit = b.type === 'water' ? 'm³' : 'kWh';
+      const creatorName = b.creator?.full_name ? `<span style="font-size:12px;font-weight:600;color:var(--primary)">👤 ${Helpers.escapeHtml(b.creator.full_name)}</span>` : '<span class="text-muted">—</span>';
+      const canManageBill = isAdminOrManager || (b.created_by === currentUser?.id) || Boolean(b.apartment?.property?.is_assigned);
 
       return `
         <tr>
@@ -255,17 +283,18 @@ const PageUtilities = {
               : `<span class="badge badge-danger" style="font-weight:600">IMPAYÉ</span>`
             }
           </td>
+          <td>${creatorName}</td>
           <td>
             ${isPaid
               ? `<button class="btn btn-sm btn-outline-success" title="Voir le Reçu de Paiement" onclick="PageUtilities.viewReceipt(${b.id})">🧾 Reçu</button>`
-              : (canEdit ? `<button class="btn btn-sm btn-primary" onclick="PageUtilities.openPaymentModal(${b.id})">💳 Régler</button>` : '—')
+              : (canManageBill || canEdit ? `<button class="btn btn-sm btn-primary" onclick="PageUtilities.openPaymentModal(${b.id})">💳 Régler</button>` : '—')
             }
           </td>
           <td>
             <div class="btn-group" style="display:inline-flex;gap:4px">
               <button class="btn btn-sm btn-outline" title="Visualiser la facture" onclick="PageUtilities.viewFacture(${b.id})">👁️ Voir</button>
               <button class="btn btn-sm btn-outline" title="Télécharger facture PDF" onclick="PageUtilities.downloadBillPdf(${b.id})">📄 PDF</button>
-              ${canEdit ? `
+              ${canManageBill ? `
                 <button class="btn btn-sm btn-outline" title="Modifier" onclick="PageUtilities.edit(${b.id})">✏️</button>
                 <button class="btn btn-sm btn-danger" title="Supprimer" onclick="PageUtilities.remove(${b.id})">🗑️</button>
               ` : ''}
@@ -277,7 +306,16 @@ const PageUtilities = {
 
     box.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
-        <input type="search" id="utilitySearchInput" class="form-control search" placeholder="🔎 Rechercher par logement, immeuble, locataire, mois..." style="max-width:360px" oninput="PageUtilities.filterFactures(this.value)" />
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input type="search" id="utilitySearchInput" class="form-control search" placeholder="🔎 Rechercher par logement, immeuble, locataire, mois..." style="max-width:320px" oninput="PageUtilities.filterFactures(this.value)" />
+          ${isAdminOrManager ? `
+            <select id="utilityStaffFilter" class="form-control" style="max-width:260px;display:inline-block;padding:5px 8px;font-size:12.5px" onchange="PageUtilities.filterByUser(this.value)">
+              <option value="">👤 Historique par personne (Tous)</option>
+              <option value="mine" ${this._filterUserId === 'mine' ? 'selected' : ''}>👤 Mes propres factures uniquement</option>
+              ${(this._staffUsers || []).map((u) => `<option value="${u.id}" ${String(this._filterUserId) === String(u.id) ? 'selected' : ''}>${Helpers.escapeHtml(u.full_name)} (${u.role?.label || u.role?.name || 'Personnel'})</option>`).join('')}
+            </select>
+          ` : ''}
+        </div>
         <div style="font-size:12.5px;color:var(--text-muted)" id="utilityFacturesCount">${bills.length} facture(s)</div>
       </div>
 
@@ -307,12 +345,13 @@ const PageUtilities = {
                 <th>Index (Conso)</th>
                 <th>Total Facturé</th>
                 <th>Statut</th>
+                <th>Enregistré par</th>
                 <th>Reçu</th>
                 <th style="width:170px">Actions</th>
               </tr>
             </thead>
             <tbody id="utilityFacturesTbody">
-              ${rows.length ? rows : `<tr><td colspan="${canEdit ? 10 : 9}" class="text-center text-muted p-4">Aucune facture enregistrée pour le moment.</td></tr>`}
+              ${rows.length ? rows : `<tr><td colspan="${canEdit ? 11 : 10}" class="text-center text-muted p-4">Aucune facture enregistrée pour le moment.</td></tr>`}
             </tbody>
           </table>
         </div>
@@ -324,6 +363,8 @@ const PageUtilities = {
     const q = (query || '').toLowerCase().trim();
     const bills = this._allBills || [];
     const canEdit = Auth.hasRole('super_admin', 'manager', 'comptable', 'dir_admin', 'gestionnaire');
+    const isAdminOrManager = Auth.hasRole('super_admin', 'manager', 'admin');
+    const currentUser = Auth.getUser() || Auth.user();
 
     const filtered = !q ? bills : bills.filter((b) => {
       const apt = (b.apartment?.apartment_number || b.identifiant_logement || '').toLowerCase();
@@ -331,7 +372,8 @@ const PageUtilities = {
       const tenant = (b.apartment?.tenants?.[0]?.user?.full_name || '').toLowerCase();
       const month = `${this.monthLabel(b.period_month)} ${b.period_year}`.toLowerCase();
       const status = (b.status || '').toLowerCase();
-      return apt.includes(q) || prop.includes(q) || tenant.includes(q) || month.includes(q) || status.includes(q);
+      const creator = (b.creator?.full_name || '').toLowerCase();
+      return apt.includes(q) || prop.includes(q) || tenant.includes(q) || month.includes(q) || status.includes(q) || creator.includes(q);
     });
 
     const tbody = document.getElementById('utilityFacturesTbody');
@@ -340,7 +382,7 @@ const PageUtilities = {
     if (!tbody) return;
 
     if (!filtered.length) {
-      tbody.innerHTML = `<tr><td colspan="${canEdit ? 10 : 9}" class="text-center text-muted p-4">Aucune facture ne correspond à votre recherche.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="${canEdit ? 11 : 10}" class="text-center text-muted p-4">Aucune facture ne correspond à votre recherche.</td></tr>`;
       return;
     }
 
@@ -352,6 +394,8 @@ const PageUtilities = {
       const conso = this.conso(b);
       const isPaid = b.status === 'paid';
       const unit = b.type === 'water' ? 'm³' : 'kWh';
+      const creatorName = b.creator?.full_name ? `<span style="font-size:12px;font-weight:600;color:var(--primary)">👤 ${Helpers.escapeHtml(b.creator.full_name)}</span>` : '<span class="text-muted">—</span>';
+      const canManageBill = isAdminOrManager || (b.created_by === currentUser?.id) || Boolean(b.apartment?.property?.is_assigned);
 
       return `
         <tr>
@@ -378,17 +422,18 @@ const PageUtilities = {
               : `<span class="badge badge-danger" style="font-weight:600">IMPAYÉ</span>`
             }
           </td>
+          <td>${creatorName}</td>
           <td>
             ${isPaid
               ? `<button class="btn btn-sm btn-outline-success" title="Voir le Reçu de Paiement" onclick="PageUtilities.viewReceipt(${b.id})">🧾 Reçu</button>`
-              : (canEdit ? `<button class="btn btn-sm btn-primary" onclick="PageUtilities.openPaymentModal(${b.id})">💳 Régler</button>` : '—')
+              : (canManageBill || canEdit ? `<button class="btn btn-sm btn-primary" onclick="PageUtilities.openPaymentModal(${b.id})">💳 Régler</button>` : '—')
             }
           </td>
           <td>
             <div class="btn-group" style="display:inline-flex;gap:4px">
               <button class="btn btn-sm btn-outline" title="Visualiser la facture" onclick="PageUtilities.viewFacture(${b.id})">👁️ Voir</button>
               <button class="btn btn-sm btn-outline" title="Télécharger facture PDF" onclick="PageUtilities.downloadBillPdf(${b.id})">📄 PDF</button>
-              ${canEdit ? `
+              ${canManageBill ? `
                 <button class="btn btn-sm btn-outline" title="Modifier" onclick="PageUtilities.edit(${b.id})">✏️</button>
                 <button class="btn btn-sm btn-danger" title="Supprimer" onclick="PageUtilities.remove(${b.id})">🗑️</button>
               ` : ''}

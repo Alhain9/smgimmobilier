@@ -10,11 +10,122 @@ const base = createCrudController(paymentService, {
 
 module.exports = {
   ...base,
+  getAll: async (req, res, next) => {
+    try {
+      const { Tenant, ManagerProperty } = require('../models');
+      const { Op } = require('sequelize');
+      const isAdminOrManager = req.user && ['super_admin', 'admin', 'manager'].includes(req.user.role);
+
+      let tenantId = req.query.tenant_id || null;
+      let createdBy = null;
+      let userOrPropertyCondition = null;
+
+      if (req.user && req.user.role === 'locataire') {
+        const t = await Tenant.findOne({ where: { user_id: req.user.id } });
+        if (!t) return success(res, [], 'Aucun profil locataire');
+        tenantId = t.id;
+      } else if (req.user && !isAdminOrManager && !req.user.is_bailleur) {
+        // Collaborateur (comptable, gestionnaire, directeur administratif...) :
+        // Ne voit que ses propres paiements créés OU les paiements des immeubles auxquels l'admin lui a donné accès
+        const assignedLinks = await ManagerProperty.findAll({
+          where: { user_id: req.user.id },
+          attributes: ['property_id'],
+        });
+        const assignedPropertyIds = assignedLinks.map((l) => Number(l.property_id)).filter(Boolean);
+
+        if (assignedPropertyIds.length > 0) {
+          userOrPropertyCondition = {
+            [Op.or]: [
+              { created_by: req.user.id },
+              { '$apartment.property_id$': { [Op.in]: assignedPropertyIds } },
+            ],
+          };
+        } else {
+          // Aucun immeuble attribué : ne voit que ses propres paiements
+          createdBy = req.user.id;
+        }
+      } else if (isAdminOrManager) {
+        // L'admin et le manager peuvent voir tous les paiements et filtrer par personne
+        if (req.query.created_by || req.query.user_id) {
+          createdBy = req.query.created_by || req.query.user_id;
+        }
+      }
+
+      const filters = {
+        status: req.query.status || null,
+        tenant_id: tenantId,
+        created_by: createdBy,
+        userOrPropertyCondition,
+        ownerPropertyIds: req.ownerPropertyIds || null,
+      };
+
+      const data = await paymentService.getAll(filters);
+      return success(res, data);
+    } catch (err) { next(err); }
+  },
   create: async (req, res, next) => {
     try { return success(res, await paymentService.create(req.body, req.user), 'Paiement enregistré', 201); } catch (err) { next(err); }
   },
   update: async (req, res, next) => {
-    try { return success(res, await paymentService.update(req.params.id, req.body, req.user), 'Paiement mis à jour'); } catch (err) { next(err); }
+    try {
+      const { Payment, Apartment } = require('../models');
+      const isAdminOrManager = req.user && ['super_admin', 'admin', 'manager'].includes(req.user.role);
+      const existing = await Payment.findByPk(req.params.id, {
+        include: [{ model: Apartment, as: 'apartment', attributes: ['id', 'property_id'] }],
+      });
+      if (!existing) return error(res, 'Paiement introuvable', 404);
+      if (!isAdminOrManager) {
+        const isCreator = existing.created_by === req.user.id;
+        const isAssigned = req.assignedPropertyIds && existing.apartment && req.assignedPropertyIds.includes(Number(existing.apartment.property_id));
+        if (!isCreator && !isAssigned) {
+          return error(res, 'Accès refusé : vous ne pouvez modifier que vos propres paiements ou ceux des immeubles qui vous sont assignés', 403);
+        }
+      }
+      return success(res, await paymentService.update(req.params.id, req.body, req.user), 'Paiement mis à jour');
+    } catch (err) { next(err); }
+  },
+  remove: async (req, res, next) => {
+    try {
+      const { Payment, Apartment } = require('../models');
+      const isAdminOrManager = req.user && ['super_admin', 'admin', 'manager'].includes(req.user.role);
+      const existing = await Payment.findByPk(req.params.id, {
+        include: [{ model: Apartment, as: 'apartment', attributes: ['id', 'property_id'] }],
+      });
+      if (!existing) return error(res, 'Paiement introuvable', 404);
+      if (!isAdminOrManager) {
+        const isCreator = existing.created_by === req.user.id;
+        const isAssigned = req.assignedPropertyIds && existing.apartment && req.assignedPropertyIds.includes(Number(existing.apartment.property_id));
+        if (!isCreator && !isAssigned) {
+          return error(res, 'Accès refusé : vous ne pouvez supprimer que vos propres paiements ou ceux des immeubles qui vous sont assignés', 403);
+        }
+      }
+      await paymentService.remove(req.params.id);
+      return success(res, null, 'Paiement supprimé');
+    } catch (err) { next(err); }
+  },
+  bulkRemove: async (req, res, next) => {
+    try {
+      const { Payment, Apartment } = require('../models');
+      const isAdminOrManager = req.user && ['super_admin', 'admin', 'manager'].includes(req.user.role);
+      const ids = req.body.ids || [];
+      let deletedCount = 0;
+      for (const id of ids) {
+        try {
+          const existing = await Payment.findByPk(id, {
+            include: [{ model: Apartment, as: 'apartment', attributes: ['id', 'property_id'] }],
+          });
+          if (existing) {
+            const isCreator = existing.created_by === req.user.id;
+            const isAssigned = req.assignedPropertyIds && existing.apartment && req.assignedPropertyIds.includes(Number(existing.apartment.property_id));
+            if (isAdminOrManager || isCreator || isAssigned) {
+              await paymentService.remove(id);
+              deletedCount++;
+            }
+          }
+        } catch (_) {}
+      }
+      return success(res, { count: deletedCount }, `${deletedCount} paiement(s) supprimé(s)`);
+    } catch (err) { next(err); }
   },
   getById: async (req, res, next) => {
     try { return success(res, await paymentService.getById(req.params.id, req.user)); } catch (err) { next(err); }

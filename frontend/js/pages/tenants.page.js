@@ -110,10 +110,12 @@ const PageTenants = {
       </div>
     `;
 
+    const isAdminOrManager = Auth.hasRole('super_admin', 'manager', 'admin');
+
     const data = await CrudPage.list({
       endpoint: '/tenants',
       title: 'Locataires & Affectations',
-      canCreate: true,
+      canCreate: isAdminOrManager || (isRestrictedRole && hasAssigned),
       onCreate: 'PageTenants.openTenantModal',
       toolbar: filterBanner + tabsHtml,
       mapData: (all) => {
@@ -205,18 +207,21 @@ const PageTenants = {
           },
         },
       ],
-      rowActions: (r) => `
+      rowActions: (r) => {
+        const canManage = isAdminOrManager || Boolean(r.is_assigned);
+        return `
         <button class="btn btn-sm btn-whatsapp" title="WhatsApp" onclick="PageTenants.whatsapp(${r.id})">🟢</button>
         <button class="btn btn-sm btn-outline" title="Appeler" onclick="PageTenants.call(${r.id})">📞</button>
         <button class="btn btn-sm btn-outline" title="Dossier complet" onclick="PageTenants.view(${r.id})">👁</button>
-        ${!r.is_departed ? `
+        ${!r.is_departed && canManage ? `
           <button class="btn btn-sm btn-warning" title="Libérer le logement (départ du locataire)" onclick="PageTenants.openVacateModal(${r.id})">🚪 Libérer</button>
           <button class="btn btn-sm btn-outline" title="Modifier" onclick="PageTenants.openTenantModal(${r.id})">✏️</button>
         ` : ''}
         ${r.is_departed && r.debt_acknowledged > 0 && !r.is_debt_settled ? `
           <button class="btn btn-sm btn-success" title="Enregistrer un remboursement de dette" onclick="PageTenants.openSettleDebtModal(${r.id})">💳 Encaisser dette</button>
         ` : ''}
-        <button class="btn btn-sm btn-danger" title="Supprimer" onclick="PageTenants.remove(${r.id})">🗑</button>`,
+        ${canManage ? `<button class="btn btn-sm btn-danger" title="Supprimer" onclick="PageTenants.remove(${r.id})">🗑</button>` : ''}`;
+      },
     });
 
     this._rows = {};

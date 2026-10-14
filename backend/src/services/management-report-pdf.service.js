@@ -169,8 +169,8 @@ class ManagementReportPdfService {
       'Caution',
       'Observation',
     ];
-    // Total = 38 + 95 + 68 + 60 + 62 + 60 + 58 + 65 + 86 + 54 + 56 + 80 = 782 pt
-    const aptWidths = [38, 95, 68, 60, 62, 60, 58, 65, 86, 54, 56, 80];
+    // Total = 32 + 88 + 60 + 55 + 50 + 52 + 52 + 58 + 135 + 45 + 52 + 103 = 782 pt
+    const aptWidths = [32, 88, 60, 55, 50, 52, 52, 58, 135, 45, 52, 103];
 
     const aptRows = rawLignes.map((l) => {
       const isFree = (l.statut || l.status) === 'free' || (!l.nom_locataire && !l.tenant_name);
@@ -401,7 +401,7 @@ class ManagementReportPdfService {
    * Titre de section propre et compact
    */
   _drawSectionHeader(doc, title, primaryColor, contentW, startX = 36) {
-    doc.fontSize(8).fillColor(primaryColor).font('Helvetica-Bold')
+    doc.fontSize(9).fillColor(primaryColor).font('Helvetica-Bold')
       .text(title, startX, doc.y);
     const lineY = doc.y + 1;
     doc.moveTo(startX, lineY).lineTo(startX + contentW, lineY).strokeColor(primaryColor).lineWidth(1).stroke();
@@ -414,10 +414,10 @@ class ManagementReportPdfService {
   _drawKpiBox(doc, x, y, w, h, label, value, valColor) {
     doc.rect(x, y, w, h).fill(COLORS.cardBg);
     doc.rect(x, y, w, h).strokeColor(COLORS.border).lineWidth(0.5).stroke();
-    doc.fontSize(5.5).fillColor(COLORS.muted).font('Helvetica-Bold')
-      .text(label, x + 4, y + 3, { width: w - 8 });
-    doc.fontSize(8.5).fillColor(valColor).font('Helvetica-Bold')
-      .text(value, x + 4, y + 14, { width: w - 8 });
+    doc.fontSize(6.5).fillColor(COLORS.muted).font('Helvetica-Bold')
+      .text(label, x + 4, y + 2.5, { width: w - 8 });
+    doc.fontSize(9.5).fillColor(valColor).font('Helvetica-Bold')
+      .text(value, x + 4, y + 13.5, { width: w - 8 });
   }
 
   /**
@@ -436,8 +436,8 @@ class ManagementReportPdfService {
     hasTotalRow = false,
   }) {
     const totalW = widths.reduce((s, w) => s + w, 0);
-    const hHeight = 13;
-    const defaultRHeight = 11.5;
+    const hHeight = 15;
+    const defaultRHeight = 13;
 
     const drawHeader = () => {
       const headerY = doc.y;
@@ -447,8 +447,8 @@ class ManagementReportPdfService {
         const isRight = alignRightCols.includes(i);
         const isCenter = alignCenterCols.includes(i);
         const align = isRight ? 'right' : (isCenter ? 'center' : 'left');
-        doc.fontSize(6).fillColor(COLORS.white).font('Helvetica-Bold')
-          .text(h, x + 2, headerY + 3.5, { width: widths[i] - 4, align, lineBreak: false });
+        doc.fontSize(6.8).fillColor(COLORS.white).font('Helvetica-Bold')
+          .text(h, x + 2, headerY + 4, { width: widths[i] - 4, align, lineBreak: false });
         x += widths[i];
       });
       doc.y = headerY + hHeight;
@@ -461,17 +461,17 @@ class ManagementReportPdfService {
       const isTotal = hasTotalRow && idx === lastIdx;
       let rHeight = defaultRHeight;
       if (dynamicRowHeights && !isTotal) {
-        doc.fontSize(5.8).font('Helvetica');
-        let maxTextH = 7;
+        doc.fontSize(6.8).font('Helvetica');
+        let maxTextH = 8;
         row.forEach((val, i) => {
           if (val) {
             const h = doc.heightOfString(String(val), { width: widths[i] - 4 });
             if (h > maxTextH) maxTextH = h;
           }
         });
-        rHeight = Math.max(defaultRHeight, maxTextH + 3.5);
+        rHeight = Math.max(defaultRHeight, maxTextH + 4);
       } else if (isTotal) {
-        rHeight = 13;
+        rHeight = 15;
       }
 
       const pageAdded = checkPage(rHeight + 2);
@@ -496,8 +496,8 @@ class ManagementReportPdfService {
         const align = isRight ? 'right' : (isCenter ? 'center' : 'left');
         const font = isTotal ? 'Helvetica-Bold' : 'Helvetica';
         const color = isTotal ? (isRight ? primaryColor : COLORS.text) : COLORS.text;
-        doc.fontSize(isTotal ? 6 : 5.8).fillColor(color).font(font)
-          .text(String(val || '—'), x + 2, rowY + (isTotal ? 3.5 : 2.5), { width: widths[i] - 4, align, lineBreak: true });
+        doc.fontSize(isTotal ? 7.2 : 6.8).fillColor(color).font(font)
+          .text(String(val || '—'), x + 2, rowY + (isTotal ? 4 : 3), { width: widths[i] - 4, align, lineBreak: true });
         x += widths[i];
       });
       doc.y = rowY + rHeight;
@@ -627,6 +627,7 @@ class ManagementReportPdfService {
       primaryColor,
       alignRightCols,
       dynamicRowHeights: false,
+      hasTotalRow: true,
     });
 
     // ================================================================
@@ -636,7 +637,7 @@ class ManagementReportPdfService {
     if (obs.length > 0) {
       checkPage(50);
       this._drawSectionHeader(doc, '3. CONSTATS ET ANALYSES DE GESTION', primaryColor, contentW);
-      doc.fontSize(7).font('Helvetica').fillColor(COLORS.text);
+      doc.fontSize(8).font('Helvetica').fillColor(COLORS.text);
       obs.forEach(o => {
         checkPage(14);
         const bulletY = doc.y;

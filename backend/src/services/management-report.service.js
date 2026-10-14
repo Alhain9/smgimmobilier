@@ -11,13 +11,42 @@ class ManagementReportService {
 
   // Calcul du nombre de mois dans la période (min 1)
   _monthsInPeriod(start, end) {
-    const s = new Date(start);
-    const e = new Date(end);
-    if (isNaN(s) || isNaN(e) || s >= e) return 1;
-    const diffDays = Math.round((e - s) / (1000 * 60 * 60 * 24));
-    // Entre 26 et 32 jours => exactement 1 mois (ex: 01/09 au 01/10 ou 01/09 au 30/09)
-    const approx = Math.max(1, Math.round(diffDays / 30.4375));
-    return approx;
+    if (!start || !end) return 1;
+    const sStr = String(start).slice(0, 10);
+    const eStr = String(end).slice(0, 10);
+    if (sStr >= eStr) return 1;
+
+    const s = new Date(sStr + 'T00:00:00Z');
+    const e = new Date(eStr + 'T00:00:00Z');
+    if (isNaN(s.getTime()) || isNaN(e.getTime())) return 1;
+
+    const sYear = s.getUTCFullYear();
+    const sMonth = s.getUTCMonth();
+    const eYear = e.getUTCFullYear();
+    const eMonth = e.getUTCMonth();
+    const eDay = e.getUTCDate();
+
+    // Même mois et même année (ex: 01/09/2026 au 30/09/2026) => exactement 1 mois
+    if (sYear === eYear && sMonth === eMonth) {
+      return 1;
+    }
+
+    // Si fin est le 1er jour du mois suivant (ex: 01/09 au 01/10), c'est exactement 1 mois (le mois de septembre)
+    if ((eYear === sYear && eMonth === sMonth + 1 && eDay <= 1) || (eYear === sYear + 1 && sMonth === 11 && eMonth === 0 && eDay <= 1)) {
+      return 1;
+    }
+
+    // Si fin est le 1er jour d'un mois ultérieur (ex: 01/09 au 01/11), cela fait 2 mois (septembre et octobre)
+    let monthsDiff = (eYear - sYear) * 12 + (eMonth - sMonth);
+    if (eDay <= 1 && monthsDiff > 0) {
+      return Math.max(1, monthsDiff);
+    }
+    if (eDay >= 28) {
+      monthsDiff += 1;
+    }
+    const diffDays = Math.round((e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24));
+    const approxFromDays = Math.max(1, Math.round(diffDays / 30.4375));
+    return Math.max(1, monthsDiff > 0 ? monthsDiff : approxFromDays);
   }
 
   // ===== 1. RAPPORT D'UN BIEN / IMMEUBLE =====
@@ -144,10 +173,11 @@ class ManagementReportService {
     // 1. Loyer théorique = somme des loyers réels × nb de mois
     const occupiedApts = apts.filter((a) => a.status === 'occupied');
     const vacantApts = apts.filter((a) => a.status === 'free');
-    const monthlyTheoretical = occupiedApts.reduce((s, a) => s + num(a.rent_amount), 0);
-    const totalTheoretical = (sitTotal && sitTotal.montant_loyer > 0)
-      ? (sitTotal.montant_loyer * months)
-      : (monthlyTheoretical * months);
+    const situationSumMontantLoyer = situationLignes.reduce((s, l) => s + (Number(l.montant_loyer != null ? l.montant_loyer : l.rent_amount) || 0), 0);
+    const monthlyTheoretical = (sitTotal && Number(sitTotal.montant_loyer) > 0)
+      ? Number(sitTotal.montant_loyer)
+      : (situationSumMontantLoyer > 0 ? situationSumMontantLoyer : occupiedApts.reduce((s, a) => s + num(a.rent_amount), 0));
+    const totalTheoretical = monthlyTheoretical * months;
 
     // 2. Loyers réellement encaissés (priorité aux chiffres vérifiés de la situation)
     const completedPayments = payments.filter((p) => p.status === 'completed');

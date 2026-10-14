@@ -7,7 +7,8 @@ const { injectOwnerProperties } = require('../middlewares/bailleur.middleware');
 
 router.use(authenticate, injectOwnerProperties);
 const viewers = authorize('manager', 'dir_admin', 'gestionnaire', 'bailleur', 'comptable');
-const managers = authorize('manager', 'dir_admin', 'gestionnaire', 'comptable');
+const adminOrManager = authorize('manager', 'admin');
+const staff = authorize('manager', 'admin', 'dir_admin', 'gestionnaire', 'comptable');
 
 // Espace locataire
 router.get('/me/profile', ctrl.myProfile);
@@ -15,11 +16,11 @@ router.get('/me/profile', ctrl.myProfile);
 router.get('/', viewers, ctrl.getAll);
 router.get('/:id', viewers, ctrl.getById);
 router.get('/:id/docx', viewers, ctrl.downloadDocx);
-router.post('/', managers, upload.single('photo'), ctrl.create);
-router.post('/:id/vacate', managers, ctrl.vacate);
-router.post('/:id/settle-debt', managers, ctrl.settleDebt);
-router.post('/bulk-delete', authorize('manager', 'dir_admin', 'comptable'), ctrl.bulkRemove);
-router.put('/:id', managers, upload.single('photo'), ctrl.update);
-router.delete('/:id', authorize('manager', 'dir_admin', 'comptable'), ctrl.remove);
+router.post('/', staff, upload.single('photo'), ctrl.create);
+router.post('/:id/vacate', staff, ctrl.vacate);
+router.post('/:id/settle-debt', staff, ctrl.settleDebt);
+router.post('/bulk-delete', staff, ctrl.bulkRemove);
+router.put('/:id', staff, upload.single('photo'), ctrl.update);
+router.delete('/:id', staff, ctrl.remove);
 
 module.exports = router;

@@ -151,20 +151,6 @@ class PaymentService {
         });
       } catch (err) { logger.warn('Auto-génération reçu échouée:', { error: err.message }); }
 
-      // Nettoyer les surcharges obsolètes éventuelles qui écrasaient la situation de ce logement avec un versement_mois = 0
-      if (p.apartment_id) {
-        try {
-          const { sequelize } = require('../config/database');
-          const pYm = String(p.payment_date).slice(0, 7);
-          await sequelize.query(
-            `DELETE FROM situation_overrides 
-             WHERE apartment_id = :aptId 
-               AND (period_ym = :ym OR period_ym IS NULL)
-               AND (versement_mois = 0 OR versement_mois IS NULL)`,
-            { replacements: { aptId: p.apartment_id, ym: pYm } }
-          );
-        } catch (_) {}
-      }
     }
 
     // Temps réel : notifier les dashboards

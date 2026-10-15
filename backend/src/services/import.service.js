@@ -429,12 +429,7 @@ class ImportService {
               }
             }
 
-            // D. Alignement des soldes et des paiements
-            await Payment.destroy({
-              where: { tenant_id: activeTenant.id, apartment_id: apartment.id },
-              transaction
-            });
-
+            // D. Alignement des soldes et des paiements sans détruire l'historique des transactions passées
             const parsedDates = parsePeriodDates(periodePaiement);
             pStart = parsedDates.period_start;
             pEnd = parsedDates.period_end;
@@ -448,18 +443,41 @@ class ImportService {
             }
 
             if (versementMois > 0 || (pStart && pEnd)) {
-              await Payment.create({
-                tenant_id: activeTenant.id,
-                apartment_id: apartment.id,
-                amount: versementMois || 0,
-                payment_method: mapPaymentMethod(modePaiement),
-                payment_date: paymentDate,
-                status: 'completed',
-                period_start: pStart,
-                period_end: pEnd,
-                observations: observations || (versementMois === 0 && pEnd ? `Situation initiale : couvert jusqu'au ${pEnd}` : null),
-              }, { transaction });
-              overallStats.payments.totalCreated++;
+              // Vérifier si un paiement existe déjà pour cette période ou ce mois pour le mettre à jour sans écraser le reste
+              const existingPayment = await Payment.findOne({
+                where: {
+                  tenant_id: activeTenant.id,
+                  apartment_id: apartment.id,
+                  [Op.or]: [
+                    { payment_date: paymentDate },
+                    sequelize.where(sequelize.fn('SUBSTRING', sequelize.col('payment_date'), 1, 7), sheetYm)
+                  ]
+                },
+                transaction
+              });
+
+              if (existingPayment) {
+                await existingPayment.update({
+                  amount: versementMois || 0,
+                  payment_method: mapPaymentMethod(modePaiement),
+                  period_start: pStart,
+                  period_end: pEnd,
+                  observations: observations || existingPayment.observations,
+                }, { transaction });
+              } else {
+                await Payment.create({
+                  tenant_id: activeTenant.id,
+                  apartment_id: apartment.id,
+                  amount: versementMois || 0,
+                  payment_method: mapPaymentMethod(modePaiement),
+                  payment_date: paymentDate,
+                  status: 'completed',
+                  period_start: pStart,
+                  period_end: pEnd,
+                  observations: observations || (versementMois === 0 && pEnd ? `Situation initiale : couvert jusqu'au ${pEnd}` : null),
+                }, { transaction });
+                overallStats.payments.totalCreated++;
+              }
             }
 
             // Frais entretien château d'eau si spécifié

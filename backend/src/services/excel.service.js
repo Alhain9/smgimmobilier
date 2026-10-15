@@ -148,20 +148,20 @@ class ExcelService {
     titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
     ws.getRow(1).height = 32;
 
-    // Définition des 12 colonnes standardisées
+    // Définition des 12 colonnes standardisées (Modèle Officiel SMG IMMOBILIER)
     const columns = [
-      { header: 'N° DU LOGEMENT', key: 'numero_chambre', width: 16, align: 'center' },
-      { header: 'NOMS & PRÉNOMS', key: 'nom_locataire', width: 28, align: 'left', bold: true },
-      { header: 'CONTACT', key: 'telephone', width: 20, align: 'center' },
-      { header: 'MONTANT DU LOYER', key: 'montant_loyer', width: 18, align: 'right', isMoney: true },
-      { header: 'DESCRIPTION DU LOGEMENT', key: 'description_logement', width: 25, align: 'center' },
-      { header: 'ARRIÉRÉ DU LOYER', key: 'arriere_loyer', width: 20, align: 'right', isMoney: true },
+      { header: 'Num du logement', key: 'numero_chambre', width: 18, align: 'center' },
+      { header: 'Noms locataires', key: 'nom_locataire', width: 28, align: 'left', bold: true },
+      { header: 'Numéro de téléphone', key: 'telephone', width: 20, align: 'center' },
+      { header: 'Montant loyers', key: 'montant_loyer', width: 18, align: 'right', isMoney: true },
+      { header: 'Description du logement', key: 'description_logement', width: 26, align: 'center' },
+      { header: 'ARRIERE DE LOYER', key: 'arriere_loyer', width: 20, align: 'right', isMoney: true },
       { header: 'LOYER PAR ANTICIPATION', key: 'anticipation', width: 22, align: 'right', isMoney: true },
-      { header: 'VERSEMENT AU COURS DU MOIS', key: 'versement_mois', width: 24, align: 'right', isMoney: true },
-      { header: 'PÉRIODE CORRESPONDANT AU PAIEMENT', key: 'periode_paiement', width: 30, align: 'center' },
+      { header: 'VERSEMENT AU COUR DU MOIS', key: 'versement_mois', width: 24, align: 'right', isMoney: true },
+      { header: 'PÉRIODE CORRESPONDANT AU PAIEMENT', key: 'periode_paiement', width: 34, align: 'center' },
       { header: 'MODE DE PAIEMENT', key: 'mode_paiement', width: 18, align: 'center' },
       { header: 'CAUTION', key: 'caution', width: 18, align: 'right', isMoney: true },
-      { header: 'OBSERVATIONS', key: 'observations', width: 34, align: 'left' },
+      { header: 'Observation', key: 'observations', width: 34, align: 'left' },
     ];
 
     ws.columns = columns.map(c => ({ key: c.key, width: c.width }));
@@ -246,7 +246,7 @@ class ExcelService {
         left: { style: 'thin', color: { argb: 'FFE0E0E0' } },
         right: { style: 'thin', color: { argb: 'FFE0E0E0' } },
       };
-      if ([4, 6, 7, 8, 12].includes(colNumber)) {
+      if ([4, 6, 7, 8, 11].includes(colNumber)) {
         cell.numFmt = '#,##0';
         cell.alignment = { horizontal: 'right', vertical: 'middle' };
       } else if (colNumber === 1) {

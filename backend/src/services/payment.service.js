@@ -40,9 +40,41 @@ class PaymentService {
     return Payment.findAll({ where, include: this._inc(), order: [['payment_date', 'DESC']] });
   }
   async remove(id) {
-    const p = await Payment.findByPk(id);
+    const { Receipt, PaymentHistory, Apartment } = require('../models');
+    const p = await Payment.findByPk(id, {
+      include: [{ model: Apartment, as: 'apartment' }],
+    });
     if (!p) throw Object.assign(new Error('Paiement introuvable'), { status: 404 });
+
+    const apartmentId = p.apartment_id;
+    const propId = p.apartment?.property_id;
+    const pDate = p.payment_date;
+
+    // 1. Supprimer les reçus associés à ce paiement pour qu'ils disparaissent immédiatement
+    await Receipt.destroy({ where: { payment_id: id } });
+    // 2. Supprimer l'historique associé
+    await PaymentHistory.destroy({ where: { payment_id: id } });
+    // 3. Détruire le paiement de la base de données
     await p.destroy();
+
+    // 4. Nettoyer les surcharges obsolètes pour ce logement si liées à ce paiement
+    if (apartmentId) {
+      try {
+        const { sequelize } = require('../config/database');
+        await sequelize.query(
+          `DELETE FROM situation_overrides WHERE apartment_id = :aptId AND payment_date = :pDate`,
+          { replacements: { aptId: apartmentId, pDate } }
+        );
+      } catch (_) {}
+    }
+
+    // 5. Temps réel : notifier les dashboards
+    try {
+      emitPayment('supprime', { id }, propId);
+      emitDashboard();
+    } catch (_) {}
+
+    logger.info('🗑️ Paiement et reçu supprimés définitivement', { paymentId: id });
     return true;
   }
   async getById(id, currentUser) {
@@ -63,10 +95,52 @@ class PaymentService {
   async create(data, user) {
     if (!data.payment_date) data.payment_date = new Date().toISOString().slice(0, 10);
     if (user && user.id && !data.created_by) data.created_by = user.id;
+
+    // Détection automatique intelligente de la période si non renseignée
+    if ((!data.period_start || !data.period_end) && data.tenant_id) {
+      try {
+        const tenant = await Tenant.findByPk(data.tenant_id, {
+          include: [
+            { model: Lease, as: 'leases', where: { status: 'active' }, required: false },
+            { model: Apartment, as: 'apartment' },
+            { model: Payment, as: 'payments', where: { status: 'completed' }, required: false },
+          ],
+        });
+        if (tenant) {
+          const lease = (tenant.leases || [])[0];
+          const monthly = (lease && num(lease.monthly_rent)) || (tenant.apartment && num(tenant.apartment.rent_amount)) || 0;
+          if (!data.period_start) {
+            const pastPays = (tenant.payments || []).filter(p => p.period_end).sort((a, b) => new Date(b.period_end) - new Date(a.period_end));
+            if (pastPays.length > 0 && pastPays[0].period_end) {
+              data.period_start = pastPays[0].period_end;
+            } else if (lease && lease.start_date) {
+              data.period_start = lease.start_date;
+            } else if (tenant.start_date) {
+              data.period_start = tenant.start_date;
+            } else {
+              data.period_start = data.payment_date;
+            }
+          }
+          if (!data.period_end && data.period_start && monthly > 0 && Number(data.amount) > 0) {
+            const months = Math.max(1, Math.floor(Number(data.amount) / monthly));
+            const s = new Date(data.period_start);
+            if (!isNaN(s.getTime())) {
+              const e = new Date(s);
+              e.setMonth(e.getMonth() + months);
+              data.period_end = e.toISOString().slice(0, 10);
+            }
+          }
+        }
+      } catch (err) {
+        logger.warn('Auto-détection période backend échouée:', { error: err.message });
+      }
+    }
+
     const p = await Payment.create(data);
     const sansPreuve = !p.payment_proof && p.status === 'awaiting_confirmation';
     await this._log(p.id, 'created', `Paiement créé : ${Number(p.amount)} FCFA${sansPreuve ? ' (en attente de justification)' : ''}`, p, user);
     const full = await this.getById(p.id);
+
     if (p.status === 'completed') {
       try {
         const receiptService = require('./receipt.service');
@@ -76,7 +150,23 @@ class PaymentService {
           observations: p.observations,
         });
       } catch (err) { logger.warn('Auto-génération reçu échouée:', { error: err.message }); }
+
+      // Nettoyer les surcharges obsolètes éventuelles qui écrasaient la situation de ce logement avec un versement_mois = 0
+      if (p.apartment_id) {
+        try {
+          const { sequelize } = require('../config/database');
+          const pYm = String(p.payment_date).slice(0, 7);
+          await sequelize.query(
+            `DELETE FROM situation_overrides 
+             WHERE apartment_id = :aptId 
+               AND (period_ym = :ym OR period_ym IS NULL)
+               AND (versement_mois = 0 OR versement_mois IS NULL)`,
+            { replacements: { aptId: p.apartment_id, ym: pYm } }
+          );
+        } catch (_) {}
+      }
     }
+
     // Temps réel : notifier les dashboards
     try {
       const propId = full.apartment?.property?.id || full.apartment?.property_id;
@@ -130,11 +220,6 @@ class PaymentService {
       } catch (err) { logger.warn('Auto-génération reçu échouée:', { error: err.message }); }
     }
     return this.getById(id);
-  }
-  async remove(id) {
-    const p = await Payment.findByPk(id);
-    if (!p) throw Object.assign(new Error('Paiement introuvable'), { status: 404 });
-    await p.destroy(); return true;
   }
   getDebts() {
     return Payment.findAll({ where: { status: { [Op.in]: ['pending', 'failed'] } }, include: this._inc(), order: [['payment_date', 'ASC']] });

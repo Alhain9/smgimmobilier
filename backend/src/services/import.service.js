@@ -189,23 +189,29 @@ class ImportService {
         overallStats.properties.push(property.property_name);
 
         // Analyse dynamique de l'en-tête (lignes 1 à 10)
+        // Analyse dynamique de l'en-tête (lignes 1 à 10)
+        // Modèle officiel des 12 colonnes standardisées :
+        // 1. Num du logement, 2. Noms locataires, 3. Numéro de téléphone, 4. Montant loyers,
+        // 5. Description du logement, 6. ARRIERE DE LOYER, 7. LOYER PAR ANTICIPATION,
+        // 8. VERSEMENT AU COUR DU MOIS, 9. PÉRIODE CORRESPONDANT AU PAIEMENT,
+        // 10. MODE DE PAIEMENT, 11. CAUTION, 12. Observation
         let headerRowIndex = 3;
         const colMap = {
-          room: 1,
-          tenant: 2,
-          phone: 3,
+          room: 1,         // 1. Num du logement
+          tenant: 2,       // 2. Noms locataires
+          phone: 3,        // 3. Numéro de téléphone
+          rent: 4,         // 4. Montant loyers
+          type: 5,         // 5. Description du logement
+          arriere: 6,      // 6. ARRIERE DE LOYER
+          dette: 6,
+          anticipation: 7, // 7. LOYER PAR ANTICIPATION
+          versement: 8,    // 8. VERSEMENT AU COUR DU MOIS
+          periode: 9,      // 9. PÉRIODE CORRESPONDANT AU PAIEMENT
+          mode: 10,        // 10. MODE DE PAIEMENT
+          caution: 11,     // 11. CAUTION
+          obs: 12,         // 12. Observation
           date: 0,
-          rent: 0,
-          type: 0,
-          arriere: 0,
-          dette: 0,
           avance: 0,
-          anticipation: 0,
-          versement: 0,
-          periode: 0,
-          mode: 0,
-          obs: 0,
-          caution: 0,
           chateau: 0,
         };
 
@@ -216,29 +222,33 @@ class ImportService {
             const val = getStrVal(cell).toLowerCase().trim();
             if (!val) return;
 
-            // Priorité aux termes composés pour éviter les collisions (ex: "arriere de loyer" contient "loyer")
-            if (val.includes('anticipation')) {
-              colMap.anticipation = colNum; matchCount++;
+            // Détection exacte des 12 colonnes officielles
+            if ((val.includes('num') || val.includes('n°')) && val.includes('logement')) {
+              colMap.room = colNum; matchCount++;
+            } else if (val.includes('locataire') || (val.includes('nom') && !val.includes('immeuble') && !val.includes('logement'))) {
+              colMap.tenant = colNum; matchCount++;
+            } else if (val.includes('téléphone') || val.includes('telephone') || val.includes('phone') || val.includes('tel') || val.includes('contact')) {
+              colMap.phone = colNum; matchCount++;
+            } else if ((val.includes('montant') && val.includes('loyer')) || val === 'loyer' || val === 'montant loyers' || val === 'loyer mensuel') {
+              colMap.rent = colNum; matchCount++;
+            } else if (val.includes('description') || val.includes('type de logement') || val.includes('type')) {
+              colMap.type = colNum; matchCount++;
             } else if (val.includes('arriéré') || val.includes('arriere') || val.includes('dette') || val.includes('solde dû')) {
               colMap.arriere = colNum; colMap.dette = colNum; matchCount++;
-            } else if (val.includes('versement') || val.includes('cour du mois') || val.includes('cours du mois') || (val.includes('payé') && !val.includes('anticipation')) || val.includes('reçu')) {
+            } else if (val.includes('anticipation')) {
+              colMap.anticipation = colNum; matchCount++;
+            } else if (val.includes('versement') || val.includes('cour du mois') || val.includes('cours du mois') || val.includes('payé') || val.includes('reçu')) {
               colMap.versement = colNum; matchCount++;
             } else if (val.includes('période') || val.includes('periode')) {
               colMap.periode = colNum; matchCount++;
-            } else if (val.includes('caution') || val.includes('dépôt') || val.includes('depot') || val.includes('garantie')) {
-              colMap.caution = colNum; matchCount++;
             } else if (val.includes('mode') || val.includes('moyen de paiement')) {
               colMap.mode = colNum; matchCount++;
+            } else if (val.includes('caution') || val.includes('dépôt') || val.includes('depot') || val.includes('garantie')) {
+              colMap.caution = colNum; matchCount++;
             } else if (val.includes('observation') || val.includes('remarque') || val.includes('obs')) {
               colMap.obs = colNum; matchCount++;
-            } else if (val.includes('description') || val.includes('type de logement') || val.includes('type')) {
-              colMap.type = colNum; matchCount++;
-            } else if (val.includes('chambre') || val.includes('appartement') || val.includes('logement') || val.includes('code') || val.includes('n°') || val.includes('numéro')) {
+            } else if (val.includes('chambre') || val.includes('appartement') || (val.includes('logement') && !val.includes('description')) || val.includes('code') || val.includes('n°') || val.includes('num')) {
               colMap.room = colNum; matchCount++;
-            } else if (val.includes('locataire') || val.includes('client') || (val.includes('nom') && !val.includes('immeuble'))) {
-              colMap.tenant = colNum; matchCount++;
-            } else if (val.includes('contact') || val.includes('téléphone') || val.includes('tel') || val.includes('phone')) {
-              colMap.phone = colNum; matchCount++;
             } else if (val.includes('date') || val.includes('entrée') || val.includes('occupation')) {
               colMap.date = colNum; matchCount++;
             } else if (val.includes('loyer') || val.includes('montant') || val.includes('mensuel')) {
@@ -315,10 +325,15 @@ class ImportService {
           }
 
           // B. Gestion du locataire si présent
+          let activeTenant = null;
+          let pStart = null;
+          let pEnd = null;
+          let paymentDate = null;
+
           if (tenantName) {
             overallStats.tenants.total++;
 
-            let activeTenant = await Tenant.findOne({
+            activeTenant = await Tenant.findOne({
               where: { apartment_id: apartment.id, status: 'active' },
               include: [{ model: User, as: 'user' }],
               transaction
@@ -420,9 +435,11 @@ class ImportService {
               transaction
             });
 
-            const { period_start: pStart, period_end: pEnd } = parsePeriodDates(periodePaiement);
+            const parsedDates = parsePeriodDates(periodePaiement);
+            pStart = parsedDates.period_start;
+            pEnd = parsedDates.period_end;
 
-            let paymentDate = new Date(sheetYear, sheetMonth - 1, 15);
+            paymentDate = new Date(sheetYear, sheetMonth - 1, 15);
             if (pStart) {
               const parsedDate = new Date(pStart);
               if (!isNaN(parsedDate.getTime())) {
@@ -487,6 +504,82 @@ class ImportService {
               });
               overallStats.tenants.terminated++;
             }
+          }
+
+          // E. Enregistrement systématique des 12 colonnes standardisées dans situation_overrides
+          try {
+            const ym = `${sheetYear}-${String(sheetMonth).padStart(2, '0')}`;
+            const existingOv = await sequelize.query(
+              `SELECT id FROM situation_overrides WHERE property_id = :propId AND apartment_id = :aptId AND period_ym = :ym LIMIT 1`,
+              { replacements: { propId: property.id, aptId: apartment.id, ym }, type: sequelize.QueryTypes.SELECT, transaction }
+            );
+            const ovPayload = {
+              property_id: property.id,
+              apartment_id: apartment.id,
+              tenant_id: tenantName && activeTenant ? activeTenant.id : null,
+              period_ym: ym,
+              numero_chambre: roomVal,
+              nom_locataire: tenantName || '—',
+              telephone: telephone || '—',
+              montant_loyer: rentAmount || apartment.rent_amount || 0,
+              description_logement: descType || apartment.description || apartment.apartment_type || '—',
+              arriere_loyer: tenantName ? (arriere || dette || 0) : 0,
+              anticipation: tenantName ? (anticipation || 0) : 0,
+              versement_mois: tenantName ? (versementMois || 0) : 0,
+              payment_date: paymentDate ? paymentDate.toISOString().slice(0, 10) : null,
+              period_start: pStart || null,
+              period_end: pEnd || null,
+              periode_paiement: periodePaiement || (pStart && pEnd ? `du ${pStart} au ${pEnd}` : '—'),
+              mode_paiement: modePaiement || '—',
+              caution: tenantName ? (cautionAmount || 0) : 0,
+              observations: observations || (tenantName ? '' : 'Logement libre / vide'),
+            };
+
+            if (existingOv && existingOv.length > 0) {
+              await sequelize.query(
+                `UPDATE situation_overrides SET
+                  tenant_id = :tenant_id,
+                  numero_chambre = :numero_chambre,
+                  nom_locataire = :nom_locataire,
+                  telephone = :telephone,
+                  montant_loyer = :montant_loyer,
+                  description_logement = :description_logement,
+                  arriere_loyer = :arriere_loyer,
+                  anticipation = :anticipation,
+                  versement_mois = :versement_mois,
+                  payment_date = :payment_date,
+                  period_start = :period_start,
+                  period_end = :period_end,
+                  periode_paiement = :periode_paiement,
+                  mode_paiement = :mode_paiement,
+                  caution = :caution,
+                  observations = :observations,
+                  updated_at = NOW()
+                WHERE id = :id`,
+                { replacements: { ...ovPayload, id: existingOv[0].id }, transaction }
+              );
+            } else {
+              await sequelize.query(
+                `INSERT INTO situation_overrides (
+                  property_id, apartment_id, tenant_id, period_ym,
+                  numero_chambre, nom_locataire, telephone, montant_loyer,
+                  description_logement, arriere_loyer, anticipation, versement_mois,
+                  payment_date, period_start, period_end,
+                  periode_paiement, mode_paiement, caution, observations,
+                  created_at, updated_at
+                ) VALUES (
+                  :property_id, :apartment_id, :tenant_id, :period_ym,
+                  :numero_chambre, :nom_locataire, :telephone, :montant_loyer,
+                  :description_logement, :arriere_loyer, :anticipation, :versement_mois,
+                  :payment_date, :period_start, :period_end,
+                  :periode_paiement, :mode_paiement, :caution, :observations,
+                  NOW(), NOW()
+                )`,
+                { replacements: ovPayload, transaction }
+              );
+            }
+          } catch (ovErr) {
+            console.warn('[importBuildingSituation] Erreur persistance override:', ovErr.message);
           }
         }
       }

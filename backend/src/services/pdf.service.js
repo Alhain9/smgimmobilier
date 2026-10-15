@@ -174,8 +174,8 @@ class PdfService {
     });
 
     const headers = [
-      'N° Logement', 'Locataire', 'Contact', 'Loyer', 'Description',
-      'Arriéré', 'Anticip.', 'Versement', 'PÉRIODE CORRESPONDANT AU PAIEMENT', 'Mode', 'Caution', 'Observations'
+      'Num du logement', 'Noms locataires', 'N° Téléphone', 'Montant loyers', 'Description',
+      'ARRIERE DE LOYER', 'LOYER ANTICIPÉ', 'VERSEMENT MOIS', 'PÉRIODE CORRESPONDANT AU PAIEMENT', 'Mode', 'Caution', 'Observation'
     ];
     // 44+98+68+55+65+55+55+58+95+48+55+74 = 770 pt
     const widths = [44, 98, 68, 55, 65, 55, 55, 58, 95, 48, 55, 74];

@@ -331,15 +331,32 @@ const PagePayments = {
       size: 'medium'
     });
 
-    const recalculateCoverage = (monthlyRent) => {
+    let currentMonthlyRent = values.amount || 0;
+    let currentLastCoverDate = null;
+
+    const recalculateCoverage = (customRent = null) => {
       const pStartInput = document.getElementById('pay_period_start');
       const pEndInput = document.getElementById('pay_period_end');
       const amtInput = document.getElementById('pay_amount');
+      const dateInput = document.getElementById('pay_date');
       const infoHint = document.getElementById('pay_coverage_hint');
+      const obsInput = document.getElementById('pay_observations');
 
       if (!pStartInput || !pEndInput || !amtInput) return;
       const amount = parseFloat(amtInput.value) || 0;
-      const rent = parseFloat(monthlyRent) || 0;
+      const rent = parseFloat(customRent != null ? customRent : currentMonthlyRent) || 0;
+
+      // Si la date de début est vide, tenter de la pré-remplir automatiquement
+      if (!pStartInput.value) {
+        if (currentLastCoverDate) {
+          pStartInput.value = currentLastCoverDate;
+          pStartInput.dataset.autoFilled = 'true';
+        } else if (dateInput && dateInput.value) {
+          pStartInput.value = dateInput.value;
+          pStartInput.dataset.autoFilled = 'true';
+        }
+      }
+
       const startDateStr = pStartInput.value;
 
       if (amount > 0 && rent > 0 && startDateStr) {
@@ -352,19 +369,29 @@ const PagePayments = {
           const y = eDate.getFullYear();
           const m = String(eDate.getMonth() + 1).padStart(2, '0');
           const d = String(eDate.getDate()).padStart(2, '0');
-          if (!pEndInput.value || pEndInput.dataset.autoFilled === 'true') {
-            pEndInput.value = `${y}-${m}-${d}`;
+          const autoEndDate = `${y}-${m}-${d}`;
+
+          if (!pEndInput.value || pEndInput.dataset.autoFilled === 'true' || pEndInput.value === autoEndDate) {
+            pEndInput.value = autoEndDate;
             pEndInput.dataset.autoFilled = 'true';
           }
+
           if (infoHint) {
-            const advText = advance > 0 ? ` + <b>avance de ${Helpers.formatMoney(advance)}</b> sur la période suivante` : '';
-            infoHint.innerHTML = `💡 <b>Couverture calculée :</b> ${months} mois (du ${Helpers.formatDate(startDateStr)} au ${Helpers.formatDate(pEndInput.value)})${advText}`;
+            const advText = advance > 0 ? ` + <b>avance de ${Helpers.formatMoney(advance)}</b> sur le mois suivant` : '';
+            infoHint.innerHTML = `💡 <b>Période couverte détectée :</b> ${months} mois (du ${Helpers.formatDate(startDateStr)} au ${Helpers.formatDate(pEndInput.value)})${advText}`;
             infoHint.style.display = 'block';
+          }
+
+          // Pré-remplir l'observation si vide ou auto-générée
+          if (obsInput && (!obsInput.value.trim() || obsInput.dataset.autoGen === 'true')) {
+            const advObs = advance > 0 ? ` + avance de ${Helpers.formatMoney(advance)} sur la période suivante` : '';
+            obsInput.value = `Paiement de ${Helpers.formatMoney(amount)} couvrant : ${Helpers.formatDate(startDateStr)} au ${Helpers.formatDate(pEndInput.value)} (${Helpers.formatMoney(months * rent)})${advObs}.`;
+            obsInput.dataset.autoGen = 'true';
           }
         }
       } else if (startDateStr && pEndInput.value) {
         if (infoHint) {
-          infoHint.innerHTML = `💡 <b>Période de couverture :</b> du ${Helpers.formatDate(startDateStr)} au ${Helpers.formatDate(pEndInput.value)}`;
+          infoHint.innerHTML = `💡 <b>Période couverte :</b> du ${Helpers.formatDate(startDateStr)} au ${Helpers.formatDate(pEndInput.value)}`;
           infoHint.style.display = 'block';
         }
       }
@@ -378,12 +405,16 @@ const PagePayments = {
         const t = res.data;
         if (t) {
           const monthlyRent = t.due_info?.loyer_mensuel || (t.apartment ? t.apartment.rent_amount : (t.leases && t.leases[0] ? t.leases[0].monthly_rent : 0));
+          if (monthlyRent > 0) currentMonthlyRent = monthlyRent;
+
           const pStart = document.getElementById('pay_period_start');
 
-          // Chaînage automatique : La dernière date en base correspond à la première date du nouveau paiement
+          // Chaînage automatique : La dernière date couverte correspond au début du nouveau paiement
           const lastCoverDate = t.due_info?.prochaine_echeance || t.due_info?.derniere_couverture_fin || (t.start_date ? t.start_date.slice(0, 10) : null);
-          if (pStart && (!pStart.value || pStart.dataset.autoFilled === 'true') && lastCoverDate) {
-            pStart.value = lastCoverDate.slice(0, 10);
+          if (lastCoverDate) currentLastCoverDate = lastCoverDate.slice(0, 10);
+
+          if (pStart && (!pStart.value || pStart.dataset.autoFilled === 'true') && currentLastCoverDate) {
+            pStart.value = currentLastCoverDate;
             pStart.dataset.autoFilled = 'true';
           }
 
@@ -395,17 +426,17 @@ const PagePayments = {
               debtBox.style.background = '#fef2f2';
               debtBox.style.border = '1px solid #fecaca';
               debtBox.style.color = '#991b1b';
-              debtBox.innerHTML = `⚠️ <b>Attention dette / retard détecté :</b> Ce locataire a un arriéré de <b>${Helpers.formatMoney(solde)}</b> (${months} mois impayé(s)). Le paiement couvrira en priorité cette période.`;
+              debtBox.innerHTML = `⚠️ <b>Attention retard / impayé :</b> Ce locataire a un arriéré de <b>${Helpers.formatMoney(solde)}</b> (${months} mois impayé(s)). Le versement couvrira en priorité cette période.`;
             } else {
               debtBox.style.background = '#f0fdf4';
               debtBox.style.border = '1px solid #bbf7d0';
               debtBox.style.color = '#166534';
               const echText = t.due_info.prochaine_echeance ? ` (déjà couvert jusqu'au ${Helpers.formatDate(t.due_info.prochaine_echeance)})` : '';
-              debtBox.innerHTML = `✅ <b>Situation saine :</b> Locataire à jour de ses loyers${echText}. Nouveau versement enregistré pour la suite de sa couverture.`;
+              debtBox.innerHTML = `✅ <b>Situation saine :</b> Locataire à jour${echText}. Nouveau versement pour prolonger sa couverture.`;
             }
           }
 
-          recalculateCoverage(monthlyRent);
+          recalculateCoverage(currentMonthlyRent);
         }
       } catch (_) {}
     };
@@ -423,6 +454,7 @@ const PagePayments = {
           if (hintEl && meta.hasApartment) {
             hintEl.innerHTML = `<span style="color:#16a34a;font-weight:600;">✓ Logement attribué à ${Helpers.escapeHtml(meta.name)} : ${Helpers.escapeHtml(meta.propertyName)} (${Helpers.escapeHtml(meta.apartmentNumber)})</span>`;
           }
+          if (meta.monthlyRent > 0) currentMonthlyRent = meta.monthlyRent;
           if (tenant && tenant.id) checkTenantDebt(tenant.id);
         }
       });
@@ -452,6 +484,8 @@ const PagePayments = {
     const payAmtEl = document.getElementById('pay_amount');
     const payStartEl = document.getElementById('pay_period_start');
     const payEndEl = document.getElementById('pay_period_end');
+    const payDateEl = document.getElementById('pay_date');
+
     if (payEndEl) {
       payEndEl.addEventListener('input', () => { payEndEl.dataset.autoFilled = 'false'; });
     }
@@ -459,11 +493,12 @@ const PagePayments = {
       const aptSelect = document.getElementById('pay_apartment_id');
       const aptId = aptSelect ? aptSelect.value : null;
       const apt = (this._apartments || []).find(a => String(a.id) === String(aptId));
-      const rent = apt ? apt.rent_amount : 0;
+      const rent = (apt && num(apt.rent_amount)) || currentMonthlyRent || 0;
       recalculateCoverage(rent);
     };
     if (payAmtEl) payAmtEl.addEventListener('input', triggerRecalc);
     if (payStartEl) payStartEl.addEventListener('change', triggerRecalc);
+    if (payDateEl) payDateEl.addEventListener('change', triggerRecalc);
 
     // Soumission du formulaire
     document.getElementById('btnSubmitPayment').onclick = async () => {
@@ -566,7 +601,23 @@ const PagePayments = {
     const fd = new FormData(); fd.append('proof', file);
     try { await API.upload('/payments/' + id + '/proof', fd); Modal.close(); Toast.success('Justificatif enregistré'); PagePayments.render(); } catch (e) { Toast.error(e.message); }
   },
-  remove(id) { CrudPage.confirmDelete('/payments/' + id, () => PagePayments.render()); },
+  async remove(id) {
+    const p = this._rows[id];
+    const amountStr = p ? Helpers.formatMoney(p.amount) : '';
+    const tenantName = p?.tenant?.user?.full_name || 'ce locataire';
+    const dateStr = p ? Helpers.formatDate(p.payment_date) : '';
+    
+    if (!confirm(`⚠️ SUPPRESSION DÉFINITIVE D'UNE TRANSACTION\n\nÊtes-vous sûr de vouloir supprimer définitivement ce paiement de ${amountStr} (${tenantName}, le ${dateStr}) ?\n\n✓ Le paiement et son reçu officiel seront supprimés de la base de données.\n✓ Cette transaction ne figurera plus dans les rapports périodiques de gestion, la situation locative ni les récapitulatifs d'entrées.`)) {
+      return;
+    }
+    try {
+      await API.delete('/payments/' + id);
+      Toast.success('Transaction et reçu officiel supprimés avec succès 🗑️');
+      await PagePayments.render();
+    } catch (e) {
+      Toast.error(e.message || 'Erreur lors de la suppression de la transaction');
+    }
+  },
   async verify(id, decision) {
     try {
       await API.patch('/payments/' + id + '/verify', { decision });

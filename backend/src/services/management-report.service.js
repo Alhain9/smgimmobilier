@@ -80,13 +80,19 @@ class ManagementReportService {
 
     const apts = property.apartments || [];
     const aptIds = apts.map((a) => a.id);
+    const allTenantIds = apts.flatMap(a => (a.tenants || []).map(t => t.id)).filter(Boolean);
 
     // Requêtes parallèles pour la période
+    const paymentOrConditions = [{ apartment_id: { [Op.in]: aptIds } }];
+    if (allTenantIds.length > 0) {
+      paymentOrConditions.push({ tenant_id: { [Op.in]: allTenantIds } });
+    }
+
     const [payments, maintenances, directExpenses] = await Promise.all([
-      // Paiements dans la période
+      // Paiements dans la période (par logement ou par locataire du bien)
       Payment.findAll({
         where: {
-          apartment_id: { [Op.in]: aptIds },
+          [Op.or]: paymentOrConditions,
           payment_date: { [Op.between]: [start, end] },
         },
         include: [
@@ -179,12 +185,10 @@ class ManagementReportService {
       : (situationSumMontantLoyer > 0 ? situationSumMontantLoyer : occupiedApts.reduce((s, a) => s + num(a.rent_amount), 0));
     const totalTheoretical = monthlyTheoretical * months;
 
-    // 2. Loyers réellement encaissés (priorité aux chiffres vérifiés de la situation)
+    // 2. Loyers réellement encaissés (cumul vérifié de tous les encaissements de la période)
     const completedPayments = payments.filter((p) => p.status === 'completed');
     const rawPaymentsCollected = completedPayments.reduce((s, p) => s + num(p.amount), 0);
-    const totalCollected = (sitTotal && sitTotal.versement_mois > 0)
-      ? sitTotal.versement_mois
-      : rawPaymentsCollected;
+    const totalCollected = Math.max(rawPaymentsCollected, (sitTotal && sitTotal.versement_mois > 0) ? sitTotal.versement_mois : 0);
 
     // 3. Reste à encaisser / impayés sur la période
     const unpaidPayments = payments.filter((p) => ['pending', 'failed', 'awaiting_confirmation'].includes(p.status));
@@ -583,6 +587,7 @@ class ManagementReportService {
         {
           model: Apartment, as: 'apartments',
           attributes: ['id', 'apartment_number'],
+          include: [{ model: Tenant, as: 'tenants', attributes: ['id'] }],
         }
       ],
       order: [['property_name', 'ASC']]
@@ -595,22 +600,28 @@ class ManagementReportService {
 
     for (const prop of properties) {
       const aptIds = (prop.apartments || []).map(a => a.id);
+      const tenantIds = (prop.apartments || []).flatMap(a => (a.tenants || []).map(t => t.id)).filter(Boolean);
       let virement = 0;
       let cash = 0;
 
-      if (aptIds.length) {
+      const orConds = [];
+      if (aptIds.length) orConds.push({ apartment_id: { [Op.in]: aptIds } });
+      if (tenantIds.length) orConds.push({ tenant_id: { [Op.in]: tenantIds } });
+
+      if (orConds.length) {
         const payments = await Payment.findAll({
           where: {
-            apartment_id: { [Op.in]: aptIds },
+            [Op.or]: orConds,
             status: 'completed',
             payment_date: { [Op.between]: [start, end] },
           },
-          attributes: ['amount', 'payment_method'],
+          attributes: ['id', 'amount', 'payment_method'],
         });
 
         payments.forEach(p => {
           const amt = num(p.amount);
-          if (p.payment_method === 'bank_transfer') {
+          const m = String(p.payment_method || '').toLowerCase();
+          if (m === 'bank_transfer' || m.includes('vir') || m === 'virement') {
             virement += amt;
           } else {
             cash += amt;

@@ -37,19 +37,6 @@ class ReceiptService {
 
   // ===== Générer un reçu de loyer à partir d'un paiement =====
   async generateRentReceipt(paymentId, generatedBy, options = {}) {
-    // Vérifier qu'aucun reçu n'existe déjà pour ce paiement
-    const existing = await Receipt.findOne({ where: { payment_id: paymentId, receipt_type: 'rent' } });
-    if (existing) {
-      if (options.period_start || options.period_end || options.observations) {
-        await existing.update({
-          period_start: options.period_start || existing.period_start,
-          period_end: options.period_end || existing.period_end,
-          observations: options.observations || existing.observations,
-        });
-      }
-      return existing;
-    }
-
     const payment = await Payment.findByPk(paymentId, {
       include: [
         {
@@ -155,11 +142,26 @@ class ReceiptService {
       remainingBalance = Math.max(0, led.solde || 0);
     }
 
-    const receiptNumber = await this._nextNumber('rent');
     const pStartStr = periodStart ? (typeof periodStart === 'string' ? periodStart.slice(0, 10) : periodStart.toISOString().slice(0, 10)) : null;
     const pEndStr = periodEnd ? (typeof periodEnd === 'string' ? periodEnd.slice(0, 10) : periodEnd.toISOString().slice(0, 10)) : null;
+    const observations = options.observations !== undefined ? options.observations : (payment.observations || null);
 
-    const observations = options.observations || payment.observations || (remainingBalance <= 0 && payment.observations ? payment.observations : null);
+    // Vérifier si un reçu existe déjà pour ce paiement et le mettre à jour intégralement
+    const existing = await Receipt.findOne({ where: { payment_id: paymentId, receipt_type: 'rent' } });
+    if (existing) {
+      await existing.update({
+        amount: payment.amount,
+        payment_method: payment.payment_method,
+        payment_date: payment.payment_date,
+        period_start: pStartStr || existing.period_start,
+        period_end: pEndStr || existing.period_end,
+        remaining_balance: remainingBalance,
+        observations: observations !== undefined ? observations : existing.observations,
+      });
+      return existing;
+    }
+
+    const receiptNumber = await this._nextNumber('rent');
 
     const receipt = await Receipt.create({
       receipt_number: receiptNumber,

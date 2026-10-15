@@ -161,18 +161,18 @@ const PageSituation = {
   },
   _building: null,
   COLS: [
-    ['numero_chambre', 'N° DU LOGEMENT', 'text'],
-    ['nom_locataire', 'NOMS & PRÉNOMS', 'text_bold'],
-    ['telephone', 'CONTACT', 'phone'],
-    ['montant_loyer', 'MONTANT DU LOYER', 'money'],
-    ['description_logement', 'DESCRIPTION DU LOGEMENT', 'text'],
-    ['arriere_loyer', 'ARRIÉRÉ DU LOYER', 'money_arriere'],
+    ['numero_chambre', 'Num du logement', 'text'],
+    ['nom_locataire', 'Noms locataires', 'text_bold'],
+    ['telephone', 'Numéro de téléphone', 'phone'],
+    ['montant_loyer', 'Montant loyers', 'money'],
+    ['description_logement', 'Description du logement', 'text'],
+    ['arriere_loyer', 'ARRIERE DE LOYER', 'money_arriere'],
     ['anticipation', 'LOYER PAR ANTICIPATION', 'money_anticipation'],
-    ['versement_mois', 'VERSEMENT AU COURS DU MOIS', 'money_versement'],
+    ['versement_mois', 'VERSEMENT AU COUR DU MOIS', 'money_versement'],
     ['periode_paiement', 'PÉRIODE CORRESPONDANT AU PAIEMENT', 'text'],
     ['mode_paiement', 'MODE DE PAIEMENT', 'method'],
     ['caution', 'CAUTION', 'money'],
-    ['observations', 'OBSERVATIONS', 'text'],
+    ['observations', 'Observation', 'text'],
   ],
   _cell(l, key, type) {
     const v = l[key];
@@ -985,13 +985,17 @@ const PageSituation = {
     Modal.open('Relevé de compte', '<div class="spinner"></div>', '<button class="btn btn-outline" onclick="Modal.close()">Fermer</button>');
     try {
       const { data: d } = await API.get('/payments/ledger/' + tenantId);
+      const canManage = Auth.hasRole('super_admin', 'manager', 'admin', 'comptable', 'dir_admin', 'gestionnaire');
       const tx = (d.transactions || []).map((t) => `<tr>
         <td>${Helpers.formatDate(t.date)}</td>
-        <td>${Helpers.formatMoney(t.montant)}</td>
+        <td><b>${Helpers.formatMoney(t.montant)}</b></td>
         <td>${Helpers.methodLabel(t.methode)}</td>
         <td>${Helpers.statusBadge(t.statut)}</td>
         <td>${t.preuve ? `<a href="${Helpers.fileUrl(t.preuve)}" target="_blank">📎</a>` : '—'}</td>
-      </tr>`).join('') || '<tr><td colspan="5" class="text-center text-muted">Aucune transaction</td></tr>';
+        <td style="text-align:right">
+          ${canManage ? `<button class="btn btn-sm btn-danger" style="padding:2px 6px;font-size:11px" onclick="PageSituation.deletePayment(${t.id}, ${tenantId})" title="Supprimer définitivement cette transaction erronée">🗑️</button>` : '—'}
+        </td>
+      </tr>`).join('') || '<tr><td colspan="6" class="text-center text-muted">Aucune transaction</td></tr>';
 
       const mods = (d.modifications || []).map((m) => `<div class="list-item">
         <div style="flex:1"><b>${this.actionLabel(m.action)}</b> — ${m.description || ''}<br>
@@ -1008,11 +1012,23 @@ const PageSituation = {
         </div>
         <div class="list-item"><div style="flex:1">Statut du locataire</div>${this.statutBadge(d.statut)}</div>
         <h4 class="mt-4">🧾 Historique des transactions</h4>
-        <div class="table-wrap"><table><thead><tr><th>Date</th><th>Montant</th><th>Méthode</th><th>Statut</th><th>Preuve</th></tr></thead><tbody>${tx}</tbody></table></div>
+        <div class="table-wrap"><table><thead><tr><th>Date</th><th>Montant</th><th>Méthode</th><th>Statut</th><th>Preuve</th><th style="text-align:right">Action</th></tr></thead><tbody>${tx}</tbody></table></div>
         <h4 class="mt-4">✏️ Historique des modifications</h4>${mods}`,
         '<button class="btn btn-outline" onclick="Modal.close()">Fermer</button>');
     } catch (e) {
       Modal.open('Relevé de compte', `<div class="text-muted">Erreur : ${e.message}</div>`, '<button class="btn btn-outline" onclick="Modal.close()">Fermer</button>');
+    }
+  },
+  async deletePayment(paymentId, tenantId) {
+    if (!confirm(`⚠️ SUPPRESSION DE TRANSACTION\n\nConfirmez-vous la suppression définitive de cette transaction (#${paymentId}) ?\n\nCette action supprimera le paiement et son reçu de la base de données. Il sera immédiatement retiré des rapports périodiques.`)) {
+      return;
+    }
+    try {
+      await API.delete('/payments/' + paymentId);
+      Toast.success('Transaction supprimée avec succès 🗑️');
+      this.ledger(tenantId);
+    } catch (e) {
+      Toast.error(e.message || 'Erreur lors de la suppression de la transaction');
     }
   },
   actionLabel(a) {

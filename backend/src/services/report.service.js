@@ -6,6 +6,12 @@ const ledgerService = require('./ledger.service');
 const num = (v) => parseFloat(v) || 0;
 const UNPAID = ['pending', 'failed', 'awaiting_confirmation'];
 
+const fmtMoney = (amount, withCurrency = true) => {
+  const n = parseFloat(amount) || 0;
+  const formatted = n.toLocaleString('fr-FR');
+  return withCurrency ? `${formatted} FCFA` : formatted;
+};
+
 const mapPaymentMethod = (method) => {
   if (!method) return 'cash';
   const m = String(method).toLowerCase();
@@ -304,35 +310,40 @@ class ReportService {
         }
       }
 
-      // Période correspondant au paiement (priorité au paiement du mois cible)
+      // Période correspondant au paiement (priorité au paiement de la période cible)
       let periodePaiement = '—';
-      const pRef = lastDuMois || last; // Priorité au paiement du mois cible
+      const pRef = lastDuMois || last; // Priorité au paiement de la période cible
       if (pRef) {
+        const pAmt = Number(pRef.amount) || 0;
+        const pMonths = monthly > 0 ? Math.max(1, Math.floor(pAmt / monthly)) : 1;
+        const pAdv = Math.max(0, pAmt - (pMonths * monthly));
+        const advSuffix = pAdv > 0 ? ` (+ avance ${fmtMoney(pAdv, false)} FCFA)` : '';
+
         if (pRef.period_start && pRef.period_end) {
-          periodePaiement = `${fmtFR(pRef.period_start)} au ${fmtFR(pRef.period_end)}`;
+          periodePaiement = `du ${fmtFR(pRef.period_start)} au ${fmtFR(pRef.period_end)}${advSuffix}`;
         } else if (couvertJusqu) {
-          periodePaiement = `Jusqu'au ${couvertJusqu}`;
+          periodePaiement = `Jusqu'au ${couvertJusqu}${advSuffix}`;
         } else if (pRef.payment_date) {
-          periodePaiement = fmtFR(pRef.payment_date);
+          periodePaiement = `${fmtFR(pRef.payment_date)}${advSuffix}`;
         }
       } else if (couvertJusqu) {
         periodePaiement = `Jusqu'au ${couvertJusqu}`;
       }
 
       // Observations
-      let obs = (t.observations && t.observations.trim()) || (last?.observations && last.observations.trim());
+      let obs = (t.observations && t.observations.trim()) || (lastDuMois?.observations && lastDuMois.observations.trim()) || (last?.observations && last.observations.trim());
       if (!obs) {
         if (dette > 0) {
           const lastPaidAmt = (lastCompletedWithEnd && Number(lastCompletedWithEnd.amount)) || 0;
-          const coveredM = Math.max(1, Math.floor(lastPaidAmt / monthly));
+          const coveredM = monthly > 0 ? Math.max(1, Math.floor(lastPaidAmt / monthly)) : 1;
           const adv = Math.max(0, lastPaidAmt - (coveredM * monthly));
           if (adv > 0) {
             obs = `Arriéré ${dette.toLocaleString('fr-FR')} FCFA (déduction avance ${adv.toLocaleString('fr-FR')} FCFA)`;
           } else {
-            obs = `Arriéré ~${Math.round(dette / monthly)} mois`;
+            obs = `Arriéré ~${Math.round(dette / (monthly || 1))} mois`;
           }
         } else if (anticipation > 0) {
-          obs = `Avance ~${Math.round(anticipation / monthly)} mois`;
+          obs = `Avance ~${Math.round(anticipation / (monthly || 1))} mois`;
         } else {
           obs = `À jour${couvertJusqu ? " (couvert " + couvertJusqu + ")" : ''}`;
         }
@@ -353,21 +364,23 @@ class ReportService {
         period_start: (lastDuMois || last)?.period_start || null,
         period_end: (lastDuMois || last)?.period_end || null,
         periode_paiement: periodePaiement,
-        mode_paiement: (lastDuMois || last) ? (methodLabels[(lastDuMois || last).payment_method] || (lastDuMois || last).payment_method || '—') : '—',
+        mode_paiement: paiementsDuMois.length > 0
+          ? [...new Set(paiementsDuMois.map(p => methodLabels[p.payment_method] || p.payment_method).filter(Boolean))].join(', ') || '—'
+          : (last ? (methodLabels[last.payment_method] || last.payment_method || '—') : '—'),
         observations: obs,
         caution,
       };
     });
 
     // Application des surcharges manuelles (overrides) enregistrées pour corriger les incohérences
+    // RÈGLE CRITIQUE : Seules les surcharges appartenant strictement au même mois (period_ym = ym) sont prises en compte.
+    // De plus, si un versement réel a été enregistré en base dans la période, les données réelles priment.
     try {
       const rawOverrides = await sequelize.query(
         `SELECT * FROM situation_overrides
          WHERE property_id = :propertyId
-         ORDER BY
-           (CASE WHEN period_ym = :ym THEN 0 WHEN period_ym IS NULL THEN 1 ELSE 2 END) ASC,
-           period_ym DESC,
-           updated_at DESC`,
+           AND (period_ym = :ym OR (period_ym IS NULL AND :ym IS NULL))
+         ORDER BY (CASE WHEN period_ym = :ym THEN 0 ELSE 1 END) ASC, updated_at DESC`,
         { replacements: { propertyId, ym }, type: sequelize.QueryTypes.SELECT }
       );
       if (rawOverrides && rawOverrides.length > 0) {
@@ -391,6 +404,12 @@ class ReportService {
           const numOrVal = (val, fallback) => (val !== null && val !== undefined && !isNaN(Number(val))) ? Number(val) : fallback;
           const strOrVal = (val, fallback) => (val !== null && val !== undefined && String(val).trim() !== '') ? String(val).trim() : fallback;
 
+          // Si des versements réels existent pour ce logement dans la période et que l'override avait versement_mois = 0,
+          // les calculs dynamiques de versement/arriéré/période ont priorité sur l'override vide
+          const ovVersementZero = ov.versement_mois === 0 || ov.versement_mois === null;
+          const hasRealPaymentsInPeriod = Number(row.versement_mois) > 0;
+          const preferReal = hasRealPaymentsInPeriod && ovVersementZero;
+
           return {
             ...row,
             numero_chambre: strOrVal(ov.numero_chambre, row.numero_chambre),
@@ -398,16 +417,16 @@ class ReportService {
             telephone: strOrVal(ov.telephone, row.telephone),
             montant_loyer: numOrVal(ov.montant_loyer, row.montant_loyer),
             description_logement: strOrVal(ov.description_logement, row.description_logement),
-            arriere_loyer: numOrVal(ov.arriere_loyer, row.arriere_loyer),
-            anticipation: numOrVal(ov.anticipation, row.anticipation),
-            versement_mois: numOrVal(ov.versement_mois, row.versement_mois),
-            payment_date: strOrVal(ov.payment_date, row.payment_date),
-            period_start: strOrVal(ov.period_start, row.period_start),
-            period_end: strOrVal(ov.period_end, row.period_end),
-            periode_paiement: strOrVal(ov.periode_paiement, row.periode_paiement),
-            mode_paiement: strOrVal(ov.mode_paiement, row.mode_paiement),
+            arriere_loyer: preferReal ? row.arriere_loyer : numOrVal(ov.arriere_loyer, row.arriere_loyer),
+            anticipation: preferReal ? row.anticipation : numOrVal(ov.anticipation, row.anticipation),
+            versement_mois: preferReal ? row.versement_mois : numOrVal(ov.versement_mois, row.versement_mois),
+            payment_date: preferReal ? row.payment_date : strOrVal(ov.payment_date, row.payment_date),
+            period_start: preferReal ? row.period_start : strOrVal(ov.period_start, row.period_start),
+            period_end: preferReal ? row.period_end : strOrVal(ov.period_end, row.period_end),
+            periode_paiement: preferReal ? row.periode_paiement : strOrVal(ov.periode_paiement, row.periode_paiement),
+            mode_paiement: preferReal ? row.mode_paiement : strOrVal(ov.mode_paiement, row.mode_paiement),
             caution: numOrVal(ov.caution, row.caution),
-            observations: strOrVal(ov.observations, row.observations),
+            observations: (ov.observations && String(ov.observations).trim() !== '') ? String(ov.observations).trim() : row.observations,
             is_overridden: true,
           };
         });
@@ -540,9 +559,10 @@ class ReportService {
 
     // 3. Intégration des surcharges manuelles de la situation (situation_overrides)
     try {
+      const ymRecap = String(end || start || '').slice(0, 7);
       const overrides = await sequelize.query(
-        `SELECT * FROM situation_overrides`,
-        { type: sequelize.QueryTypes.SELECT }
+        `SELECT * FROM situation_overrides WHERE period_ym = :ym OR period_ym IS NULL`,
+        { replacements: { ym: ymRecap }, type: sequelize.QueryTypes.SELECT }
       );
       if (overrides && overrides.length > 0) {
         for (const ov of overrides) {
@@ -551,7 +571,8 @@ class ReportService {
             (ov.apartment_id && r.apartment_id === Number(ov.apartment_id))
           );
           if (matched) {
-            if (ov.arriere_loyer !== null && ov.arriere_loyer !== undefined) {
+            // Ne pas écraser si paiements réels présents
+            if (matched.paye === 0 && ov.arriere_loyer !== null && ov.arriere_loyer !== undefined) {
               matched.impaye = num(ov.arriere_loyer);
             }
             if (ov.nom_locataire) {

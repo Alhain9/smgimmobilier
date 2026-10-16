@@ -186,15 +186,15 @@ class ManagementReportService {
     const totalTheoretical = monthlyTheoretical * months;
 
     // 2. Loyers réellement encaissés (cumul vérifié de tous les encaissements de la période)
+    // Synchronisation absolue avec la situation des 12 colonnes :
+    // sitTotal.versement_mois intègre les versements effectifs de la période ainsi que toutes les surcharges manuelles validées.
     const completedPayments = payments.filter((p) => p.status === 'completed');
     const rawPaymentsCollected = completedPayments.reduce((s, p) => s + num(p.amount), 0);
     const isFullCalendarMonth = (months === 1 && String(start).slice(8, 10) === '01' && (String(end).slice(8, 10) >= '28'));
 
-    // Pour une période personnalisée (ex: du 14 au 16 oct.), le total encaissé correspond STRICTEMENT aux paiements réalisés entre ces dates.
-    // Le fallback sur la situation globale du mois n'intervient que pour un mois complet sans transaction détaillée en base.
-    const totalCollected = (rawPaymentsCollected > 0 || !isFullCalendarMonth)
-      ? rawPaymentsCollected
-      : ((sitTotal && sitTotal.versement_mois > 0) ? sitTotal.versement_mois : 0);
+    const totalCollected = (sitTotal && sitTotal.versement_mois != null)
+      ? Number(sitTotal.versement_mois)
+      : rawPaymentsCollected;
 
     // 3. Reste à encaisser / impayés sur la période
     const unpaidPayments = payments.filter((p) => ['pending', 'failed', 'awaiting_confirmation'].includes(p.status));
@@ -332,36 +332,54 @@ class ManagementReportService {
       if (p.observations) rec.observations = p.observations;
     });
 
-    // Synchronisation avec les données de situation
-    // Pour un rapport de période personnalisée, seules les transactions effectives de cette période sont listées dans Section 3.
-    // Le fallback sur situationLignes n'intervient que si aucune transaction n'existe pour un mois entier.
-    if (collectionsMap.size === 0 && isFullCalendarMonth && situationLignes.length > 0) {
-      situationLignes.forEach((l) => {
-        if (Number(l.versement_mois) > 0) {
-          const key = l.apartment_id || `apt-${l.numero_chambre}`;
-          const mSet = new Set();
-          if (l.mode_paiement && l.mode_paiement !== '—') mSet.add(l.mode_paiement);
-          else mSet.add('Espèces');
-          collectionsMap.set(key, {
-            apartment_id: l.apartment_id,
-            tenant_id: l.tenant_id,
-            apartment_number: l.numero_chambre || '—',
-            tenant_name: l.nom_locataire || 'Locataire',
-            total_collected: Number(l.versement_mois),
-            transaction_count: 1,
-            methods: mSet,
-            receipt_numbers: [],
-            dates: [],
-            rent_amount: Number(l.montant_loyer) || 0,
-            periode_paiement: l.periode_paiement,
-            period_start: l.period_start,
-            period_end: l.period_end,
-          });
+    // Synchronisation stricte avec la situation des 12 colonnes
+    situationLignes.forEach((l) => {
+      const vMois = Number(l.versement_mois) || 0;
+      const key = l.apartment_id || `apt-${l.numero_chambre}`;
+      if (collectionsMap.has(key)) {
+        const c = collectionsMap.get(key);
+        if (l.is_overridden && l.versement_mois !== null) {
+          c.total_collected = vMois;
         }
-      });
-    }
+        if (l.periode_paiement && l.periode_paiement !== '—') {
+          c.periode_paiement = l.periode_paiement;
+        }
+        if (l.mode_paiement && l.mode_paiement !== '—') {
+          c.methods = new Set([l.mode_paiement]);
+        }
+      } else if (vMois > 0) {
+        const mSet = new Set();
+        if (l.mode_paiement && l.mode_paiement !== '—') mSet.add(l.mode_paiement);
+        else mSet.add('Espèces');
+        collectionsMap.set(key, {
+          apartment_id: l.apartment_id,
+          tenant_id: l.tenant_id,
+          apartment_number: l.numero_chambre || '—',
+          tenant_name: l.nom_locataire || 'Locataire',
+          total_collected: vMois,
+          transaction_count: 1,
+          methods: mSet,
+          receipt_numbers: [],
+          dates: [],
+          rent_amount: Number(l.montant_loyer) || 0,
+          periode_paiement: l.periode_paiement,
+          period_start: l.period_start,
+          period_end: l.period_end,
+        });
+      }
+    });
 
-    const aggregatedCollections = Array.from(collectionsMap.values()).map((c) => {
+    const aggregatedCollections = Array.from(collectionsMap.values())
+      .filter((c) => {
+        const sitLine = (c.apartment_id && sitByAptId.get(Number(c.apartment_id)))
+          || sitByAptNum.get(String(c.apartment_number).trim().toLowerCase())
+          || null;
+        if (sitLine && sitLine.is_overridden && sitLine.versement_mois !== null) {
+          c.total_collected = Number(sitLine.versement_mois);
+        }
+        return Number(c.total_collected) > 0;
+      })
+      .map((c) => {
       const sitLine = (c.apartment_id && sitByAptId.get(Number(c.apartment_id)))
         || sitByAptNum.get(String(c.apartment_number).trim().toLowerCase())
         || null;
@@ -414,12 +432,16 @@ class ManagementReportService {
         periodePaiement = dateRange;
       }
 
+      const finalCollected = (sitLine && sitLine.is_overridden && sitLine.versement_mois !== null)
+        ? Number(sitLine.versement_mois)
+        : Number(c.total_collected);
+
       return {
         apartment_id: c.apartment_id,
         tenant_id: c.tenant_id,
         apartment_number: c.apartment_number,
         tenant_name: tenantName,
-        total_collected: c.total_collected,
+        total_collected: finalCollected,
         transaction_count: c.transaction_count,
         methods: methodLabel,
         receipt_numbers: receiptList,

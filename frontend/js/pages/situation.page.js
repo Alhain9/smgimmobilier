@@ -212,9 +212,9 @@ const PageSituation = {
       caution: sum('caution'),
     };
 
-    const isAdminOrManager = Auth.hasRole('super_admin', 'manager', 'admin');
+    const isStaff = Auth.hasRole('super_admin', 'manager', 'admin', 'dir_admin', 'dir_technique', 'gestionnaire', 'comptable');
     const isAssignedProperty = this._properties && this._properties.find(p => Number(p.id) === Number(propertyId))?.is_assigned;
-    const canManageProperty = isAdminOrManager || Boolean(isAssignedProperty);
+    const canManageProperty = isStaff || Boolean(isAssignedProperty);
 
     const headCols = this.COLS.map((c) => {
       const isPeriod = c[0] === 'periode_paiement';
@@ -234,10 +234,10 @@ const PageSituation = {
       </thead>
     `;
 
-    const rows = (lignes || []).map((l) => {
-      const tds = this.COLS.map((c, idx) => {
+    const rows = (lignes || []).map((l, idx) => {
+      const tds = this.COLS.map((c, colIdx) => {
         let cellContent = this._cell(l, c[0], c[2]);
-        if (idx === 0 && l.is_overridden) {
+        if (colIdx === 0 && l.is_overridden) {
           cellContent += ` <span title="Ligne modifiée manuellement (chiffres ajustés)" style="color:#d97706;font-size:10px;cursor:help">✏️</span>`;
         }
         const isPeriod = c[0] === 'periode_paiement';
@@ -245,6 +245,7 @@ const PageSituation = {
         return `<td style="${extraStyle}">${cellContent}</td>`;
       }).join('');
       const canCheck = !!l.tenant_id;
+      const aptNumEscaped = Helpers.escapeHtml(l.numero_chambre || l.apartment_number || '');
       return `
         <tr ${l.is_overridden ? 'style="background:rgba(254, 243, 199, 0.25)"' : ''}>
           <td class="no-print" style="text-align:center">
@@ -260,7 +261,7 @@ const PageSituation = {
                 <button class="btn btn-sm btn-success" style="padding:2px 6px;margin-right:2px;" title="Attribuer à un nouveau locataire (Relouer)" onclick="PageApartments.installTenant(${l.apartment_id}, ${propertyId})">👤</button>
               ` : ''}
             `}
-            ${canManageProperty ? `<button class="btn btn-sm btn-primary" style="padding:2px 6px;margin-right:2px;" title="Modifier les 12 colonnes de cette ligne (chiffres & libellés)" onclick="PageSituation.editRow(${l.apartment_id || 'null'}, ${l.tenant_id || 'null'}, ${propertyId || 'null'}, '${periodYm || ''}')">✏️</button>` : ''}
+            ${canManageProperty ? `<button class="btn btn-sm btn-primary" style="padding:2px 6px;margin-right:2px;" title="Modifier les 12 colonnes de cette ligne (chiffres & libellés)" onclick="PageSituation.editRow(${l.apartment_id || 'null'}, ${l.tenant_id || 'null'}, ${propertyId || 'null'}, '${periodYm || ''}', '${aptNumEscaped}', ${idx})">✏️</button>` : ''}
             ${l.tenant_id && canManageProperty ? `
               <button class="btn btn-sm btn-outline" style="padding:2px 6px;margin-right:2px;" title="Modifier l'observation" onclick="PageSituation.editObservation(${l.tenant_id}, '${Helpers.escapeHtml(l.observations || '')}')">💬</button>
             ` : ''}
@@ -564,13 +565,24 @@ const PageSituation = {
     }
   },
 
-  editRow(apartmentId, tenantId, propertyId = null, periodYm = null) {
+  editRow(apartmentId, tenantId, propertyId = null, periodYm = null, roomNumber = '', idx = null) {
     let line = null;
     let foundPropId = propertyId;
     let foundPeriodYm = periodYm;
 
     for (const b of this._buildings || []) {
-      const found = (b.lignes || []).find((x) => (apartmentId && x.apartment_id === apartmentId) || (tenantId && x.tenant_id === tenantId));
+      if (propertyId && Number(b.property_id) !== Number(propertyId)) continue;
+      if (idx !== null && idx !== undefined && b.lignes && b.lignes[idx]) {
+        line = b.lignes[idx];
+        if (!foundPropId) foundPropId = b.property_id;
+        if (!foundPeriodYm) foundPeriodYm = b.periode;
+        break;
+      }
+      const found = (b.lignes || []).find((x) => 
+        (apartmentId && Number(x.apartment_id) === Number(apartmentId)) || 
+        (tenantId && Number(x.tenant_id) === Number(tenantId)) ||
+        (roomNumber && String(x.numero_chambre || x.apartment_number).trim().toLowerCase() === String(roomNumber).trim().toLowerCase())
+      );
       if (found) {
         line = found;
         if (!foundPropId) foundPropId = b.property_id;
@@ -579,7 +591,15 @@ const PageSituation = {
       }
     }
     if (!line && Array.isArray(this._situation)) {
-      line = this._situation.find((x) => (apartmentId && x.apartment_id === apartmentId) || (tenantId && x.tenant_id === tenantId));
+      if (idx !== null && idx !== undefined && this._situation[idx]) {
+        line = this._situation[idx];
+      } else {
+        line = this._situation.find((x) => 
+          (apartmentId && Number(x.apartment_id) === Number(apartmentId)) || 
+          (tenantId && Number(x.tenant_id) === Number(tenantId)) ||
+          (roomNumber && String(x.numero_chambre || x.apartment_number).trim().toLowerCase() === String(roomNumber).trim().toLowerCase())
+        );
+      }
       if (line && !foundPropId) foundPropId = line.property_id;
     }
 

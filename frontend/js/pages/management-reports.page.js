@@ -277,11 +277,21 @@ const PageManagementReports = {
     }
   },
 
-  editRow(apartmentId, tenantId) {
+  editRow(apartmentId, tenantId, roomNumber = '', idx = null) {
     if (!this._currentReport) return;
     const r = this._currentReport;
     const sitLignes = (r.building_situation && r.building_situation.lignes) || r.rental_situation.apartments || [];
-    const line = sitLignes.find((l) => (apartmentId && l.apartment_id === apartmentId) || (tenantId && l.tenant_id === tenantId));
+    let line = null;
+    if (idx !== null && idx !== undefined && sitLignes[idx]) {
+      line = sitLignes[idx];
+    }
+    if (!line) {
+      line = sitLignes.find((l) => 
+        (apartmentId && Number(l.apartment_id) === Number(apartmentId)) || 
+        (tenantId && Number(l.tenant_id) === Number(tenantId)) ||
+        (roomNumber && String(l.numero_chambre || l.apartment_number).trim().toLowerCase() === String(roomNumber).trim().toLowerCase())
+      );
+    }
     if (!line) {
       Toast.warning('Ligne de situation introuvable');
       return;
@@ -586,12 +596,13 @@ const PageManagementReports = {
     const periodMonths = Number(r.period?.months) || 1;
     s.theoretical_rent = Number(sitTotal.montant_loyer) * periodMonths;
 
-    const isAdminOrManager = Auth.hasRole('super_admin', 'manager', 'admin');
+    const isStaff = Auth.hasRole('super_admin', 'manager', 'admin', 'dir_admin', 'dir_technique', 'gestionnaire', 'comptable');
     const isAssignedProp = this._properties && this._properties.find(prop => Number(prop.id) === Number(p.id))?.is_assigned;
-    const canManageProperty = isAdminOrManager || Boolean(isAssignedProp);
+    const canManageProperty = isStaff || Boolean(isAssignedProp);
 
-    const sitTableRows = sitLignes.map((l) => {
+    const sitTableRows = sitLignes.map((l, idx) => {
       const canCheck = !!l.tenant_id;
+      const aptNumEscaped = Helpers.escapeHtml(l.numero_chambre || l.apartment_number || '');
       return `
         <tr>
           <td class="no-print" style="text-align:center">
@@ -610,7 +621,7 @@ const PageManagementReports = {
           <td>${fmt(l.caution)}</td>
           <td style="font-size:12px">${l.observations || '—'}</td>
           <td class="no-print" style="text-align:center;white-space:nowrap">
-            ${canManageProperty ? `<button class="btn btn-sm btn-primary" style="padding:2px 7px;margin-right:4px;" title="Modifier les 12 colonnes" onclick="PageManagementReports.editRow(${l.apartment_id || 'null'}, ${l.tenant_id || 'null'})">✏️</button>` : ''}
+            ${canManageProperty ? `<button class="btn btn-sm btn-primary" style="padding:2px 7px;margin-right:4px;" title="Modifier les 12 colonnes" onclick="PageManagementReports.editRow(${l.apartment_id || 'null'}, ${l.tenant_id || 'null'}, '${aptNumEscaped}', ${idx})">✏️</button>` : ''}
             ${canManageProperty ? `<button class="btn btn-sm btn-danger" style="padding:2px 7px;" title="Supprimer individuellement" onclick="PageManagementReports.deleteSingle(${l.tenant_id || 'null'}, ${l.apartment_id || 'null'})">🗑</button>` : ''}
           </td>
         </tr>

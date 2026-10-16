@@ -219,8 +219,9 @@ const PageManagementReports = {
       if (pdfBtn) pdfBtn.style.display = 'inline-flex';
       this.renderReport(data);
     } catch (err) {
-      Toast.error('Erreur lors de la génération du rapport');
-      area.innerHTML = `<div class="card" style="text-align:center;padding:30px;color:var(--danger)">Échec de génération du rapport.</div>`;
+      console.error('Erreur generateReport:', err);
+      Toast.error(err.message || 'Erreur lors de la génération du rapport');
+      area.innerHTML = `<div class="card" style="text-align:center;padding:30px;color:var(--danger)">Échec de génération du rapport : ${Helpers.escapeHtml(err.message || 'Erreur interne')}</div>`;
     }
   },
 
@@ -234,7 +235,9 @@ const PageManagementReports = {
     const checked = Array.from(document.querySelectorAll('.row-mr-chk:checked'));
     const pId = this._currentReport?.property?.id;
     const isAssigned = this._properties && this._properties.find(prop => Number(prop.id) === Number(pId))?.is_assigned;
-    const canManage = Auth.hasRole('super_admin', 'manager', 'admin') || Boolean(isAssigned);
+    const canManage = Auth.hasRole('super_admin', 'manager', 'admin', 'dir_admin', 'dir_technique', 'gestionnaire', 'comptable') || Boolean(isAssigned);
+    const btn = document.getElementById('bulkDelBtn_mr');
+    const numEl = document.getElementById('selNum_mr');
     if (btn) btn.style.display = (checked.length > 0 && canManage) ? 'inline-flex' : 'none';
     if (numEl) numEl.textContent = String(checked.length);
   },
@@ -604,6 +607,7 @@ const PageManagementReports = {
       const canCheck = !!l.tenant_id;
       const isFree = !l.nom_locataire || l.nom_locataire === '—';
       const versementVal = Number(l.versement_mois || 0);
+      const aptNumEscaped = String(l.numero_chambre || l.apartment_number || '').replace(/['"\\]/g, ' ');
       return `
         <tr>
           <td class="no-print" style="text-align:center">
@@ -767,7 +771,7 @@ const PageManagementReports = {
 
       <!-- 3. ENCAISSEMENTS RÉALISÉS (SYNTHÈSE AGRÉGÉE PAR LOGEMENT / LOCATAIRE) -->
       <div class="card" style="margin-bottom:16px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:gap:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
           <h4 style="font-size:15px;font-weight:700;margin:0">💳 3. Encaissements Réalisés (${(r.aggregated_collections || []).length} logements réglés — Total : ${fmt(s.collected_rent)})</h4>
           <span class="badge badge-success" style="font-size:12px">Total Encaissé : ${fmt(s.collected_rent)}</span>
         </div>

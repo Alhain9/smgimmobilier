@@ -189,7 +189,7 @@ class PdfService {
       fmtMoney(l.anticipation),
       fmtMoney(l.versement_mois),
       l.periode_paiement || '—',
-      l.mode_paiement || '—',
+      Number(l.versement_mois) > 0 ? (l.mode_paiement || '—') : '—',
       fmtMoney(l.caution),
       l.observations || '',
     ]);

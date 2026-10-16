@@ -191,7 +191,10 @@ class ExcelService {
     const lignes = data.lignes || [];
     lignes.forEach((item, rIdx) => {
       const row = ws.addRow(columns.map(c => {
-        const val = item[c.key];
+        let val = item[c.key];
+        if (c.key === 'mode_paiement' && (Number(item.versement_mois) || 0) === 0) {
+          val = '—';
+        }
         if (c.isMoney) return Number(val) || 0;
         return val != null && val !== '' ? val : '—';
       }));

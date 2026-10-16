@@ -136,8 +136,8 @@ class ReportService {
         arriere_loyer: arriere,
         anticipation,
         versement_mois: versementMois,
-        periode_paiement: periodePaiement,
-        mode_paiement: last ? (last.payment_method || 'cash') : '—',
+        periode_paiement: versementMois > 0 ? periodePaiement : '—',
+        mode_paiement: versementMois > 0 ? (last ? (last.payment_method || 'cash') : '—') : '—',
         caution,
         observations: finalObs,
         statut: o.status,
@@ -489,7 +489,9 @@ class ReportService {
               period_start: strOrVal(ov.period_start, row.period_start),
               period_end: strOrVal(ov.period_end, row.period_end),
               periode_paiement: hasManualPeriode ? String(ov.periode_paiement).trim() : row.periode_paiement,
-              mode_paiement: hasManualMode ? String(ov.mode_paiement).trim() : (effectiveVersement > 0 ? (row.mode_paiement || 'Espèces') : '—'),
+              mode_paiement: effectiveVersement > 0
+                ? (hasManualMode ? String(ov.mode_paiement).trim() : (row.mode_paiement !== '—' ? row.mode_paiement : 'Espèces'))
+                : '—',
               observations: hasManualObs ? String(ov.observations).trim() : row.observations,
               is_overridden: true,
             };

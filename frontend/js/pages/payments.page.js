@@ -360,12 +360,15 @@ const PagePayments = {
       const startDateStr = pStartInput.value;
 
       if (amount > 0 && rent > 0 && startDateStr) {
-        const months = Math.max(1, Math.floor(amount / rent));
-        const advance = Math.max(0, amount - (months * rent));
+        const fullMonths = Math.floor(amount / rent);
+        const months = Math.max(1, fullMonths);
+        const advance = fullMonths >= 1 ? Math.max(0, amount - (fullMonths * rent)) : 0;
+        const isPartial = fullMonths === 0;
+
         const sDate = new Date(startDateStr);
         if (!isNaN(sDate.getTime())) {
           const eDate = new Date(sDate);
-          eDate.setMonth(eDate.getMonth() + months);
+          eDate.setMonth(eDate.getMonth() + (fullMonths >= 1 ? fullMonths : 1));
           const y = eDate.getFullYear();
           const m = String(eDate.getMonth() + 1).padStart(2, '0');
           const d = String(eDate.getDate()).padStart(2, '0');
@@ -377,15 +380,23 @@ const PagePayments = {
           }
 
           if (infoHint) {
-            const advText = advance > 0 ? ` + <b>avance de ${Helpers.formatMoney(advance)}</b> sur le mois suivant` : '';
-            infoHint.innerHTML = `💡 <b>Période couverte détectée :</b> ${months} mois (du ${Helpers.formatDate(startDateStr)} au ${Helpers.formatDate(pEndInput.value)})${advText}`;
+            if (isPartial) {
+              infoHint.innerHTML = `💡 <b>Acompte / versement partiel :</b> ${Helpers.formatMoney(amount)} sur le mois du ${Helpers.formatDate(startDateStr)} au ${Helpers.formatDate(pEndInput.value)} (Loyer : ${Helpers.formatMoney(rent)}, reste : ${Helpers.formatMoney(rent - amount)})`;
+            } else {
+              const advText = advance > 0 ? ` + <b>avance de ${Helpers.formatMoney(advance)}</b> sur le mois suivant` : '';
+              infoHint.innerHTML = `💡 <b>Période couverte détectée :</b> ${fullMonths} mois (du ${Helpers.formatDate(startDateStr)} au ${Helpers.formatDate(pEndInput.value)})${advText}`;
+            }
             infoHint.style.display = 'block';
           }
 
           // Pré-remplir l'observation si vide ou auto-générée
           if (obsInput && (!obsInput.value.trim() || obsInput.dataset.autoGen === 'true')) {
-            const advObs = advance > 0 ? ` + avance de ${Helpers.formatMoney(advance)} sur la période suivante` : '';
-            obsInput.value = `Paiement de ${Helpers.formatMoney(amount)} couvrant : ${Helpers.formatDate(startDateStr)} au ${Helpers.formatDate(pEndInput.value)} (${Helpers.formatMoney(months * rent)})${advObs}.`;
+            if (isPartial) {
+              obsInput.value = `Acompte de ${Helpers.formatMoney(amount)} sur loyer du ${Helpers.formatDate(startDateStr)} au ${Helpers.formatDate(pEndInput.value)} (reste à compléter ${Helpers.formatMoney(rent - amount)}).`;
+            } else {
+              const advObs = advance > 0 ? ` + avance de ${Helpers.formatMoney(advance)} sur la période suivante` : '';
+              obsInput.value = `Paiement de ${Helpers.formatMoney(amount)} couvrant : ${Helpers.formatDate(startDateStr)} au ${Helpers.formatDate(pEndInput.value)} (${Helpers.formatMoney(fullMonths * rent)})${advObs}.`;
+            }
             obsInput.dataset.autoGen = 'true';
           }
         }
@@ -493,7 +504,7 @@ const PagePayments = {
       const aptSelect = document.getElementById('pay_apartment_id');
       const aptId = aptSelect ? aptSelect.value : null;
       const apt = (this._apartments || []).find(a => String(a.id) === String(aptId));
-      const rent = (apt && num(apt.rent_amount)) || currentMonthlyRent || 0;
+      const rent = (apt && parseFloat(apt.rent_amount)) || currentMonthlyRent || 0;
       recalculateCoverage(rent);
     };
     if (payAmtEl) payAmtEl.addEventListener('input', triggerRecalc);

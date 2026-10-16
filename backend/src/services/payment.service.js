@@ -150,7 +150,7 @@ class PaymentService {
           observations: p.observations,
         });
       } catch (err) { logger.warn('Auto-génération reçu échouée:', { error: err.message }); }
-
+      await this._syncSituationOverride(full || p);
     }
 
     // Temps réel : notifier les dashboards
@@ -174,7 +174,7 @@ class PaymentService {
     const wasCompleted = p.status === 'completed';
     await p.update(data);
     await this._log(id, 'updated', changes.join(' · ') || 'Modification', p, user);
-    if (data.status === 'completed' && !wasCompleted) {
+    if (p.status === 'completed') {
       try {
         const receiptService = require('./receipt.service');
         await receiptService.generateRentReceipt(p.id, user?.id, {
@@ -182,9 +182,12 @@ class PaymentService {
           period_end: p.period_end,
           observations: p.observations,
         });
-      } catch (err) { logger.warn('Auto-génération reçu échouée:', { error: err.message }); }
+      } catch (err) { logger.warn('Mise à jour reçu lors modification paiement échouée:', { error: err.message }); }
     }
     const full = await this.getById(id);
+    if (p.status === 'completed') {
+      await this._syncSituationOverride(full || p);
+    }
     try {
       const propId = full.apartment?.property?.id;
       emitPayment('modifie', { id: full.id, amount: full.amount, status: full.status }, propId);
@@ -204,6 +207,7 @@ class PaymentService {
         const receiptService = require('./receipt.service');
         await receiptService.generateRentReceipt(p.id, user?.id);
       } catch (err) { logger.warn('Auto-génération reçu échouée:', { error: err.message }); }
+      await this._syncSituationOverride(p);
     }
     return this.getById(id);
   }
@@ -433,6 +437,183 @@ class PaymentService {
     } catch (e) {
       logger.error('Erreur globale syncPendingPayments', { error: e.message });
       return 0;
+    }
+  }
+
+  // Synchronisation automatique bidirectionnelle vers la table situation_overrides
+  async _syncSituationOverride(payment) {
+    try {
+      if (!payment || !payment.apartment_id || payment.status !== 'completed') return;
+      const { sequelize } = require('../config/database');
+      const { Apartment, Property, Tenant, User, Payment } = require('../models');
+      const { Op } = require('sequelize');
+
+      const apt = await Apartment.findByPk(payment.apartment_id, {
+        include: [
+          { model: Property, as: 'property' },
+          { model: Tenant, as: 'tenants', where: { status: 'active' }, required: false, include: [{ model: User, as: 'user' }] },
+        ],
+      });
+      if (!apt) return;
+
+      const propId = apt.property_id;
+      const pDate = payment.payment_date ? String(payment.payment_date).slice(0, 10) : new Date().toISOString().slice(0, 10);
+      const ym = pDate.slice(0, 7);
+
+      const [tYear, tMonth] = ym.split('-');
+      const lastDayNum = new Date(Number(tYear), Number(tMonth), 0).getDate();
+      const startOfMonth = `${ym}-01`;
+      const endOfMonth = `${ym}-${String(lastDayNum).padStart(2, '0')}`;
+
+      const monthPayments = await Payment.findAll({
+        where: {
+          apartment_id: apt.id,
+          status: 'completed',
+          payment_date: { [Op.between]: [startOfMonth, endOfMonth] },
+        },
+        order: [['payment_date', 'DESC'], ['id', 'DESC']],
+      });
+
+      const sumVersement = monthPayments.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
+      const monthlyRent = parseFloat(apt.rent_amount) || 0;
+
+      const lastWithEnd = monthPayments.find((p) => p.period_end) || payment;
+      let arriere = 0;
+      let anticipation = 0;
+      let periodePaiement = '—';
+
+      if (lastWithEnd && lastWithEnd.period_end && monthlyRent > 0) {
+        const eDate = new Date(lastWithEnd.period_end);
+        const endYear = eDate.getFullYear();
+        const endMonth = eDate.getMonth() + 1;
+        const diffMonths = (Number(tYear) - endYear) * 12 + (Number(tMonth) - endMonth);
+        if (diffMonths < 0) {
+          anticipation = Math.abs(diffMonths) * monthlyRent;
+          arriere = 0;
+        } else if (diffMonths > 0) {
+          arriere = diffMonths * monthlyRent;
+          anticipation = 0;
+        } else {
+          arriere = 0;
+          anticipation = 0;
+        }
+        if (lastWithEnd.period_start) {
+          const fmtFR = (d) => {
+            const s = String(d).slice(0, 10);
+            const p = s.split('-');
+            return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : s;
+          };
+          periodePaiement = `du ${fmtFR(lastWithEnd.period_start)} au ${fmtFR(lastWithEnd.period_end)}`;
+        }
+      }
+
+      const methodLabels = {
+        cash: 'Espèces',
+        especes: 'Espèces',
+        bank_transfer: 'Virement bancaire',
+        virement: 'Virement bancaire',
+        orange_money: 'Orange Money',
+        mtn_mobile_money: 'MTN Mobile Money',
+        campay: 'Mobile Money',
+        cheque: 'Chèque',
+        autre: 'Autre',
+      };
+      const modePaiement = methodLabels[payment.payment_method] || payment.payment_method || 'Espèces';
+      const obs = payment.observations || (arriere === 0 ? "À jour" : `Impayé ${arriere} FCFA`);
+
+      const [existing] = await sequelize.query(
+        `SELECT id FROM situation_overrides WHERE apartment_id = :aptId AND period_ym = :ym LIMIT 1`,
+        { replacements: { aptId: apt.id, ym } }
+      );
+
+      if (existing && existing.length > 0) {
+        await sequelize.query(
+          `UPDATE situation_overrides SET
+            tenant_id = :tenantId,
+            versement_mois = :versement,
+            arriere_loyer = :arriere,
+            anticipation = :anticipation,
+            payment_date = :pDate,
+            period_start = :pStart,
+            period_end = :pEnd,
+            periode_paiement = :periodePaiement,
+            mode_paiement = :modePaiement,
+            observations = :obs,
+            updated_at = NOW()
+          WHERE id = :id`,
+          {
+            replacements: {
+              tenantId: payment.tenant_id || null,
+              versement: sumVersement,
+              arriere,
+              anticipation,
+              pDate,
+              pStart: lastWithEnd?.period_start || null,
+              pEnd: lastWithEnd?.period_end || null,
+              periodePaiement,
+              modePaiement,
+              obs,
+              id: existing[0].id,
+            },
+          }
+        );
+      } else {
+        let tName = 'Locataire';
+        let tPhone = '—';
+        const activeTenant = (apt.tenants || [])[0];
+        if (activeTenant && activeTenant.user) {
+          tName = activeTenant.user.full_name || tName;
+          tPhone = activeTenant.user.phone || tPhone;
+        } else if (payment.tenant_id) {
+          const tObj = await Tenant.findByPk(payment.tenant_id, { include: [{ model: User, as: 'user' }] });
+          if (tObj && tObj.user) {
+            tName = tObj.user.full_name || tName;
+            tPhone = tObj.user.phone || tPhone;
+          }
+        }
+
+        await sequelize.query(
+          `INSERT INTO situation_overrides (
+            property_id, apartment_id, tenant_id, period_ym,
+            numero_chambre, nom_locataire, telephone, montant_loyer,
+            description_logement, arriere_loyer, anticipation, versement_mois,
+            payment_date, period_start, period_end,
+            periode_paiement, mode_paiement, caution, observations,
+            created_at, updated_at
+          ) VALUES (
+            :propId, :aptId, :tenantId, :ym,
+            :aptNum, :tName, :tPhone, :rent,
+            :desc, :arriere, :anticipation, :versement,
+            :pDate, :pStart, :pEnd,
+            :periodePaiement, :modePaiement, 0, :obs,
+            NOW(), NOW()
+          )`,
+          {
+            replacements: {
+              propId,
+              aptId: apt.id,
+              tenantId: payment.tenant_id || null,
+              ym,
+              aptNum: apt.apartment_number,
+              tName,
+              tPhone,
+              rent: monthlyRent,
+              desc: apt.description || apt.apartment_type || 'Logement',
+              arriere,
+              anticipation,
+              versement: sumVersement,
+              pDate,
+              pStart: lastWithEnd?.period_start || null,
+              pEnd: lastWithEnd?.period_end || null,
+              periodePaiement,
+              modePaiement,
+              obs,
+            },
+          }
+        );
+      }
+    } catch (err) {
+      logger.warn('Synchronisation situation_overrides échouée:', { error: err.message });
     }
   }
 }

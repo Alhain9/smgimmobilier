@@ -336,11 +336,38 @@ class ReceiptService {
     const receipt = await Receipt.findByPk(id);
     if (!receipt) throw Object.assign(new Error('Reçu introuvable'), { status: 404 });
     const numReceipt = receipt.receipt_number;
+    const paymentId = receipt.payment_id;
+    const aptId = receipt.apartment_id;
+    const pDate = receipt.payment_date;
+
     if (receipt.receipt_type === 'utility') {
       await UtilityBill.update({ receipt_number: null }, { where: { receipt_number: numReceipt } });
     }
+
+    // Supprimer le paiement associé s'il existe pour que la transaction disparaisse des rapports
+    if (paymentId) {
+      try {
+        const { PaymentHistory } = require('../models');
+        await PaymentHistory.destroy({ where: { payment_id: paymentId } });
+        await Payment.destroy({ where: { id: paymentId } });
+      } catch (err) {
+        logger.warn('Erreur suppression paiement associé au reçu:', { paymentId, error: err.message });
+      }
+    }
+
+    // Nettoyer toute surcharge de situation liée à cette transaction
+    if (aptId && pDate) {
+      try {
+        const { sequelize } = require('../config/database');
+        await sequelize.query(
+          `DELETE FROM situation_overrides WHERE apartment_id = :aptId AND payment_date = :pDate`,
+          { replacements: { aptId, pDate } }
+        );
+      } catch (_) {}
+    }
+
     await receipt.destroy();
-    logger.info('🗑️ Reçu supprimé définitivement', { receipt_number: numReceipt, id });
+    logger.info('🗑️ Reçu et paiement associé supprimés définitivement', { receipt_number: numReceipt, id, paymentId });
     return { id, receipt_number: numReceipt };
   }
 
@@ -351,11 +378,38 @@ class ReceiptService {
     }
     const receipts = await Receipt.findAll({ where: { id: { [Op.in]: ids } } });
     const numbers = receipts.map((r) => r.receipt_number);
+    const paymentIds = receipts.map((r) => r.payment_id).filter(Boolean);
+
     if (numbers.length > 0) {
       await UtilityBill.update({ receipt_number: null }, { where: { receipt_number: { [Op.in]: numbers } } });
     }
+
+    // Supprimer les paiements associés
+    if (paymentIds.length > 0) {
+      try {
+        const { PaymentHistory } = require('../models');
+        await PaymentHistory.destroy({ where: { payment_id: { [Op.in]: paymentIds } } });
+        await Payment.destroy({ where: { id: { [Op.in]: paymentIds } } });
+      } catch (err) {
+        logger.warn('Erreur suppression paiements associés en masse:', { error: err.message });
+      }
+    }
+
+    // Nettoyer les surcharges
+    for (const r of receipts) {
+      if (r.apartment_id && r.payment_date) {
+        try {
+          const { sequelize } = require('../config/database');
+          await sequelize.query(
+            `DELETE FROM situation_overrides WHERE apartment_id = :aptId AND payment_date = :pDate`,
+            { replacements: { aptId: r.apartment_id, pDate: r.payment_date } }
+          );
+        } catch (_) {}
+      }
+    }
+
     const count = await Receipt.destroy({ where: { id: { [Op.in]: ids } } });
-    logger.info('🗑️ Reçus supprimés en masse', { count, ids });
+    logger.info('🗑️ Reçus et paiements associés supprimés en masse', { count, ids });
     return { deletedCount: count };
   }
 
@@ -418,10 +472,41 @@ class ReceiptService {
       receiptNumber = await this._nextNumber(data.receipt_type || 'rent');
     }
 
+    let paymentId = data.payment_id || null;
+    if (!paymentId && (data.receipt_type === 'rent' || !data.receipt_type) && (data.tenant_id || data.apartment_id) && Number(data.amount) > 0) {
+      try {
+        const rawMethod = String(data.payment_method || 'cash').toLowerCase().trim();
+        let pMethod = 'cash';
+        if (rawMethod.includes('orange') || rawMethod.includes('om')) pMethod = 'orange_money';
+        else if (rawMethod.includes('mtn') || rawMethod.includes('momo') || rawMethod.includes('mobile')) pMethod = 'mtn_mobile_money';
+        else if (rawMethod.includes('vir') || rawMethod.includes('bank') || rawMethod.includes('transfer')) pMethod = 'bank_transfer';
+
+        const payment = await Payment.create({
+          tenant_id: data.tenant_id,
+          apartment_id: data.apartment_id,
+          amount: parseFloat(data.amount) || 0,
+          payment_method: pMethod,
+          payment_date: data.payment_date || new Date().toISOString().slice(0, 10),
+          status: 'completed',
+          period_start: data.period_start || null,
+          period_end: data.period_end || null,
+          observations: data.observations || null,
+          created_by: userId || null,
+        });
+        paymentId = payment.id;
+        try {
+          const paymentService = require('./payment.service');
+          await paymentService._syncSituationOverride(payment);
+        } catch (_) {}
+      } catch (err) {
+        logger.warn('Création automatique du paiement depuis reçu personnalisé échouée:', { error: err.message });
+      }
+    }
+
     const receipt = await Receipt.create({
       receipt_number: receiptNumber,
       receipt_type: data.receipt_type || 'rent',
-      payment_id: data.payment_id || null,
+      payment_id: paymentId,
       tenant_id: data.tenant_id || null,
       apartment_id: data.apartment_id || null,
       property_id: data.property_id || null,
@@ -436,7 +521,7 @@ class ReceiptService {
       status: 'issued',
     });
 
-    logger.info('📄 Reçu personnalisé créé', { receipt_number: receiptNumber });
+    logger.info('📄 Reçu personnalisé créé', { receipt_number: receiptNumber, payment_id: paymentId });
     return this.getById(receipt.id);
   }
 }

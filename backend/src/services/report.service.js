@@ -69,7 +69,13 @@ class ReportService {
     });
 
     const ym = new Date().toISOString().slice(0, 7);
-    const fmt = (d) => (d ? new Date(d).toISOString().slice(0, 10) : null);
+    const fmt = (d) => {
+      if (!d) return null;
+      const s = String(d).trim();
+      if (!s || s.startsWith('0000')) return null;
+      const parsed = new Date(s);
+      return isNaN(parsed.getTime()) ? s.slice(0, 10) : parsed.toISOString().slice(0, 10);
+    };
 
     const mapped = tenants.map((t) => {
       const o = t.toJSON();
@@ -95,6 +101,16 @@ class ReportService {
         } else if (last.payment_date) {
           periodePaiement = fmt(last.payment_date);
         }
+      }
+
+      let finalObs = '';
+      if (last?.observations && last.observations.trim()) {
+        finalObs = last.observations.trim();
+      } else if (o.observations && o.observations.trim() && (arriere > 0 || (!o.observations.toLowerCase().startsWith('arriéré') && !o.observations.toLowerCase().startsWith('impayé') && !o.observations.toLowerCase().includes('doit')))) {
+        finalObs = o.observations.trim();
+      }
+      if (!finalObs) {
+        finalObs = led.echeance_message ? led.echeance_message : (arriere <= 0 ? 'À jour' : `Impayé ${Math.round(arriere).toLocaleString('fr-FR')} FCFA`);
       }
 
       return {
@@ -123,7 +139,7 @@ class ReportService {
         periode_paiement: periodePaiement,
         mode_paiement: last ? (last.payment_method || 'cash') : '—',
         caution,
-        observations: o.observations || (led.echeance_message ? led.echeance_message : (arriere <= 0 ? 'À jour' : `Impayé ${Math.round(arriere).toLocaleString('fr-FR')} FCFA`)),
+        observations: finalObs,
         statut: o.status,
       };
     });
@@ -193,12 +209,15 @@ class ReportService {
     };
 
     const methodLabels = {
-      virement: 'virement',
-      bank_transfer: 'virement',
-      cash: 'cash',
+      virement: 'Virement bancaire',
+      bank_transfer: 'Virement bancaire',
+      cash: 'Espèces',
+      especes: 'Espèces',
       orange_money: 'Orange Money',
-      mtn_mobile_money: 'MTN MoMo',
+      mtn_mobile_money: 'MTN Mobile Money',
       campay: 'Mobile Money',
+      cheque: 'Chèque',
+      autre: 'Autre',
     };
 
     const apts = (property.apartments || []).slice().sort((a, b) => String(a.apartment_number).localeCompare(String(b.apartment_number), 'fr', { numeric: true }));
@@ -240,8 +259,11 @@ class ReportService {
       const paiementsDuMois = completedPayments.filter((p) => {
         const dStr = p.payment_date ? String(p.payment_date).slice(0, 10) : (p.created_at ? String(p.created_at).slice(0, 10) : null);
         if (startDate && endDate) {
-          if (dStr && dStr >= String(startDate).slice(0, 10) && dStr <= String(endDate).slice(0, 10)) return true;
-        } else if (dStr && dStr.slice(0, 7) === ym) {
+          const sMin = String(startDate).slice(0, 10);
+          const sMax = String(endDate).slice(0, 10);
+          return Boolean(dStr && dStr >= sMin && dStr <= sMax);
+        }
+        if (dStr && dStr.slice(0, 7) === ym) {
           return true;
         }
         if (p.period_start && String(p.period_start).slice(0, 7) === ym && (!dStr || dStr.slice(0, 7) === ym)) {
@@ -254,7 +276,7 @@ class ReportService {
       // Dernier paiement fait dans la période cible (pour afficher période et mode)
       const lastDuMois = paiementsDuMois.slice().sort((x, y) => new Date(y.payment_date || 0) - new Date(x.payment_date || 0))[0];
       // Dernier paiement global (fallback)
-      const lastGlobal = payments.slice().sort((x, y) => new Date(y.payment_date || 0) - new Date(x.payment_date || 0))[0];
+      const lastGlobal = completedPayments.slice().sort((x, y) => new Date(y.payment_date || 0) - new Date(x.payment_date || 0))[0];
       const last = lastDuMois || lastGlobal;
       const caution = (lease && num(lease.deposit_amount)) || 0;
 
@@ -338,19 +360,27 @@ class ReportService {
       }
 
       // Observations
-      let obs = (t.observations && t.observations.trim()) || (lastDuMois?.observations && lastDuMois.observations.trim()) || (last?.observations && last.observations.trim());
+      let obs = '';
+      if (lastDuMois?.observations && lastDuMois.observations.trim()) {
+        obs = lastDuMois.observations.trim();
+      } else if (last?.observations && last.observations.trim() && !t.observations) {
+        obs = last.observations.trim();
+      } else if (t.observations && t.observations.trim() && !t.observations.toLowerCase().startsWith('arriéré') && !t.observations.toLowerCase().startsWith('impayé')) {
+        obs = t.observations.trim();
+      }
+
       if (!obs) {
         if (dette > 0) {
           const lastPaidAmt = (lastCompletedWithEnd && Number(lastCompletedWithEnd.amount)) || 0;
           const coveredM = monthly > 0 ? Math.max(1, Math.floor(lastPaidAmt / monthly)) : 1;
           const adv = Math.max(0, lastPaidAmt - (coveredM * monthly));
           if (adv > 0) {
-            obs = `Arriéré ${dette.toLocaleString('fr-FR')} FCFA (déduction avance ${adv.toLocaleString('fr-FR')} FCFA)`;
+            obs = `Impayé ${fmtMoney(dette, false)} FCFA (déduction avance ${fmtMoney(adv, false)} FCFA)`;
           } else {
-            obs = `Arriéré ~${Math.round(dette / (monthly || 1))} mois`;
+            obs = `Impayé ${fmtMoney(dette, false)} FCFA (~${Math.round(dette / (monthly || 1))} mois)`;
           }
         } else if (anticipation > 0) {
-          obs = `Avance ~${Math.round(anticipation / (monthly || 1))} mois`;
+          obs = `À jour · Avance ${fmtMoney(anticipation, false)} FCFA${couvertJusqu ? " (couvert " + couvertJusqu + ")" : ''}`;
         } else {
           obs = `À jour${couvertJusqu ? " (couvert " + couvertJusqu + ")" : ''}`;
         }
@@ -381,19 +411,21 @@ class ReportService {
 
     // Application des surcharges manuelles (overrides) et continuité de l'historique
     // RÈGLES CRITIQUES :
-    // 1. Surcharges du mois exact (period_ym = ym) : prioritaires sur ce mois spécifique.
-    // 2. Si aucune surcharge n'a été saisie pour ce mois, on conserve les informations de base
-    //    du locataire du mois passé (nom, téléphone, loyer, description, caution, mode de paiement habituel)
-    //    tout en faisant "le point" : versement_mois = paiements réels du mois (ou 0), actualisation dynamique des arriérés.
-    // 3. Aucune transaction historique n'est détruite ni effacée.
+    // 1. Si des versements réels ont été enregistrés dans la période cible, ils sont toujours prioritaires.
+    // 2. Surcharges du mois exact (period_ym = ym) : s'appliquent sur ce mois en l'absence de paiement réel contradictoire.
+    // 3. Si aucune surcharge n'a été saisie pour ce mois, on conserve les informations de base
+    //    du locataire du mois passé tout en faisant "le point" : versement = paiements réels du mois (ou 0).
     try {
+      const propCleanName = (property.property_name || '').trim();
       const rawOverrides = await sequelize.query(
-        `SELECT * FROM situation_overrides
-         WHERE property_id = :propertyId
-           AND (period_ym <= :ym OR period_ym IS NULL)
-         ORDER BY (CASE WHEN period_ym = :ym THEN 0 WHEN period_ym IS NULL THEN 2 ELSE 1 END) ASC,
-                  period_ym DESC, updated_at DESC`,
-        { replacements: { propertyId, ym }, type: sequelize.QueryTypes.SELECT }
+        `SELECT so.* FROM situation_overrides so
+         WHERE (so.property_id = :propertyId OR so.property_id IN (
+           SELECT p.id FROM properties p WHERE TRIM(p.property_name) = :propCleanName
+         ))
+           AND (so.period_ym <= :ym OR so.period_ym IS NULL)
+         ORDER BY (CASE WHEN so.period_ym = :ym THEN 0 WHEN so.period_ym IS NULL THEN 2 ELSE 1 END) ASC,
+                  so.period_ym DESC, so.updated_at DESC`,
+        { replacements: { propertyId, propCleanName, ym }, type: sequelize.QueryTypes.SELECT }
       );
       if (rawOverrides && rawOverrides.length > 0) {
         const overridesMap = new Map();
@@ -414,23 +446,56 @@ class ReportService {
           if (!ov) return row;
 
           const isExactMonth = (ov.period_ym === ym);
+          const isFullMonth = (startDate && endDate)
+            ? (String(startDate).slice(8, 10) === '01' && String(endDate).slice(8, 10) >= '28' && String(startDate).slice(0, 7) === String(endDate).slice(0, 7))
+            : true;
           const numOrVal = (val, fallback) => (val !== null && val !== undefined && !isNaN(Number(val))) ? Number(val) : fallback;
           const strOrVal = (val, fallback) => (val !== null && val !== undefined && String(val).trim() !== '') ? String(val).trim() : fallback;
 
-          // Si des versements réels existent pour ce logement dans la période et que l'override avait versement_mois = 0,
-          // les calculs dynamiques de versement/arriéré/période ont priorité sur l'override vide
-          const ovVersementZero = ov.versement_mois === 0 || ov.versement_mois === null;
+          // Si des versements réels existent pour ce logement dans la période, ils sont souverains
           const hasRealPaymentsInPeriod = Number(row.versement_mois) > 0;
-          const preferReal = hasRealPaymentsInPeriod && (ovVersementZero || !isExactMonth);
+          const preferReal = hasRealPaymentsInPeriod;
+
+          if (!isFullMonth) {
+            // Période personnalisée (ex: du 14/10/2026 au 16/10/2026) :
+            // Seuls les versements réels effectués ENTRE ces dates sont comptabilisés comme versement de la période.
+            // Les logements n'ayant pas payé dans cette période ont strictement un versement de 0 FCFA.
+            return {
+              ...row,
+              numero_chambre: strOrVal(ov.numero_chambre, row.numero_chambre),
+              nom_locataire: row.nom_locataire && row.nom_locataire !== '—' ? row.nom_locataire : strOrVal(ov.nom_locataire, row.nom_locataire),
+              telephone: row.telephone && row.telephone !== '—' ? row.telephone : strOrVal(ov.telephone, row.telephone),
+              montant_loyer: row.montant_loyer > 0 ? row.montant_loyer : numOrVal(ov.montant_loyer, row.montant_loyer),
+              description_logement: (row.description_logement && row.description_logement !== 'vide' && row.description_logement !== '—')
+                ? row.description_logement
+                : strOrVal(ov.description_logement, row.description_logement),
+              caution: row.caution > 0 ? row.caution : numOrVal(ov.caution, row.caution),
+              // Versement réalisé strictement dans la période :
+              versement_mois: preferReal ? row.versement_mois : 0,
+              // Pour un locataire qui a payé dans la période, son arriéré, son avance et sa période sont actualisés par ce paiement
+              arriere_loyer: preferReal ? row.arriere_loyer : numOrVal(ov.arriere_loyer, row.arriere_loyer),
+              anticipation: preferReal ? row.anticipation : numOrVal(ov.anticipation, row.anticipation),
+              payment_date: preferReal ? row.payment_date : strOrVal(ov.payment_date, row.payment_date),
+              period_start: preferReal ? row.period_start : strOrVal(ov.period_start, row.period_start),
+              period_end: preferReal ? row.period_end : strOrVal(ov.period_end, row.period_end),
+              periode_paiement: preferReal ? row.periode_paiement : strOrVal(ov.periode_paiement, row.periode_paiement),
+              mode_paiement: preferReal ? row.mode_paiement : (Number(ov.versement_mois) > 0 ? strOrVal(ov.mode_paiement, '—') : '—'),
+              observations: preferReal ? row.observations : strOrVal(ov.observations, row.observations),
+              is_overridden: true,
+            };
+          }
 
           if (isExactMonth) {
             return {
               ...row,
               numero_chambre: strOrVal(ov.numero_chambre, row.numero_chambre),
-              nom_locataire: strOrVal(ov.nom_locataire, row.nom_locataire),
-              telephone: strOrVal(ov.telephone, row.telephone),
-              montant_loyer: numOrVal(ov.montant_loyer, row.montant_loyer),
-              description_logement: strOrVal(ov.description_logement, row.description_logement),
+              nom_locataire: row.nom_locataire && row.nom_locataire !== '—' ? row.nom_locataire : strOrVal(ov.nom_locataire, row.nom_locataire),
+              telephone: row.telephone && row.telephone !== '—' ? row.telephone : strOrVal(ov.telephone, row.telephone),
+              montant_loyer: row.montant_loyer > 0 ? row.montant_loyer : numOrVal(ov.montant_loyer, row.montant_loyer),
+              description_logement: (row.description_logement && row.description_logement !== 'vide' && row.description_logement !== '—')
+                ? row.description_logement
+                : strOrVal(ov.description_logement, row.description_logement),
+              caution: row.caution > 0 ? row.caution : numOrVal(ov.caution, row.caution),
               arriere_loyer: preferReal ? row.arriere_loyer : numOrVal(ov.arriere_loyer, row.arriere_loyer),
               anticipation: preferReal ? row.anticipation : numOrVal(ov.anticipation, row.anticipation),
               versement_mois: preferReal ? row.versement_mois : numOrVal(ov.versement_mois, row.versement_mois),
@@ -439,8 +504,7 @@ class ReportService {
               period_end: preferReal ? row.period_end : strOrVal(ov.period_end, row.period_end),
               periode_paiement: preferReal ? row.periode_paiement : strOrVal(ov.periode_paiement, row.periode_paiement),
               mode_paiement: preferReal ? row.mode_paiement : strOrVal(ov.mode_paiement, row.mode_paiement),
-              caution: numOrVal(ov.caution, row.caution),
-              observations: (ov.observations && String(ov.observations).trim() !== '') ? String(ov.observations).trim() : row.observations,
+              observations: preferReal ? row.observations : ((ov.observations && String(ov.observations).trim() !== '') ? String(ov.observations).trim() : row.observations),
               is_overridden: true,
             };
           } else {
@@ -630,7 +694,10 @@ class ReportService {
         for (const ov of overrides) {
           const matched = Object.values(byTenantMap).find((r) =>
             (ov.tenant_id && r.tenant_id === Number(ov.tenant_id)) ||
-            (ov.apartment_id && r.apartment_id === Number(ov.apartment_id))
+            (ov.apartment_id && r.apartment_id === Number(ov.apartment_id)) ||
+            (ov.numero_chambre && r.logement && String(r.logement).trim().toLowerCase() === String(ov.numero_chambre).trim().toLowerCase() && (
+              !ov.property_id || !r.property_id || Number(ov.property_id) === Number(r.property_id) || (r.immeuble && ov.nom_immeuble && r.immeuble.trim().toLowerCase() === ov.nom_immeuble.trim().toLowerCase())
+            ))
           );
           if (matched) {
             // Ne pas écraser si paiements réels présents
@@ -1093,6 +1160,7 @@ class ReportService {
         }
 
         if (vMois > 0) {
+          let savedPayment = null;
           if (existingPayment) {
             await existingPayment.update({
               tenant_id: effTenantId || existingPayment.tenant_id,
@@ -1104,8 +1172,9 @@ class ReportService {
               observations: overrideFields.observations !== null ? overrideFields.observations : existingPayment.observations,
               status: 'completed',
             });
+            savedPayment = existingPayment;
           } else {
-            await Payment.create({
+            savedPayment = await Payment.create({
               apartment_id: apt.id,
               tenant_id: effTenantId || null,
               amount: vMois,
@@ -1117,7 +1186,23 @@ class ReportService {
               status: 'completed',
             });
           }
+          if (savedPayment) {
+            try {
+              const receiptService = require('./receipt.service');
+              await receiptService.generateRentReceipt(savedPayment.id, null, {
+                period_start: savedPayment.period_start,
+                period_end: savedPayment.period_end,
+                observations: savedPayment.observations,
+              });
+            } catch (recErr) {
+              console.warn('[updateSituationLine] Génération reçu échouée:', recErr.message);
+            }
+          }
         } else if (vMois === 0 && existingPayment) {
+          try {
+            const { Receipt } = require('../models');
+            await Receipt.destroy({ where: { payment_id: existingPayment.id } });
+          } catch (_) {}
           await existingPayment.destroy();
         }
       } catch (err) {

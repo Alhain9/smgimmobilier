@@ -188,7 +188,13 @@ class ManagementReportService {
     // 2. Loyers réellement encaissés (cumul vérifié de tous les encaissements de la période)
     const completedPayments = payments.filter((p) => p.status === 'completed');
     const rawPaymentsCollected = completedPayments.reduce((s, p) => s + num(p.amount), 0);
-    const totalCollected = Math.max(rawPaymentsCollected, (sitTotal && sitTotal.versement_mois > 0) ? sitTotal.versement_mois : 0);
+    const isFullCalendarMonth = (months === 1 && String(start).slice(8, 10) === '01' && (String(end).slice(8, 10) >= '28'));
+
+    // Pour une période personnalisée (ex: du 14 au 16 oct.), le total encaissé correspond STRICTEMENT aux paiements réalisés entre ces dates.
+    // Le fallback sur la situation globale du mois n'intervient que pour un mois complet sans transaction détaillée en base.
+    const totalCollected = (rawPaymentsCollected > 0 || !isFullCalendarMonth)
+      ? rawPaymentsCollected
+      : ((sitTotal && sitTotal.versement_mois > 0) ? sitTotal.versement_mois : 0);
 
     // 3. Reste à encaisser / impayés sur la période
     const unpaidPayments = payments.filter((p) => ['pending', 'failed', 'awaiting_confirmation'].includes(p.status));
@@ -321,30 +327,17 @@ class ManagementReportService {
       if (p.payment_method) rec.methods.add(p.payment_method);
       if (receiptNo && !rec.receipt_numbers.includes(receiptNo)) rec.receipt_numbers.push(receiptNo);
       if (p.payment_date) rec.dates.push(p.payment_date);
+      if (p.period_start) rec.period_start = p.period_start;
+      if (p.period_end) rec.period_end = p.period_end;
+      if (p.observations) rec.observations = p.observations;
     });
 
-    // Synchronisation avec les données réelles et vérifiées de la situation (y compris surcharges manuelles)
-    situationLignes.forEach((l) => {
-      if (Number(l.versement_mois) > 0) {
-        let rec = null;
-        if (l.apartment_id && collectionsMap.has(l.apartment_id)) {
-          rec = collectionsMap.get(l.apartment_id);
-        } else {
-          for (const val of collectionsMap.values()) {
-            if (String(val.apartment_number).trim().toLowerCase() === String(l.numero_chambre).trim().toLowerCase()) {
-              rec = val;
-              break;
-            }
-          }
-        }
-
-        if (rec) {
-          rec.total_collected = Number(l.versement_mois);
-          if (l.nom_locataire && l.nom_locataire !== '—') rec.tenant_name = l.nom_locataire;
-          if (l.mode_paiement && l.mode_paiement !== '—') rec.methods.add(l.mode_paiement);
-          if (l.periode_paiement && l.periode_paiement !== '—') rec.periode_paiement = l.periode_paiement;
-        } else {
-          // Appartement encaissé consigné dans la situation
+    // Synchronisation avec les données de situation
+    // Pour un rapport de période personnalisée, seules les transactions effectives de cette période sont listées dans Section 3.
+    // Le fallback sur situationLignes n'intervient que si aucune transaction n'existe pour un mois entier.
+    if (collectionsMap.size === 0 && isFullCalendarMonth && situationLignes.length > 0) {
+      situationLignes.forEach((l) => {
+        if (Number(l.versement_mois) > 0) {
           const key = l.apartment_id || `apt-${l.numero_chambre}`;
           const mSet = new Set();
           if (l.mode_paiement && l.mode_paiement !== '—') mSet.add(l.mode_paiement);
@@ -361,23 +354,35 @@ class ManagementReportService {
             dates: [],
             rent_amount: Number(l.montant_loyer) || 0,
             periode_paiement: l.periode_paiement,
+            period_start: l.period_start,
+            period_end: l.period_end,
           });
         }
-      }
-    });
+      });
+    }
 
     const aggregatedCollections = Array.from(collectionsMap.values()).map((c) => {
       const sitLine = (c.apartment_id && sitByAptId.get(Number(c.apartment_id)))
         || sitByAptNum.get(String(c.apartment_number).trim().toLowerCase())
         || null;
 
-      const tenantName = (sitLine && sitLine.nom_locataire && sitLine.nom_locataire !== '—')
-        ? sitLine.nom_locataire
-        : c.tenant_name;
+      const tenantName = (c.tenant_name && c.tenant_name !== 'Locataire')
+        ? c.tenant_name
+        : ((sitLine && sitLine.nom_locataire && sitLine.nom_locataire !== '—') ? sitLine.nom_locataire : c.tenant_name);
 
-      const methodLabel = (sitLine && sitLine.mode_paiement && sitLine.mode_paiement !== '—')
-        ? sitLine.mode_paiement
-        : (Array.from(c.methods).join(', ') || 'Espèces');
+      const methodLabels = {
+        cash: 'Espèces',
+        especes: 'Espèces',
+        bank_transfer: 'Virement bancaire',
+        virement: 'Virement bancaire',
+        orange_money: 'Orange Money',
+        mtn_mobile_money: 'MTN Mobile Money',
+        campay: 'Mobile Money',
+        cheque: 'Chèque',
+        autre: 'Autre',
+      };
+      const methodLabel = Array.from(c.methods).map(m => methodLabels[m] || m).filter(Boolean).join(', ')
+        || (sitLine && sitLine.mode_paiement && sitLine.mode_paiement !== '—' ? sitLine.mode_paiement : 'Espèces');
 
       const receiptList = c.receipt_numbers.length ? c.receipt_numbers.join(',\n') : '—';
 
@@ -391,10 +396,18 @@ class ManagementReportService {
         dateRange = `${firstDate.slice(8, 10)}/${firstDate.slice(5, 7)}/${firstDate.slice(0, 4)}`;
       }
 
-      // PÉRIODE CORRESPONDANT AU PAIEMENT concrète (ex: 01/06/2026 au 01/08/2026)
+      // PÉRIODE CORRESPONDANT AU PAIEMENT concrète (ex: du 01/09/2026 au 01/12/2026)
       let periodePaiement = '—';
       if (sitLine && sitLine.periode_paiement && sitLine.periode_paiement !== '—') {
         periodePaiement = sitLine.periode_paiement;
+      } else if (c.period_start && c.period_end) {
+        const fmtFR = (d) => {
+          if (!d) return '';
+          const s = String(d).slice(0, 10);
+          const p = s.split('-');
+          return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : s;
+        };
+        periodePaiement = `du ${fmtFR(c.period_start)} au ${fmtFR(c.period_end)}`;
       } else if (c.periode_paiement && c.periode_paiement !== '—') {
         periodePaiement = c.periode_paiement;
       } else if (dateRange !== '—') {

@@ -164,13 +164,13 @@ class ManagementReportPdfService {
       'ARRIERE LOYER',
       'LOYER ANTICIPÉ',
       'VERSEMENT MOIS',
-      'PÉRIODE CORRESPONDANT AU PAIEMENT',
+      'PÉRIODE DU PAIEMENT',
       'Mode',
       'Caution',
       'Observation',
     ];
-    // Total = 32 + 88 + 60 + 55 + 50 + 52 + 52 + 58 + 135 + 45 + 52 + 103 = 782 pt
-    const aptWidths = [32, 88, 60, 55, 50, 52, 52, 58, 135, 45, 52, 103];
+    // Total = 38 + 84 + 60 + 56 + 48 + 56 + 56 + 58 + 116 + 42 + 50 + 118 = 782 pt
+    const aptWidths = [38, 84, 60, 56, 48, 56, 56, 58, 116, 42, 50, 118];
 
     const aptRows = rawLignes.map((l) => {
       const isFree = (l.statut || l.status) === 'free' || (!l.nom_locataire && !l.tenant_name);
@@ -184,7 +184,7 @@ class ManagementReportPdfService {
       const versementVal = Number(l.versement_mois ?? l.total_collected ?? 0);
       const versement = versementVal > 0 ? fmtMoney(versementVal) : '0 FCFA';
       const periode = cleanText(l.periode_paiement || l.date_range || '—');
-      const mode = cleanText(l.mode_paiement || l.methods || '—');
+      const mode = versementVal > 0 ? cleanText(l.mode_paiement || l.methods || 'Espèces') : '—';
       const caution = Number(l.caution || 0) > 0 ? fmtMoney(l.caution) : '0 FCFA';
       const obs = cleanText(l.observations || (isFree ? 'Logement libre / vide' : 'À jour'));
 
@@ -436,19 +436,28 @@ class ManagementReportPdfService {
     hasTotalRow = false,
   }) {
     const totalW = widths.reduce((s, w) => s + w, 0);
-    const hHeight = 15;
-    const defaultRHeight = 13;
+    const hHeight = 22;
+    const defaultRHeight = 14;
 
     const drawHeader = () => {
       const headerY = doc.y;
       doc.rect(startX, headerY, totalW, hHeight).fill(primaryColor);
+
+      // Lignes verticales blanches subtiles dans l'en-tête
+      let vx = startX;
+      widths.forEach((w) => {
+        doc.moveTo(vx, headerY).lineTo(vx, headerY + hHeight).strokeColor('rgba(255,255,255,0.25)').lineWidth(0.4).stroke();
+        vx += w;
+      });
+      doc.moveTo(vx, headerY).lineTo(vx, headerY + hHeight).strokeColor('rgba(255,255,255,0.25)').lineWidth(0.4).stroke();
+
       let x = startX;
       headers.forEach((h, i) => {
         const isRight = alignRightCols.includes(i);
         const isCenter = alignCenterCols.includes(i);
         const align = isRight ? 'right' : (isCenter ? 'center' : 'left');
         doc.fontSize(6.8).fillColor(COLORS.white).font('Helvetica-Bold')
-          .text(h, x + 2, headerY + 4, { width: widths[i] - 4, align, lineBreak: false });
+          .text(h, x + 2, headerY + 3, { width: widths[i] - 4, align, lineBreak: true });
         x += widths[i];
       });
       doc.y = headerY + hHeight;
@@ -461,17 +470,17 @@ class ManagementReportPdfService {
       const isTotal = hasTotalRow && idx === lastIdx;
       let rHeight = defaultRHeight;
       if (dynamicRowHeights && !isTotal) {
-        doc.fontSize(6.8).font('Helvetica');
-        let maxTextH = 8;
+        doc.fontSize(7.0).font('Helvetica');
+        let maxTextH = 9;
         row.forEach((val, i) => {
           if (val) {
             const h = doc.heightOfString(String(val), { width: widths[i] - 4 });
             if (h > maxTextH) maxTextH = h;
           }
         });
-        rHeight = Math.max(defaultRHeight, maxTextH + 4);
+        rHeight = Math.max(defaultRHeight, maxTextH + 5);
       } else if (isTotal) {
-        rHeight = 15;
+        rHeight = 16;
       }
 
       const pageAdded = checkPage(rHeight + 2);
@@ -483,27 +492,62 @@ class ManagementReportPdfService {
 
       if (isTotal) {
         doc.rect(startX, rowY, totalW, rHeight).fill('#e2e8f0');
-        doc.moveTo(startX, rowY).lineTo(startX + totalW, rowY).strokeColor(primaryColor).lineWidth(1).stroke();
+        doc.moveTo(startX, rowY).lineTo(startX + totalW, rowY).strokeColor(primaryColor).lineWidth(1.2).stroke();
       } else if (idx % 2 === 1) {
         doc.rect(startX, rowY, totalW, rHeight).fill(COLORS.rowAlt);
       }
-      doc.moveTo(startX, rowY + rHeight).lineTo(startX + totalW, rowY + rHeight).strokeColor(COLORS.border).lineWidth(isTotal ? 1 : 0.3).stroke();
+
+      // Grille verticale entre toutes les colonnes pour une lisibilité parfaite (0 confusion horizontale)
+      let vx = startX;
+      widths.forEach((w) => {
+        doc.moveTo(vx, rowY).lineTo(vx, rowY + rHeight).strokeColor(COLORS.border).lineWidth(0.3).stroke();
+        vx += w;
+      });
+      doc.moveTo(vx, rowY).lineTo(vx, rowY + rHeight).strokeColor(COLORS.border).lineWidth(0.3).stroke();
+
+      // Ligne horizontale sous la rangée
+      doc.moveTo(startX, rowY + rHeight).lineTo(startX + totalW, rowY + rHeight).strokeColor(COLORS.border).lineWidth(isTotal ? 1.2 : 0.35).stroke();
 
       let x = startX;
       row.forEach((val, i) => {
         const isRight = alignRightCols.includes(i);
         const isCenter = alignCenterCols.includes(i);
         const align = isRight ? 'right' : (isCenter ? 'center' : 'left');
-        const font = isTotal ? 'Helvetica-Bold' : 'Helvetica';
-        const color = isTotal ? (isRight ? primaryColor : COLORS.text) : COLORS.text;
-        doc.fontSize(isTotal ? 7.2 : 6.8).fillColor(color).font(font)
+
+        let font = 'Helvetica';
+        let color = COLORS.text;
+        let fSize = 7.0;
+
+        if (isTotal) {
+          font = 'Helvetica-Bold';
+          color = isRight ? primaryColor : COLORS.text;
+          fSize = 7.5;
+        } else {
+          if (i === 0) {
+            font = 'Helvetica-Bold';
+            color = primaryColor;
+          } else if (i === 5 && val && val !== '0 FCFA' && val !== '0' && val !== '—') {
+            font = 'Helvetica-Bold';
+            color = COLORS.danger;
+          } else if (i === 6 && val && val !== '0 FCFA' && val !== '0' && val !== '—') {
+            font = 'Helvetica-Bold';
+            color = COLORS.success;
+          } else if (i === 7 && val && val !== '0 FCFA' && val !== '0' && val !== '—') {
+            font = 'Helvetica-Bold';
+            color = primaryColor;
+          } else if (i === 9 && (val === '—' || !val)) {
+            color = COLORS.muted;
+          }
+        }
+
+        doc.fontSize(fSize).fillColor(color).font(font)
           .text(String(val || '—'), x + 2, rowY + (isTotal ? 4 : 3), { width: widths[i] - 4, align, lineBreak: true });
         x += widths[i];
       });
       doc.y = rowY + rHeight;
     });
 
-    doc.y += 4;
+    doc.y += 5;
   }
 
   /**

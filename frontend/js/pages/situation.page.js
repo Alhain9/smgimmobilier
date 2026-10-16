@@ -197,7 +197,8 @@ const PageSituation = {
       return (v && v !== '—') ? `<b>${v}</b>` : '—';
     }
     if (type === 'method') {
-      return (v && v !== '—') ? Helpers.methodLabel(v) : '—';
+      const vers = Number(l.versement_mois) || 0;
+      return (vers > 0 && v && v !== '—') ? Helpers.methodLabel(v) : '—';
     }
     return v;
   },

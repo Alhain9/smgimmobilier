@@ -602,24 +602,25 @@ const PageManagementReports = {
 
     const sitTableRows = sitLignes.map((l, idx) => {
       const canCheck = !!l.tenant_id;
-      const aptNumEscaped = Helpers.escapeHtml(l.numero_chambre || l.apartment_number || '');
+      const isFree = !l.nom_locataire || l.nom_locataire === '—';
+      const versementVal = Number(l.versement_mois || 0);
       return `
         <tr>
           <td class="no-print" style="text-align:center">
             <input type="checkbox" class="row-mr-chk" value="${l.tenant_id || ''}" data-apt="${l.apartment_id || ''}" onchange="PageManagementReports.updateSelection()" ${!canCheck ? 'disabled title="Aucun locataire associé"' : ''} />
           </td>
           <td><b>${l.numero_chambre || l.apartment_number || '—'}</b></td>
-          <td><b>${l.nom_locataire || l.tenant_name || '—'}</b></td>
+          <td><b>${l.nom_locataire || l.tenant_name || (isFree ? '— (Libre)' : '—')}</b></td>
           <td>${(l.telephone || l.tenant_phone) && (l.telephone || l.tenant_phone) !== '—' ? `<a href="tel:${l.telephone || l.tenant_phone}">${l.telephone || l.tenant_phone}</a>` : '—'}</td>
-          <td>${fmt(l.montant_loyer != null ? l.montant_loyer : l.rent_amount)}</td>
+          <td style="text-align:right;font-weight:600">${fmt(l.montant_loyer != null ? l.montant_loyer : l.rent_amount)}</td>
           <td>${l.description_logement || l.description || l.apartment_type || '—'}</td>
-          <td style="${Number(l.arriere_loyer) > 0 ? 'color:var(--danger);font-weight:700' : ''}">${fmt(l.arriere_loyer)}</td>
-          <td style="${Number(l.anticipation) > 0 ? 'color:var(--success);font-weight:700' : ''}">${fmt(l.anticipation)}</td>
-          <td style="${Number(l.versement_mois) > 0 ? 'color:var(--primary);font-weight:700' : ''}">${fmt(l.versement_mois)}</td>
-          <td style="min-width:185px;white-space:nowrap">${l.periode_paiement || '—'}</td>
-          <td>${Helpers.methodLabel(l.mode_paiement)}</td>
-          <td>${fmt(l.caution)}</td>
-          <td style="font-size:12px">${l.observations || '—'}</td>
+          <td style="text-align:right;${Number(l.arriere_loyer) > 0 ? 'color:var(--danger);font-weight:700' : ''}">${fmt(l.arriere_loyer)}</td>
+          <td style="text-align:right;${Number(l.anticipation) > 0 ? 'color:var(--success);font-weight:700' : ''}">${fmt(l.anticipation)}</td>
+          <td style="text-align:right;${versementVal > 0 ? 'color:var(--primary);font-weight:800' : ''}">${fmt(versementVal)}</td>
+          <td style="min-width:180px;white-space:nowrap">${l.periode_paiement || '—'}</td>
+          <td style="text-align:center">${versementVal > 0 ? Helpers.methodLabel(l.mode_paiement) : '—'}</td>
+          <td style="text-align:right">${fmt(l.caution)}</td>
+          <td style="font-size:12px">${l.observations || (isFree ? 'Logement libre / vide' : '—')}</td>
           <td class="no-print" style="text-align:center;white-space:nowrap">
             ${canManageProperty ? `<button class="btn btn-sm btn-primary" style="padding:2px 7px;margin-right:4px;" title="Modifier les 12 colonnes" onclick="PageManagementReports.editRow(${l.apartment_id || 'null'}, ${l.tenant_id || 'null'}, '${aptNumEscaped}', ${idx})">✏️</button>` : ''}
             ${canManageProperty ? `<button class="btn btn-sm btn-danger" style="padding:2px 7px;" title="Supprimer individuellement" onclick="PageManagementReports.deleteSingle(${l.tenant_id || 'null'}, ${l.apartment_id || 'null'})">🗑</button>` : ''}
@@ -631,17 +632,17 @@ const PageManagementReports = {
     const sitTotalRow = `
       <tr style="font-weight:700;background:var(--bg-surface-2);border-top:2px solid var(--border)">
         <td class="no-print"></td>
-        <td>TOTAL</td>
+        <td><b>TOTAL</b></td>
+        <td><b>${sitLignes.length} log.</b></td>
         <td></td>
+        <td style="text-align:right"><b>${fmt(sitTotal.montant_loyer)}</b></td>
         <td></td>
-        <td><b>${fmt(sitTotal.montant_loyer)}</b></td>
+        <td style="text-align:right;color:var(--danger)"><b>${fmt(sitTotal.arriere_loyer)}</b></td>
+        <td style="text-align:right;color:var(--success)"><b>${fmt(sitTotal.anticipation)}</b></td>
+        <td style="text-align:right;color:var(--primary);font-weight:800"><b>${fmt(sitTotal.versement_mois)}</b></td>
         <td></td>
-        <td style="color:var(--danger)"><b>${fmt(sitTotal.arriere_loyer)}</b></td>
-        <td style="color:var(--success)"><b>${fmt(sitTotal.anticipation)}</b></td>
-        <td style="color:var(--primary);font-weight:800"><b>${fmt(sitTotal.versement_mois)}</b></td>
-        <td></td>
-        <td></td>
-        <td><b>${fmt(sitTotal.caution)}</b></td>
+        <td style="text-align:center">—</td>
+        <td style="text-align:right"><b>${fmt(sitTotal.caution)}</b></td>
         <td></td>
         <td class="no-print"></td>
       </tr>
@@ -734,26 +735,26 @@ const PageManagementReports = {
           </button>
         </div>
 
-        <div class="table-wrap" style="overflow-x:auto">
-          <table class="table table-bordered">
-            <thead>
-              <tr>
-                <th class="no-print" style="width:36px;text-align:center">
+        <div class="table-wrap" style="overflow-x:auto;border:1px solid var(--border);border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,0.05)">
+          <table class="table table-bordered" style="width:100%;margin-bottom:0;font-size:12px;border-collapse:collapse">
+            <thead style="background:#1e293b;color:#ffffff">
+              <tr style="border-bottom:2px solid #0f172a">
+                <th class="no-print" style="width:36px;text-align:center;color:#fff">
                   <input type="checkbox" id="chkAll_mr" onchange="PageManagementReports.toggleSelectAll(this.checked)" title="Tout sélectionner" />
                 </th>
-                <th>Num du logement</th>
-                <th>Noms locataires</th>
-                <th>Numéro de téléphone</th>
-                <th>Montant loyers</th>
-                <th>Description du logement</th>
-                <th>ARRIERE DE LOYER</th>
-                <th>LOYER PAR ANTICIPATION</th>
-                <th>VERSEMENT AU COUR DU MOIS</th>
-                <th style="min-width:185px;white-space:nowrap">PÉRIODE CORRESPONDANT AU PAIEMENT</th>
-                <th>MODE DE PAIEMENT</th>
-                <th>CAUTION</th>
-                <th>Observation</th>
-                <th class="no-print" style="text-align:center;width:75px">Actions</th>
+                <th style="color:#fff;white-space:nowrap">Num logement</th>
+                <th style="color:#fff;white-space:nowrap">Noms locataires</th>
+                <th style="color:#fff;white-space:nowrap">N° Téléphone</th>
+                <th style="color:#fff;white-space:nowrap;text-align:right">Montant loyers</th>
+                <th style="color:#fff;white-space:nowrap">Description</th>
+                <th style="color:#fca5a5;white-space:nowrap;text-align:right">ARRIERE LOYER</th>
+                <th style="color:#86efac;white-space:nowrap;text-align:right">LOYER ANTICIPÉ</th>
+                <th style="color:#93c5fd;white-space:nowrap;text-align:right">VERSEMENT MOIS</th>
+                <th style="color:#fff;min-width:180px;white-space:nowrap">PÉRIODE DU PAIEMENT</th>
+                <th style="color:#fff;white-space:nowrap;text-align:center">Mode</th>
+                <th style="color:#fff;white-space:nowrap;text-align:right">Caution</th>
+                <th style="color:#fff;white-space:nowrap">Observation</th>
+                <th class="no-print" style="text-align:center;width:75px;color:#fff">Actions</th>
               </tr>
             </thead>
             <tbody>

@@ -182,7 +182,7 @@ class ReportService {
     let month = targetMonth ? Number(targetMonth) : null;
 
     if (!year || !month) {
-      const refDate = String(endDate || startDate || '').trim();
+      const refDate = String(startDate || endDate || '').trim();
       if (refDate && refDate.length >= 7 && refDate.includes('-')) {
         const parts = refDate.split('-');
         if (parts[0] && parts[1] && !isNaN(Number(parts[0])) && !isNaN(Number(parts[1]))) {
@@ -401,9 +401,11 @@ class ReportService {
         period_start: (lastDuMois || last)?.period_start || null,
         period_end: (lastDuMois || last)?.period_end || null,
         periode_paiement: periodePaiement,
-        mode_paiement: paiementsDuMois.length > 0
-          ? [...new Set(paiementsDuMois.map(p => methodLabels[p.payment_method] || p.payment_method).filter(Boolean))].join(', ') || '—'
-          : (last ? (methodLabels[last.payment_method] || last.payment_method || '—') : '—'),
+        mode_paiement: versementMois > 0
+          ? (paiementsDuMois.length > 0
+              ? [...new Set(paiementsDuMois.map(p => methodLabels[p.payment_method] || p.payment_method).filter(Boolean))].join(', ') || 'Espèces'
+              : (last ? (methodLabels[last.payment_method] || last.payment_method || 'Espèces') : 'Espèces'))
+          : '—',
         observations: obs,
         caution,
       };
@@ -511,7 +513,9 @@ class ReportService {
               period_start: strOrVal(ov.period_start, row.period_start),
               period_end: strOrVal(ov.period_end, row.period_end),
               periode_paiement: hasManualPeriode ? String(ov.periode_paiement).trim() : row.periode_paiement,
-              mode_paiement: hasManualMode ? String(ov.mode_paiement).trim() : row.mode_paiement,
+              mode_paiement: (Number(hasManualVersement ? ov.versement_mois : row.versement_mois) > 0)
+                ? (hasManualMode ? String(ov.mode_paiement).trim() : (row.mode_paiement !== '—' ? row.mode_paiement : 'Espèces'))
+                : '—',
               observations: hasManualObs ? String(ov.observations).trim() : row.observations,
               is_overridden: true,
             };
@@ -558,7 +562,7 @@ class ReportService {
               arriere_loyer: row.arriere_loyer > 0 ? row.arriere_loyer : carryArriere,
               anticipation: row.anticipation > 0 ? row.anticipation : carryAnticipation,
               periode_paiement: row.versement_mois > 0 ? row.periode_paiement : strOrVal(ov.periode_paiement, row.periode_paiement),
-              mode_paiement: row.versement_mois > 0 ? row.mode_paiement : strOrVal(ov.mode_paiement, row.mode_paiement),
+              mode_paiement: row.versement_mois > 0 ? (row.mode_paiement !== '—' ? row.mode_paiement : strOrVal(ov.mode_paiement, 'Espèces')) : '—',
               observations: hasManualObs ? String(ov.observations).trim() : (carryObs || row.observations),
               is_overridden: false,
             };

@@ -44,6 +44,42 @@ class ApartmentService {
     if (!a) throw Object.assign(new Error('Appartement introuvable'), { status: 404 });
     await a.update(data); return this.getById(id);
   }
+  async remove(id) {
+    const a = await Apartment.findByPk(id);
+    if (!a) throw Object.assign(new Error('Logement introuvable'), { status: 404 });
+
+    const { Receipt, PaymentHistory, Payment, Lease, Maintenance, UtilityBill, Tenant } = require('../models');
+    const { sequelize } = require('../config/database');
+    const { emitDashboard } = require('../config/socket');
+
+    // 1. Reçus & historiques liés aux paiements du logement
+    const pays = await Payment.findAll({ where: { apartment_id: id } });
+    const payIds = pays.map(x => x.id);
+    if (payIds.length) {
+      await PaymentHistory.destroy({ where: { payment_id: payIds } });
+      await Receipt.destroy({ where: { payment_id: payIds } });
+    }
+    await Receipt.destroy({ where: { apartment_id: id } });
+    await Payment.destroy({ where: { apartment_id: id } });
+    await Lease.destroy({ where: { apartment_id: id } });
+    await Maintenance.destroy({ where: { apartment_id: id } });
+    await UtilityBill.destroy({ where: { apartment_id: id } });
+    await Tenant.destroy({ where: { apartment_id: id } });
+
+    try {
+      await sequelize.query('DELETE FROM situation_overrides WHERE apartment_id = :id', {
+        replacements: { id },
+      });
+    } catch (_) {}
+
+    await a.destroy();
+
+    try {
+      emitDashboard();
+    } catch (_) {}
+
+    return true;
+  }
   async vacate(id, data = {}) {
     const apt = await Apartment.findByPk(id, {
       include: [

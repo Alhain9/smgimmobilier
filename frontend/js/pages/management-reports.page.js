@@ -24,9 +24,7 @@ const PageManagementReports = {
     const firstDay = `${y}-${m}-01`;
     const lastDay = `${y}-${m}-${String(lastDayNum).padStart(2, '0')}`;
 
-    if (!this._properties || !this._properties.length) {
-      await this.loadProperties();
-    }
+    await this.loadProperties();
 
     const appContent = document.getElementById('appContent');
     const isBuildingTab = this._currentTab !== 'inflows';

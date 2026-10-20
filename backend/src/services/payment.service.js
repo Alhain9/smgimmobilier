@@ -113,12 +113,18 @@ class PaymentService {
             const pastPays = (tenant.payments || []).filter(p => p.period_end).sort((a, b) => new Date(b.period_end) - new Date(a.period_end));
             if (pastPays.length > 0 && pastPays[0].period_end) {
               data.period_start = pastPays[0].period_end;
-            } else if (lease && lease.start_date) {
-              data.period_start = lease.start_date;
-            } else if (tenant.start_date) {
-              data.period_start = tenant.start_date;
             } else {
-              data.period_start = data.payment_date;
+              const ledgerService = require('./ledger.service');
+              const led = ledgerService.computeFromTenant(tenant);
+              if (led && led.prochaine_echeance) {
+                data.period_start = led.prochaine_echeance;
+              } else if (lease && lease.start_date) {
+                data.period_start = lease.start_date;
+              } else if (tenant.start_date) {
+                data.period_start = tenant.start_date;
+              } else {
+                data.period_start = data.payment_date;
+              }
             }
           }
           if (!data.period_end && data.period_start && monthly > 0 && Number(data.amount) > 0) {

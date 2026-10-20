@@ -224,6 +224,12 @@ const PageProperties = {
     })).filter((c) => c.count > 0);
   },
   async submitCreate(fields) {
+    const btn = document.getElementById('propSubmit');
+    if (btn) {
+      if (btn.disabled) return;
+      btn.disabled = true;
+      btn.textContent = 'Enregistrement...';
+    }
     try {
       const data = this.cleanNums(CrudPage.collectForm(fields));
       const composition = this.collectComposition();
@@ -231,8 +237,30 @@ const PageProperties = {
       const n = (res.data && res.data.apartments) ? res.data.apartments.length : 0;
       Modal.close();
       Toast.success(`Immeuble créé${n ? ` avec ${n} logement(s)` : ''}`);
+      if (window.PageManagementReports) PageManagementReports._properties = [];
+      if (window.PageDashboard) PageDashboard.render();
       PageProperties.render();
-    } catch (e) { Toast.error(e.message); }
+    } catch (e) {
+      Toast.error(e.message);
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Enregistrer';
+      }
+    }
+  },
+
+  async remove(id) {
+    if (!confirm("Voulez-vous vraiment supprimer cet immeuble ? Tous ses logements, paiements et historiques associés seront définitivement nettoyés.")) return;
+    try {
+      await API.delete('/properties/' + id);
+      Toast.success('Immeuble supprimé avec succès');
+      if (window.PageManagementReports) PageManagementReports._properties = [];
+      if (window.PageDashboard) PageDashboard.render();
+      this.render();
+    } catch (e) {
+      Toast.error(e.message);
+    }
   },
 
   async edit(id) {

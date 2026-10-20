@@ -134,32 +134,35 @@ function calculateRentCoverage({ amount, rentAmount, paymentDate, periodStart, p
     unpaidFromYear = nextM.getFullYear();
   }
 
-  let monthsGap = (refYear - unpaidFromYear) * 12 + (refMonth - unpaidFromMonthIndex);
+  const todayDate = new Date();
+  todayDate.setHours(0, 0, 0, 0);
+  const endObj = new Date(end);
+  endObj.setHours(0, 0, 0, 0);
+
   let isOverdue = false;
   let overdueMonths = 0;
 
-  if (monthsGap > 0) {
-    isOverdue = true;
-    overdueMonths = monthsGap;
-  } else if (monthsGap === 0 && endDay <= 5) {
-    isOverdue = true;
-    overdueMonths = 1;
+  if (endObj < todayDate) {
+    let monthsGap = (refYear - unpaidFromYear) * 12 + (refMonth - unpaidFromMonthIndex);
+    if (monthsGap > 0) {
+      isOverdue = true;
+      overdueMonths = monthsGap;
+    }
   }
 
-  const overdueMonthName = MONTH_NAMES_FR[unpaidFromMonthIndex];
+  const overdueMonthName = MONTH_NAMES_FR[unpaidFromMonthIndex] || '';
   let effectiveRemaining = 0;
   let hasDebt = false;
 
-  if (isOverdue) {
-    const grossDebt = Math.round(overdueMonths * effectiveRent);
-    const netDebt = Math.max(0, grossDebt - advance);
-    // Si remainingBalance a été explicitement fourni par le contrôleur/service
-    if (remaining !== null) {
-      effectiveRemaining = remaining;
-    } else {
-      effectiveRemaining = netDebt;
-    }
+  if (remaining !== null && remaining !== undefined) {
+    effectiveRemaining = Math.max(0, remaining);
     hasDebt = effectiveRemaining > 0;
+    isOverdue = hasDebt;
+  } else if (isOverdue) {
+    const grossDebt = Math.round(overdueMonths * effectiveRent);
+    effectiveRemaining = Math.max(0, grossDebt - advance);
+    hasDebt = effectiveRemaining > 0;
+    isOverdue = hasDebt;
   } else {
     effectiveRemaining = 0;
     hasDebt = false;
@@ -170,11 +173,11 @@ function calculateRentCoverage({ amount, rentAmount, paymentDate, periodStart, p
   let statusBadge = '';
   const advText = advance > 0 ? ` + avance de ${fmtMoney(advance, false)} FCFA sur le mois suivant` : '';
 
-  if (isOverdue) {
+  if (isOverdue && hasDebt) {
     statusText = `Impayé à partir du mois de ${overdueMonthName} ${unpaidFromYear}`;
     statusBadge = `Impayé dès ${overdueMonthName} ${unpaidFromYear}`;
     label = `Paiement couvrant ${monthText} (du ${startFormatted} au ${endFormatted})${advText}`;
-  } else if (monthsGap < 0 || advance > 0) {
+  } else if (advance > 0 || endObj > todayDate) {
     statusText = advance > 0 ? `Locataire à jour (avec avance de ${fmtMoney(advance, false)} FCFA)` : 'Locataire à jour de ses paiements';
     statusBadge = 'À jour (Avance)';
     label = `Paiement couvrant ${monthText} (du ${startFormatted} au ${endFormatted})${advText}`;

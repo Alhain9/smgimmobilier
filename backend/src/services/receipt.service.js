@@ -101,39 +101,25 @@ class ReceiptService {
     if (periodEnd && monthlyRent > 0) {
       const pEnd = new Date(periodEnd);
       if (!isNaN(pEnd.getTime())) {
-        const ref = payment.payment_date ? new Date(payment.payment_date) : new Date();
-        const now = new Date();
-        const activeRef = ref > now ? ref : now;
-        const refYear = activeRef.getFullYear();
-        const refMonth = activeRef.getMonth();
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const endD = new Date(pEnd);
+        endD.setHours(0, 0, 0, 0);
 
-        const endYear = pEnd.getFullYear();
-        const endMonth = pEnd.getMonth();
-        const endDay = pEnd.getDate();
-
-        let unpaidFromMonthIndex = endMonth;
-        let unpaidFromYear = endYear;
-        if (endDay <= 5) {
-          unpaidFromMonthIndex = endMonth;
-        } else if (endDay >= 25) {
-          const nextM = new Date(endYear, endMonth + 1, 1);
-          unpaidFromMonthIndex = nextM.getMonth();
-          unpaidFromYear = nextM.getFullYear();
-        }
-
-        const monthsGap = (refYear - unpaidFromYear) * 12 + (refMonth - unpaidFromMonthIndex);
-        let overdueMonths = 0;
-        if (monthsGap > 0) overdueMonths = monthsGap;
-        else if (monthsGap === 0 && endDay <= 5) overdueMonths = 1;
-
-        const paidAmt = num(payment.amount);
-        const coveredMonths = Math.max(1, Math.floor(paidAmt / monthlyRent));
-        const advanceAmt = Math.max(0, paidAmt - (coveredMonths * monthlyRent));
-
-        if (overdueMonths > 0) {
-          remainingBalance = Math.max(0, Math.round(overdueMonths * monthlyRent) - advanceAmt);
-        } else {
+        if (endD >= today) {
+          // Période couverte jusqu'à aujourd'hui ou dans le futur : locataire parfaitement à jour
           remainingBalance = 0;
+        } else {
+          // Paiement partiel d'arriérés (ex: devait 5 mois, n'a payé que 2 mois) : solde = mois restants jusqu'à aujourd'hui
+          const gapMonths = (today.getFullYear() - endD.getFullYear()) * 12 + (today.getMonth() - endD.getMonth());
+          const paidAmt = num(payment.amount);
+          const coveredMonths = Math.max(1, Math.floor(paidAmt / monthlyRent));
+          const advanceAmt = Math.max(0, paidAmt - (coveredMonths * monthlyRent));
+          if (gapMonths > 0) {
+            remainingBalance = Math.max(0, Math.round(gapMonths * monthlyRent) - advanceAmt);
+          } else {
+            remainingBalance = 0;
+          }
         }
       }
     } else {

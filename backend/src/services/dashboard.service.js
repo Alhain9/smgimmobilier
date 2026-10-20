@@ -37,17 +37,29 @@ class DashboardService {
 
   // ===== Secteur Finances : revenus, impayés, paiements par méthode =====
   async _finances() {
+    const validApts = await Apartment.findAll({
+      attributes: ['id'],
+      include: [{ model: Property, as: 'property', attributes: ['id'], required: true }],
+    });
+    const validAptIds = validApts.map(a => a.id);
+    const payAptCond = validAptIds.length ? {
+      [Op.or]: [
+        { apartment_id: null },
+        { apartment_id: { [Op.in]: validAptIds } },
+      ],
+    } : {};
+
     const [revenue, unpaid, awaiting, expenses, awaitingCount, pendingCount] = await Promise.all([
-      Payment.sum('amount', { where: { status: 'completed' } }),
-      Payment.sum('amount', { where: { status: { [Op.in]: ['pending', 'failed'] } } }),
-      Payment.sum('amount', { where: { status: 'awaiting_confirmation' } }),
+      Payment.sum('amount', { where: { status: 'completed', ...payAptCond } }),
+      Payment.sum('amount', { where: { status: { [Op.in]: ['pending', 'failed'] }, ...payAptCond } }),
+      Payment.sum('amount', { where: { status: 'awaiting_confirmation', ...payAptCond } }),
       Expense.sum('total_price'),
-      Payment.count({ where: { status: 'awaiting_confirmation' } }),
-      Payment.count({ where: { status: { [Op.in]: ['pending', 'failed'] } } }),
+      Payment.count({ where: { status: 'awaiting_confirmation', ...payAptCond } }),
+      Payment.count({ where: { status: { [Op.in]: ['pending', 'failed'] }, ...payAptCond } }),
     ]);
     const byMethodRows = await Payment.findAll({
       attributes: ['payment_method', [fn('SUM', col('amount')), 'total'], [fn('COUNT', col('id')), 'count']],
-      where: { status: 'completed' }, group: ['payment_method'], raw: true,
+      where: { status: 'completed', ...payAptCond }, group: ['payment_method'], raw: true,
     });
     const byMethod = byMethodRows.map((r) => ({ method: r.payment_method, total: +r.total, count: +r.count }));
     return {
@@ -314,11 +326,23 @@ class DashboardService {
   // ===== Statistiques agrégées sur une plage de dates =====
   async getPeriodStats(start, end) {
     const range = this._range(start, end);
+    const validApts = await Apartment.findAll({
+      attributes: ['id'],
+      include: [{ model: Property, as: 'property', attributes: ['id'], required: true }],
+    });
+    const validAptIds = validApts.map(a => a.id);
+    const payAptCond = validAptIds.length ? {
+      [Op.or]: [
+        { apartment_id: null },
+        { apartment_id: { [Op.in]: validAptIds } },
+      ],
+    } : {};
+
     const [revenue, expenses, salariesPaid, paymentsCount, newTenants, newLeases, maintenanceOpened, maintenanceCompleted, apartments, occupied] = await Promise.all([
-      Payment.sum('amount', { where: { status: 'completed', payment_date: { [Op.between]: range } } }),
+      Payment.sum('amount', { where: { status: 'completed', payment_date: { [Op.between]: range }, ...payAptCond } }),
       Expense.sum('total_price', { where: { created_at: { [Op.between]: range } } }),
       Salary.sum('net_salary', { where: { status: 'paid', paid_date: { [Op.between]: range } } }),
-      Payment.count({ where: { status: 'completed', payment_date: { [Op.between]: range } } }),
+      Payment.count({ where: { status: 'completed', payment_date: { [Op.between]: range }, ...payAptCond } }),
       Tenant.count({ where: { created_at: { [Op.between]: range } } }),
       Lease.count({ where: { start_date: { [Op.between]: range } } }),
       Maintenance.count({ where: { created_at: { [Op.between]: range } } }),
@@ -342,10 +366,22 @@ class DashboardService {
     const paymentDateFn = fn('DATE_FORMAT', col('payment_date'), '%Y-%m-%d');
     const createdDateFn = fn('DATE_FORMAT', col('created_at'), '%Y-%m-%d');
 
+    const validApts = await Apartment.findAll({
+      attributes: ['id'],
+      include: [{ model: Property, as: 'property', attributes: ['id'], required: true }],
+    });
+    const validAptIds = validApts.map(a => a.id);
+    const payAptCond = validAptIds.length ? {
+      [Op.or]: [
+        { apartment_id: null },
+        { apartment_id: { [Op.in]: validAptIds } },
+      ],
+    } : {};
+
     const [revRows, expRows] = await Promise.all([
       Payment.findAll({
         attributes: [[paymentDateFn, 'd'], [fn('SUM', col('amount')), 'total']],
-        where: { status: 'completed', payment_date: { [Op.between]: range } }, group: ['d'], raw: true,
+        where: { status: 'completed', payment_date: { [Op.between]: range }, ...payAptCond }, group: ['d'], raw: true,
       }),
       Expense.findAll({
         attributes: [[createdDateFn, 'd'], [fn('SUM', col('total_price')), 'total']],
@@ -582,10 +618,13 @@ class DashboardService {
   async getPropertiesBreakdown(start, end) {
     const range = this._range(start, end);
     const properties = await Property.findAll({
+      where: { deleted_at: null },
       include: [
         {
           model: Apartment,
           as: 'apartments',
+          where: { deleted_at: null },
+          required: false,
           include: [
             { model: Tenant, as: 'tenants', where: { status: 'active' }, required: false },
           ]
